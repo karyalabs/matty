@@ -14,7 +14,9 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("set by cargo"));
     let icon = manifest_dir.join("../../packaging/icons/matty.ico");
     println!("cargo:rerun-if-changed={}", icon.display());
-    let icon = icon.canonicalize().expect("packaging/icons/matty.ico exists");
+    let icon = icon
+        .canonicalize()
+        .expect("packaging/icons/matty.ico exists");
 
     // A Windows version is four numbers, so a pre-release suffix is dropped.
     let version = env::var("CARGO_PKG_VERSION").expect("set by cargo");
@@ -55,7 +57,11 @@ BEGIN
 END
 "#,
         // rc.exe reads a string's backslashes as escapes.
-        icon = icon.display().to_string().replace(r"\\?\", "").replace('\\', r"\\"),
+        icon = icon
+            .display()
+            .to_string()
+            .replace(r"\\?\", "")
+            .replace('\\', r"\\"),
     );
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("set by cargo")).join("matty.rc");
     fs::write(&out, rc).expect("write matty.rc");
