@@ -18,7 +18,8 @@ green master, plus a hotfix beta when a release-blocking fix lands.
    commit, waits for that commit's `ci` check to pass, then creates the
    tag `v<version>` and the GitHub release with the changelog entry on top,
    signs the update manifest, bumps the Homebrew cask (stable versions
-   only) and deploys matty.jha.sh.
+   only) and deploys the web build to karyalabs.dev/matty and
+   demo.karyalabs.dev/matty.
 3. Nothing else is pushed by hand: no tags.
 
 Every step skips work already done, so after a failure, fix master and run
@@ -47,5 +48,5 @@ MSI keeps only `0.1.0`.
   `KARYA_BOT_PRIVATE_KEY` organization secrets reach matty
   ([org-settings.md](org-settings.md) steps 4 and 5).
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the `release`
-  environment, for the matty.jha.sh deploy.
+  environment, for the web deploy (karyalabs.dev, [web.md](web.md)).
 - `HOMEBREW_TAP_TOKEN`, before the first stable release.

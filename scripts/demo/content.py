@@ -3,7 +3,7 @@
 Lumen Labs is a made-up company of twelve people building a product launch.
 Every name, company and link here is fictional. `seed.py` writes it into a
 dev server with real timestamps over the last three weeks; `scripts/demo/run`
-then snapshots it for https://matty.jha.sh.
+then snapshots it for https://demo.karyalabs.dev/matty/.
 
 A post is a dict:
   by       username of the author

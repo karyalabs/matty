@@ -1,11 +1,23 @@
-// Cloudflare Workers static assets for https://matty.jha.sh. Deploy with
-// `scripts/web deploy`, which builds into crates/matty-web/dist first.
+// The Cloudflare Worker that serves Matty on the web (docs/web.md):
+//   https://karyalabs.dev/matty/       the app, for your own server
+//   https://demo.karyalabs.dev/matty/  the same files, opening the demo
+//   https://matty.jha.sh               the old address, redirected to the demo
+// Deploy with `scripts/web deploy`, which builds into ./dist first. Files are
+// served straight from ./dist (the app is in dist/matty); only requests no
+// file matches reach worker.js.
 {
   "name": "matty-web",
+  "main": "worker.js",
   "compatibility_date": "2026-11-01",
   "assets": {
     "directory": "./dist"
   },
-  "routes": [{ "pattern": "matty.jha.sh", "custom_domain": true }],
+  "routes": [
+    // Routes, not custom domains, so the rest of karyalabs.dev stays free.
+    // Each needs a proxied DNS record for its host (docs/web.md).
+    { "pattern": "karyalabs.dev/matty*", "zone_name": "karyalabs.dev" },
+    { "pattern": "demo.karyalabs.dev/matty*", "zone_name": "karyalabs.dev" },
+    { "pattern": "matty.jha.sh", "custom_domain": true }
+  ],
   "workers_dev": false
 }

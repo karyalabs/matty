@@ -88,18 +88,20 @@ karya-karta) and the next gpui-icons or gpuicn release: the release run's "bump"
 job links the pull request it opened. Pull requests the app
 opens run CI like any other.
 
-## 6. Cloudflare for matty.jha.sh (D8)
+## 6. Cloudflare for Matty on the web (D8)
 
 karyalabs/matty → Settings → Environments → `release` (it exists once a
 release has run; create it otherwise) → Environment secrets:
 
 - `CLOUDFLARE_API_TOKEN`: a token from Cloudflare → My Profile → API
   Tokens → "Edit Cloudflare Workers" template, scoped to the account and
-  the `jha.sh` zone;
+  the `karyalabs.dev` and `jha.sh` zones (karyalabs.dev serves the app,
+  jha.sh only redirects the old matty.jha.sh);
 - `CLOUDFLARE_ACCOUNT_ID`: the account ID from the Workers overview.
 
 gpuicn's `release` environment already has a pair for ui.imajha.com; the
-same token works if it covers `jha.sh`. Claude checks it with the next
+same token works if it covers both zones. The DNS records the routes need
+are in [web.md](web.md#deploying). Claude checks it with the next
 release, or a manual run of Release with "Publish the release" ticked.
 
 ## 7. The assets repository for screenshots (D6)

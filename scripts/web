@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Builds Matty for the browser and deploys it to https://matty.jha.sh
-# (Cloudflare Workers static assets). See docs/web.md.
+# Builds Matty for the browser and deploys it to https://karyalabs.dev/matty/
+# and the demo at https://demo.karyalabs.dev/matty/ (one Cloudflare Worker
+# with static assets). See docs/web.md.
 #
 #   scripts/web setup            install the toolchain pieces the build needs
-#   scripts/web build [--dev]    build into crates/matty-web/dist (release by default)
-#   scripts/web serve [--dev]    build, then serve on http://127.0.0.1:8080
+#   scripts/web build [--dev]    build into crates/matty-web/dist/matty (release by default)
+#   scripts/web serve [--dev]    build, then serve on http://127.0.0.1:8080/matty/
 #   scripts/web deploy           release build, then `wrangler deploy`
 #
 # Environment: MATTY_WEB_PORT (serve, default 8080).
@@ -18,6 +19,9 @@ cd "$root"
 toolchain=nightly-2026-08-17
 crate=crates/matty-web
 dist="$crate/dist"
+# The site lives under /matty/ on karyalabs.dev, so the app is in a folder of
+# that name and the page loads everything by relative path.
+app="$dist/matty"
 target_dir="$root/target/web"
 
 # wasm-bindgen's CLI must match the library version in Cargo.lock exactly.
@@ -104,19 +108,21 @@ build() {
 
     local out="$target_dir/wasm32-unknown-unknown/$([[ $profile == dev ]] && echo debug || echo "$profile")"
     rm -rf "$dist"
-    mkdir -p "$dist"
-    wasm-bindgen --target web --out-dir "$dist" "$out/matty-web.wasm"
+    mkdir -p "$app"
+    wasm-bindgen --target web --out-dir "$app" "$out/matty-web.wasm"
     if [[ "$profile" == web ]] && command -v wasm-opt >/dev/null; then
         # The features rustc's wasm32 target emits, plus threads. Not
         # --all-features: newer binaryen then emits imports browsers reject.
         wasm-opt -Oz --enable-threads --enable-bulk-memory --enable-mutable-globals \
             --enable-nontrapping-float-to-int --enable-sign-ext --enable-reference-types \
-            --enable-multivalue "$dist/matty-web_bg.wasm" -o "$dist/matty-web_bg.wasm"
+            --enable-multivalue "$app/matty-web_bg.wasm" -o "$app/matty-web_bg.wasm"
     fi
-    cp "$crate"/web/* "$dist/"
+    # Cloudflare reads _headers from the root of the site, the rest is the app.
+    cp "$crate/web/_headers" "$dist/"
+    find "$crate/web" -maxdepth 1 -type f ! -name _headers -exec cp {} "$app/" \;
     # The demo workspace, gzipped: index.html unpacks it in the browser.
-    gzip -9 -c "$crate/demo/demo.sqlite" > "$dist/demo.sqlite.gz"
-    cp "$crate/assets/IBMPlexSans-LICENSE.txt" "$dist/"
+    gzip -9 -c "$crate/demo/demo.sqlite" > "$app/demo.sqlite.gz"
+    cp "$crate/assets/IBMPlexSans-LICENSE.txt" "$app/"
 
     local largest
     largest="$(find "$dist" -type f -size +25M)"
@@ -127,7 +133,7 @@ build() {
         fi
         echo "note: a dev build is too big for Cloudflare (25 MiB a file); deploy a release build"
     fi
-    ls -lh "$dist"
+    ls -lh "$app"
 }
 
 serve() {
@@ -143,7 +149,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 Handler.extensions_map[".wasm"] = "application/wasm"
 port = int(os.environ["MATTY_WEB_PORT"])
-print(f"serving http://127.0.0.1:{port}/ (?preview=1 for sample data)")
+print(f"serving http://127.0.0.1:{port}/matty/ (the demo; ?demo=0 for sign-in, ?preview=1 for design fixtures)")
 http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(Handler, directory=sys.argv[1])).serve_forever()
 PY
 }

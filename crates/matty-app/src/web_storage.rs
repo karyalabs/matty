@@ -2,8 +2,8 @@
 //! the desktop (settings) and the credential store (the session token).
 //!
 //! Keys are the paths the desktop would use, so the code above stays the
-//! same. Everything here is per origin: `https://matty.jha.sh` sees only its
-//! own entries.
+//! same. Everything here is per origin: `https://karyalabs.dev` sees only its
+//! own entries, and the demo's `https://demo.karyalabs.dev` its own.
 
 use std::io;
 

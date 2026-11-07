@@ -5,7 +5,7 @@ name: Release
 # builds every platform from that commit, waits for its CI to pass, then
 # tags it v<version>, publishes the GitHub release (a pre-release for a
 # version like 0.1.0-beta.6), bumps the Homebrew cask for a stable version,
-# and deploys matty.jha.sh. Each release carries the signed macOS DMG and
+# and deploys the web build (karyalabs.dev/matty and its demo). Each release carries the signed macOS DMG and
 # zip and the unsigned Linux (#216) and Windows (#215) packages. A manual
 # run, and the Monday run, are dry runs: everything but publishing.
 #
@@ -511,9 +511,10 @@ jobs:
           gh pr create --repo "$TAP" --head "$branch" --title "matty $VERSION" \
             --body "Bumps the cask to [Matty $VERSION](https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION)."
 
-  # matty.jha.sh, the browser build (docs/web.md), from the release commit.
+  # The browser build (docs/web.md) from the release commit, to
+  # karyalabs.dev/matty and demo.karyalabs.dev/matty.
   web:
-    name: deploy matty.jha.sh
+    name: deploy karyalabs.dev/matty
     needs: [plan, publish]
     if: needs.publish.result == 'success'
     runs-on: ${{ fromJSON(vars.KARYA_LINUX_RUNNER || vars.MATTY_LINUX_RUNNER || '"ubuntu-latest"') }}
@@ -523,7 +524,7 @@ jobs:
       HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
     steps:
       - if: env.HAS_CLOUDFLARE != 'true'
-        run: echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set in the release environment; deploy matty.jha.sh with scripts/web deploy"
+        run: echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set in the release environment; deploy the web build with scripts/web deploy"
       - if: env.HAS_CLOUDFLARE == 'true'
         uses: actions/checkout@v4
         with:
