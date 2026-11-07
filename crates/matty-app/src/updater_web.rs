@@ -2,20 +2,37 @@
 //! always loads the latest deployed build. Same API as `updater.rs`, so the
 //! windows that start it compile unchanged.
 
-use gpui_kit::{App, AppContext as _, Entity, Window};
+use std::time::Duration;
 
-use crate::ui::{composer::ComposerState, toast::ToastState};
+use gpui_kit::{App, AppContext as _, Context, Entity, Window};
+
+use crate::t;
+use crate::ui::{
+    composer::ComposerState,
+    toast::{Notice, ToastState},
+};
 
 /// Stands in for the desktop's update prompt and never shows.
-pub(crate) struct UpdatePrompt;
+pub(crate) struct UpdatePrompt {
+    toasts: Entity<ToastState>,
+}
 
 impl UpdatePrompt {
     pub(crate) fn start(
-        _toasts: Entity<ToastState>,
+        toasts: Entity<ToastState>,
         _window: &mut Window,
         cx: &mut App,
     ) -> Entity<Self> {
-        cx.new(|_| Self)
+        cx.new(|_| Self { toasts })
+    }
+
+    /// "Check for updates": the page is always the latest build.
+    pub(crate) fn check_now(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let notice = Notice::new(t!("update-web"))
+            .description(t!("update-web-detail"))
+            .timeout(Duration::from_secs(5));
+        self.toasts
+            .update(cx, |toasts, cx| toasts.push("update.check", notice, cx));
     }
 }
 

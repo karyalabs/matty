@@ -270,7 +270,7 @@ pub struct MainWindow {
     /// An integration's interactive dialog (#211).
     interactive_dialog: Entity<crate::interactive_dialog::InteractiveDialogView>,
     /// Update checks and the "Restart to update" toast (#180).
-    _updater: Entity<crate::updater::UpdatePrompt>,
+    updater: Entity<crate::updater::UpdatePrompt>,
     threads_open: bool,
     drafts: Entity<DraftsView>,
     drafts_open: bool,
@@ -545,7 +545,7 @@ impl MainWindow {
         };
         let threads = cx.new(|cx| ThreadsView::new(threads_model, me, window, cx));
         let toasts = cx.new(ToastState::new);
-        let _updater = crate::updater::UpdatePrompt::start(toasts.clone(), window, cx);
+        let updater = crate::updater::UpdatePrompt::start(toasts.clone(), window, cx);
         let drafts_model = if crate::preview::enabled() {
             crate::preview::drafts()
         } else {
@@ -1195,7 +1195,7 @@ impl MainWindow {
             sidebar_drawer_shown: false,
             threads,
             toasts,
-            _updater,
+            updater,
             threads_open: false,
             drafts,
             drafts_open: false,
@@ -4709,6 +4709,12 @@ impl Render for MainWindow {
             .on_action(move |_: &OpenPreferences, window, cx| preferences.open(window, cx))
             .on_action(
                 cx.listener(|this, _: &crate::menu::SignOut, window, cx| this.sign_out(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::menu::CheckForUpdates, window, cx| {
+                    this.updater
+                        .update(cx, |updater, cx| updater.check_now(window, cx))
+                }),
             )
             .on_action(
                 cx.listener(|this, _: &QuickSwitcher, window, cx| this.open_switcher(window, cx)),

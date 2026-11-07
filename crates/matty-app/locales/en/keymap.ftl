@@ -93,5 +93,6 @@ menu-minimize = Minimize
 menu-zoom = Zoom
 menu-open-logs = Open logs folder
 menu-report-problem = Report a problem
+menu-check-updates = Check for updates…
 # An item that opens a dialog: its name and an ellipsis.
 menu-dialog-item = { $name }…

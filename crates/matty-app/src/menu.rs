@@ -32,6 +32,8 @@ gpui_kit::actions!(
         OpenLogs,
         /// Open a new issue on Matty's tracker.
         ReportProblem,
+        /// Check for a new version now and say what was found.
+        CheckForUpdates,
     ]
 );
 
@@ -97,6 +99,7 @@ pub fn menus() -> Vec<Menu> {
     vec![
         Menu::new(APP_NAME).items([
             dialog(&actions::OpenPreferences),
+            MenuItem::action(t!("menu-check-updates"), CheckForUpdates),
             MenuItem::separator(),
             MenuItem::action(t!("menu-add-server"), actions::AddServer),
             MenuItem::action(t!("menu-sign-out"), SignOut),
@@ -255,6 +258,7 @@ mod tests {
         let actions: HashSet<_> = items().into_iter().map(|(_, action)| action).collect();
         for expected in [
             actions::OpenPreferences.name(),
+            CheckForUpdates.name(),
             SignOut.name(),
             Quit.name(),
             actions::UploadFiles.name(),
