@@ -375,6 +375,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: The app icon compiles with actool
         run: scripts/macos-icon "$RUNNER_TEMP/icon" && ls -l "$RUNNER_TEMP/icon"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matty-app-icon
+          path: ${{ runner.temp }}/icon
+          if-no-files-found: error
+          retention-days: 3
       - run: cargo clippy --workspace --all-targets --locked --features matty/runtime_shaders -- -D warnings
       - if: needs.changes.outputs.macos-tests == 'true'
         run: cargo test --workspace --locked --features matty/runtime_shaders
