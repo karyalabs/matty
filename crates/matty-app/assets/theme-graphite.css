@@ -1,0 +1,74 @@
+/* Matty colors: Graphite, the default: ink on paper, near-neutral greys and an ink accent (docs/DESIGN.md §2).
+   shadcn CSS variable format: light reads :root, dark reads :root then
+   .dark, as gpuicn's UiTheme::from_shadcn_css does. Written by
+   scripts/theme_palette.py; change the preset there, not here. */
+:root {
+  --radius: 0.5rem;
+  --background: #fdfdfe;
+  --foreground: #17181a;
+  --card: #fdfdfe;
+  --card-foreground: #17181a;
+  --popover: #fdfdfe;
+  --popover-foreground: #17181a;
+  --primary: #1f2226;
+  --primary-foreground: #fcfcfc;
+  --secondary: #ecedee;
+  --secondary-foreground: #17181a;
+  --muted: #eff0f1;
+  --muted-foreground: #626365;
+  --accent: #ecedee;
+  --accent-foreground: #17181a;
+  --destructive: #cf2a2a;
+  --border: #e2e3e4;
+  --input: #d8d9da;
+  --ring: #1f2226;
+  --chart-1: #4b64ae;
+  --chart-2: #16a34a;
+  --chart-3: #cc7a00;
+  --chart-4: #d42020;
+  --chart-5: #8b5cf6;
+  --sidebar: #f5f6f7;
+  --sidebar-foreground: #17181a;
+  --sidebar-primary: #1f2226;
+  --sidebar-primary-foreground: #fcfcfc;
+  --sidebar-accent: #e5e6e8;
+  --sidebar-accent-foreground: #17181a;
+  --sidebar-border: #e2e3e4;
+  --sidebar-ring: #1f2226;
+  --link: #3860ac;
+}
+
+.dark {
+  --background: #131415;
+  --foreground: #eaebec;
+  --card: #1b1c1d;
+  --card-foreground: #eaebec;
+  --popover: #1b1c1d;
+  --popover-foreground: #eaebec;
+  --primary: #e5e8ed;
+  --primary-foreground: #121212;
+  --secondary: #222324;
+  --secondary-foreground: #eaebec;
+  --muted: #212223;
+  --muted-foreground: #9d9ea0;
+  --accent: #212223;
+  --accent-foreground: #eaebec;
+  --destructive: #f0564f;
+  --border: #232425;
+  --input: #2d2e2f;
+  --ring: #e5e8ed;
+  --chart-1: #87a4f3;
+  --chart-2: #3fb950;
+  --chart-3: #f2b038;
+  --chart-4: #f0564f;
+  --chart-5: #a78bfa;
+  --sidebar: #0d0e0f;
+  --sidebar-foreground: #eaebec;
+  --sidebar-primary: #e5e8ed;
+  --sidebar-primary-foreground: #121212;
+  --sidebar-accent: #222324;
+  --sidebar-accent-foreground: #eaebec;
+  --sidebar-border: #202021;
+  --sidebar-ring: #e5e8ed;
+  --link: #94b8f8;
+}

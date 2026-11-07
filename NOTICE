@@ -16,3 +16,9 @@ crates/matty-web/assets/IBMPlexSans-Regular.ttf
   build loads it as GPUI's fallback font. Copyright (c) 2017 IBM Corp., with
   Reserved Font Name "Plex". Licensed under the SIL Open Font License 1.1
   (crates/matty-web/assets/IBMPlexSans-LICENSE.txt).
+
+crates/matty-app/assets/fonts/IBMPlex*.ttf
+  IBM Plex Sans and IBM Plex Mono, the app's typefaces, as served by Google
+  Fonts; Mono Medium's typographic family name is set to "IBM Plex Mono".
+  Copyright (c) 2017 IBM Corp., with Reserved Font Name "Plex". Licensed
+  under the SIL Open Font License 1.1 (crates/matty-app/assets/fonts/OFL.txt).

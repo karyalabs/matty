@@ -43,9 +43,12 @@ pub enum ThemeChoice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeSource {
-    /// Matty's theme, light or dark as [`ThemeChoice`] says.
+    /// Matty's default Graphite colors, light or dark as [`ThemeChoice`]
+    /// says.
     #[default]
     Matty,
+    /// Matty's Porcelain colors, light or dark as [`ThemeChoice`] says.
+    Porcelain,
     /// The account's Mattermost theme for the team on screen, which is
     /// light or dark by itself.
     Mattermost,
@@ -260,7 +263,7 @@ pub struct Settings {
     pub sidebar_width: f32,
     pub right_pane_width: f32,
     pub theme: ThemeChoice,
-    /// Matty's colors or the account's Mattermost theme (#214).
+    /// One of Matty's presets or the account's Mattermost theme (#214).
     pub theme_source: ThemeSource,
     /// The Mattermost theme last shown, as the server's preference value,
     /// so Matty starts in it before sync connects (#214). Dropped on

@@ -663,14 +663,17 @@ impl MainWindow {
             t!("prefs-colors"),
             match settings.theme_source {
                 ThemeSource::Matty => "matty",
+                ThemeSource::Porcelain => "porcelain",
                 ThemeSource::Mattermost => "mattermost",
             },
             &[
-                ("matty", t!("prefs-colors-matty")),
+                ("matty", t!("prefs-colors-graphite")),
+                ("porcelain", t!("prefs-colors-porcelain")),
                 ("mattermost", t!("prefs-colors-mattermost")),
             ],
             move |value, cx| {
                 let source = match value {
+                    "porcelain" => ThemeSource::Porcelain,
                     "mattermost" => ThemeSource::Mattermost,
                     _ => ThemeSource::Matty,
                 };

@@ -1,0 +1,74 @@
+/* Matty colors: Porcelain: cool greys with a soft lapis accent (docs/DESIGN.md §2).
+   shadcn CSS variable format: light reads :root, dark reads :root then
+   .dark, as gpuicn's UiTheme::from_shadcn_css does. Written by
+   scripts/theme_palette.py; change the preset there, not here. */
+:root {
+  --radius: 0.5rem;
+  --background: #fdfdff;
+  --foreground: #15181e;
+  --card: #fdfdff;
+  --card-foreground: #15181e;
+  --popover: #fdfdff;
+  --popover-foreground: #15181e;
+  --primary: #4b64ae;
+  --primary-foreground: #fcfcfc;
+  --secondary: #eaedf1;
+  --secondary-foreground: #15181e;
+  --muted: #eef0f4;
+  --muted-foreground: #5f636a;
+  --accent: #eaedf1;
+  --accent-foreground: #15181e;
+  --destructive: #cf2a2a;
+  --border: #e1e3e7;
+  --input: #d7d9dd;
+  --ring: #4b64ae;
+  --chart-1: #4b64ae;
+  --chart-2: #16a34a;
+  --chart-3: #cc7a00;
+  --chart-4: #d42020;
+  --chart-5: #8b5cf6;
+  --sidebar: #f4f6fa;
+  --sidebar-foreground: #15181e;
+  --sidebar-primary: #4b64ae;
+  --sidebar-primary-foreground: #fcfcfc;
+  --sidebar-accent: #e3e6ec;
+  --sidebar-accent-foreground: #15181e;
+  --sidebar-border: #e1e3e7;
+  --sidebar-ring: #4b64ae;
+  --link: #4b64ae;
+}
+
+.dark {
+  --background: #121417;
+  --foreground: #e9ebee;
+  --card: #1a1c1f;
+  --card-foreground: #e9ebee;
+  --popover: #1a1c1f;
+  --popover-foreground: #e9ebee;
+  --primary: #94aff6;
+  --primary-foreground: #101116;
+  --secondary: #212326;
+  --secondary-foreground: #e9ebee;
+  --muted: #202225;
+  --muted-foreground: #9c9ea3;
+  --accent: #202225;
+  --accent-foreground: #e9ebee;
+  --destructive: #f0564f;
+  --border: #222427;
+  --input: #2c2e31;
+  --ring: #94aff6;
+  --chart-1: #94aff6;
+  --chart-2: #3fb950;
+  --chart-3: #f2b038;
+  --chart-4: #f0564f;
+  --chart-5: #a78bfa;
+  --sidebar: #0c0e11;
+  --sidebar-foreground: #e9ebee;
+  --sidebar-primary: #94aff6;
+  --sidebar-primary-foreground: #101116;
+  --sidebar-accent: #202327;
+  --sidebar-accent-foreground: #e9ebee;
+  --sidebar-border: #1f2123;
+  --sidebar-ring: #94aff6;
+  --link: #94aff6;
+}

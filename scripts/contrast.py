@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Checks crates/matty-app/assets/theme.css against PLAN §8: 4.5:1 for text
+"""Checks every crates/matty-app/assets/theme-*.css preset against PLAN §8: 4.5:1 for text
 tokens on the surfaces they sit on, 3:1 for presence and chart colors.
 Exits non-zero on a failure. Hairline borders are decorative and not checked."""
 import re
 import sys
 from pathlib import Path
 
-CSS = Path(__file__).resolve().parent.parent / "crates/matty-app/assets/theme.css"
+ASSETS = Path(__file__).resolve().parent.parent / "crates/matty-app/assets"
 TEXT = 4.5
 GRAPHIC = 3.0
 PAIRS = [
@@ -27,6 +27,9 @@ PAIRS = [
     ("primary", "background", TEXT),
     ("primary", "card", TEXT),
     ("primary", "sidebar", TEXT),
+    ("link", "background", TEXT),
+    ("link", "card", TEXT),
+    ("link", "muted", TEXT),
     ("destructive", "background", TEXT),
     ("destructive", "card", TEXT),
     ("destructive", "sidebar", TEXT),
@@ -59,18 +62,20 @@ def contrast(a, b):
 
 
 def main():
-    css = CSS.read_text()
-    light = block(css, ":root")
-    dark = dict(light)
-    dark.update(block(css, r"\.dark"))
     failed = False
-    for name, tokens in (("light", light), ("dark", dark)):
-        for fg, bg, need in PAIRS:
-            ratio = contrast(tokens[fg], tokens[bg])
-            mark = "ok  " if ratio >= need else "FAIL"
-            if ratio < need:
-                failed = True
-            print(f"{mark} {name:5} {fg:18} on {bg:14} {ratio:5.2f} (need {need})")
+    for path in sorted(ASSETS.glob("theme-*.css")):
+        css = path.read_text()
+        light = block(css, ":root")
+        dark = dict(light)
+        dark.update(block(css, r"\.dark"))
+        preset = path.stem.removeprefix("theme-")
+        for name, tokens in (("light", light), ("dark", dark)):
+            for fg, bg, need in PAIRS:
+                ratio = contrast(tokens[fg], tokens[bg])
+                mark = "ok  " if ratio >= need else "FAIL"
+                if ratio < need:
+                    failed = True
+                print(f"{mark} {preset:9} {name:5} {fg:18} on {bg:14} {ratio:5.2f} (need {need})")
     return 1 if failed else 0
 
 
