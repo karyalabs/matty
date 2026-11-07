@@ -1,11 +1,14 @@
 //! Matty's design tokens on top of gpuicn's [`UiTheme`] (docs/DESIGN.md).
 //!
-//! Each built-in color preset is an `assets/theme-*.css` file in shadcn's
-//! variable format, written by `scripts/theme_palette.py`. This module turns
-//! a preset into a [`UiTheme`] per mode, sets the type families, adds the
-//! semantic colors shadcn has no name for ([`Palette`]), and names the type
-//! scale and layout metrics every view shares, so a size appears once here
-//! and nowhere else.
+//! A style ([`StyleSpec`]) is a few numbers: the colors [`palette`] derives
+//! every token from, and the corner radius. The built-in presets are styles
+//! too, and a person's own style (#698) goes through the same path, the
+//! contrast guard included. This module turns a style into a [`UiTheme`] per
+//! mode, sets the type families, adds the semantic colors shadcn has no name
+//! for ([`Palette`]), and names the type scale and layout metrics every view
+//! shares, so a size appears once here and nowhere else.
+
+pub mod palette;
 
 use gpui_kit::{
     App, ElementId, FontWeight, Global, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -14,6 +17,7 @@ use gpui_kit::{
 };
 
 use gpui_icons::{LucideIcon, lucide};
+use serde::{Deserialize, Serialize};
 
 use crate::ui::empty::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
@@ -37,12 +41,63 @@ pub enum Preset {
 }
 
 impl Preset {
-    fn css(self) -> &'static str {
-        match self {
-            Self::Graphite => include_str!("../assets/theme-graphite.css"),
-            Self::Porcelain => include_str!("../assets/theme-porcelain.css"),
+    /// The preset's color numbers, as in `scripts/theme_palette.py`.
+    pub fn colors(self) -> palette::StyleColors {
+        let (neutral_hue, neutral_chroma, accent_hue, accent_chroma, accent_light, accent_dark) =
+            match self {
+                Self::Graphite => (260., 0.002, 260., 0.008, 0.25, 0.93),
+                Self::Porcelain => (260., 0.006, 268., 0.12, 0.52, 0.76),
+            };
+        palette::StyleColors {
+            neutral_hue,
+            neutral_chroma,
+            accent_hue,
+            accent_chroma,
+            accent_light,
+            accent_dark,
         }
     }
+
+    /// The preset as a whole style.
+    pub fn style(self) -> StyleSpec {
+        StyleSpec {
+            colors: self.colors(),
+            radius: Radius::default(),
+        }
+    }
+}
+
+/// How round corners are.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Radius {
+    /// Nearly square.
+    Square,
+    /// The default.
+    #[default]
+    Soft,
+    /// Round.
+    Round,
+}
+
+impl Radius {
+    /// The base radius in px, from which gpuicn derives its scale.
+    pub fn px(self) -> f32 {
+        match self {
+            Self::Square => 3.,
+            Self::Soft => 8.,
+            Self::Round => 12.,
+        }
+    }
+}
+
+/// A whole style: what a built-in preset is, and what a person's own style
+/// saves.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StyleSpec {
+    pub colors: palette::StyleColors,
+    #[serde(default)]
+    pub radius: Radius,
 }
 
 /// Builds the default preset's theme for `mode`; see [`theme_for`].
@@ -50,16 +105,23 @@ pub fn theme(mode: ThemeMode) -> UiTheme {
     theme_for(Preset::default(), mode)
 }
 
-/// Builds `preset`'s theme for `mode` from its CSS.
-///
-/// The CSS is checked by a test, so a parse failure here is a build mistake;
-/// the app still opens, on gpuicn's Neutral palette, rather than panicking.
+/// Builds `preset`'s theme for `mode`.
 pub fn theme_for(preset: Preset, mode: ThemeMode) -> UiTheme {
-    let mut theme = match UiTheme::from_shadcn_css(preset.css(), mode) {
+    theme_from(&preset.style(), mode)
+}
+
+/// Builds `style`'s theme for `mode`, with the contrast guard applied.
+///
+/// The CSS is Matty's own, so a parse failure is a bug; the app still
+/// opens, on gpuicn's Neutral palette, rather than panicking.
+pub fn theme_from(style: &StyleSpec, mode: ThemeMode) -> UiTheme {
+    let css = palette::css(&style.colors, style.radius.px());
+    let mut theme = match UiTheme::from_shadcn_css(&css, mode) {
         Ok(theme) => theme,
         Err(error) => {
-            eprintln!(
-                "matty: {preset:?} colors did not parse ({error:?}); using the Neutral palette"
+            tracing::error!(
+                ?error,
+                "style colors did not parse; using the Neutral palette"
             );
             match mode {
                 ThemeMode::Light => UiTheme::neutral_light(),
@@ -433,9 +495,19 @@ mod tests {
     #[test]
     fn presets_parse_in_both_modes() {
         for preset in [Preset::Graphite, Preset::Porcelain] {
-            UiTheme::from_shadcn_css(preset.css(), ThemeMode::Light).unwrap();
-            UiTheme::from_shadcn_css(preset.css(), ThemeMode::Dark).unwrap();
+            let css = palette::css(&preset.colors(), Radius::Soft.px());
+            UiTheme::from_shadcn_css(&css, ThemeMode::Light).unwrap();
+            UiTheme::from_shadcn_css(&css, ThemeMode::Dark).unwrap();
         }
+    }
+
+    #[test]
+    fn radius_and_style_round_trip() {
+        let mut style = Preset::Porcelain.style();
+        style.radius = Radius::Round;
+        assert_eq!(theme_from(&style, ThemeMode::Light).radius.base, px(12.));
+        let json = serde_json::to_string(&style).unwrap();
+        assert_eq!(serde_json::from_str::<StyleSpec>(&json).unwrap(), style);
     }
 
     #[test]
