@@ -13,7 +13,7 @@ use gpui_kit::{
 
 use super::style_editor::{custom_or_seed, reset_accent_picker};
 use crate::settings::{Settings, SettingsStore, ThemeSource};
-use crate::style::share::{self, ImportError, SavedStyle};
+use crate::style::share::{self, Fonts, ImportError, SavedStyle};
 use crate::style::{self, Preset, StyleSpec, TypeStyleExt as _, metrics, palette, scaled};
 use crate::t;
 use crate::ui::{
@@ -83,7 +83,8 @@ fn shown(settings: &Settings, cx: &App) -> (StyleSpec, Option<String>) {
         ),
         ThemeSource::Custom => {
             let style = custom_or_seed(settings);
-            (style, saved_name(&settings.saved_styles, &style))
+            let fonts = Fonts::of(settings);
+            (style, saved_name(&settings.saved_styles, &style, &fonts))
         }
         ThemeSource::Mattermost => match crate::mattermost_theme::shown(settings, cx) {
             Some(theme) => (share::from_mattermost(&theme), Some(theme.name())),
@@ -93,19 +94,24 @@ fn shown(settings: &Settings, cx: &App) -> (StyleSpec, Option<String>) {
 }
 
 /// The name of the saved style that is `style`, if one is.
-fn saved_name(saved: &[SavedStyle], style: &StyleSpec) -> Option<String> {
+fn saved_name(saved: &[SavedStyle], style: &StyleSpec, fonts: &Fonts) -> Option<String> {
     saved
         .iter()
-        .find(|s| s.style == *style)
+        .find(|s| s.style == *style && s.fonts == *fonts)
         .map(|s| s.name.clone())
 }
 
-/// Makes `style` the person's own and shows it.
-fn use_style(store: &Entity<SettingsStore>, style: StyleSpec, cx: &mut App) {
+/// Makes `style` the person's own and shows it, with `fonts` when it
+/// brings them.
+fn use_style(store: &Entity<SettingsStore>, style: StyleSpec, fonts: Option<Fonts>, cx: &mut App) {
     store.update(cx, |store, cx| {
         store.update(cx, |s| {
             s.custom_style = Some(style);
             s.theme_source = ThemeSource::Custom;
+            if let Some(fonts) = fonts {
+                s.ui_font = fonts.ui_font;
+                s.code_font = fonts.code_font;
+            }
         })
     });
     reset_accent_picker(cx);
@@ -118,7 +124,7 @@ fn import_text(store: &Entity<SettingsStore>, text: Option<String>, cx: &mut App
         .map_or(Err(ImportError::NotAStyle), share::import);
     match result {
         Ok(imported) => {
-            use_style(store, imported.style, cx);
+            use_style(store, imported.style, imported.fonts.clone(), cx);
             let name = imported.name.clone();
             if cx.has_global::<Library>() {
                 let library = cx.global_mut::<Library>();
@@ -149,6 +155,7 @@ fn save_current(store: &Entity<SettingsStore>, cx: &mut App) -> bool {
     let typed = share::clean_name(input.read(cx).value().as_ref());
     let settings = store.read(cx).get().clone();
     let style = custom_or_seed(&settings);
+    let fonts = Fonts::of(&settings);
     let name = if !typed.is_empty() {
         typed
     } else {
@@ -157,7 +164,7 @@ fn save_current(store: &Entity<SettingsStore>, cx: &mut App) -> bool {
         })
     };
     let mut saved = settings.saved_styles.clone();
-    if !share::save(&mut saved, &name, style) {
+    if !share::save(&mut saved, &name, style, fonts) {
         say(t!("prefs-styles-full", count = share::SAVED_MAX), true, cx);
         return false;
     }
@@ -187,11 +194,10 @@ fn start_folder(settings: &Settings) -> PathBuf {
 }
 
 fn copy_style(store: &Entity<SettingsStore>, cx: &mut App) {
-    let (style, name) = shown(store.read(cx).get(), cx);
-    cx.write_to_clipboard(ClipboardItem::new_string(share::export(
-        &style,
-        name.as_deref(),
-    )));
+    let settings = store.read(cx).get().clone();
+    let (style, name) = shown(&settings, cx);
+    let text = share::export(&style, name.as_deref(), &Fonts::of(&settings));
+    cx.write_to_clipboard(ClipboardItem::new_string(text));
     say(t!("prefs-styles-copied"), false, cx);
 }
 
@@ -203,7 +209,7 @@ fn paste_style(store: &Entity<SettingsStore>, cx: &mut App) {
 fn save_file(store: &Entity<SettingsStore>, cx: &mut App) {
     let settings = store.read(cx).get().clone();
     let (style, name) = shown(&settings, cx);
-    let text = share::export(&style, name.as_deref());
+    let text = share::export(&style, name.as_deref(), &Fonts::of(&settings));
     let answer = cx.prompt_for_new_path(
         &start_folder(&settings),
         Some(&share::file_name(name.as_deref())),
@@ -293,6 +299,7 @@ fn saved_row(
     let use_store = store.clone();
     let delete_store = store.clone();
     let style = saved.style;
+    let fonts = saved.fonts.clone();
     let name = saved.name.clone();
     div()
         .id(gpui_kit::ElementId::Name(
@@ -332,7 +339,7 @@ fn saved_row(
                 .aria_label(t!("prefs-styles-use-label", name = saved.name.clone()))
                 .label(t!("prefs-styles-use"))
                 .on_click(move |_, _, cx| {
-                    use_style(&use_store, style, cx);
+                    use_style(&use_store, style, Some(fonts.clone()), cx);
                     say(t!("prefs-styles-using", name = name.clone()), false, cx);
                 }),
             )
@@ -373,7 +380,7 @@ pub(super) fn library(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
         return div();
     };
     let custom = settings.theme_source == ThemeSource::Custom;
-    let current = custom.then(|| custom_or_seed(&settings));
+    let current = custom.then(|| (custom_or_seed(&settings), Fonts::of(&settings)));
     let save_store = store.clone();
     let input_to_clear = input.clone();
     let save_row = div()
@@ -403,7 +410,14 @@ pub(super) fn library(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
             .border_1()
             .border_color(theme.colors.border)
             .children(settings.saved_styles.iter().enumerate().map(|(i, s)| {
-                saved_row(i, s, current == Some(s.style), store, &theme).when(i > 0, |row| {
+                saved_row(
+                    i,
+                    s,
+                    current.as_ref() == Some(&(s.style, s.fonts.clone())),
+                    store,
+                    &theme,
+                )
+                .when(i > 0, |row| {
                     row.border_t_1().border_color(theme.colors.border)
                 })
             }))
@@ -443,7 +457,7 @@ pub(super) fn library(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
                 small_button("preferences.styles.make-own", t!("prefs-styles-make-own")).on_click(
                     move |_, _, cx| {
                         let name = theme_now.name();
-                        use_style(&own_store, share::from_mattermost(&theme_now), cx);
+                        use_style(&own_store, share::from_mattermost(&theme_now), None, cx);
                         if cx.has_global::<Library>() {
                             let library = cx.global_mut::<Library>();
                             library.imported_name = Some(name.clone());
@@ -521,9 +535,9 @@ mod tests {
         let store = setup(cx);
         cx.update(|cx| {
             let style = Preset::Porcelain.style().with_accent(0.6, 0.15, 30.);
-            use_style(&store, style, cx);
+            use_style(&store, style, None, cx);
             copy_style(&store, cx);
-            use_style(&store, Preset::Graphite.style(), cx);
+            use_style(&store, Preset::Graphite.style(), None, cx);
             paste_style(&store, cx);
             let back = store.read(cx).get().custom_style.unwrap();
             assert!((back.colors.accent_hue - 30.).abs() < 0.01);
@@ -554,6 +568,24 @@ mod tests {
                 .map(|s| s.name.clone())
                 .collect();
             assert_eq!(names, ["Denim", "My style"]);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_pasted_style_brings_its_fonts(cx: &mut gpui_kit::TestAppContext) {
+        let store = setup(cx);
+        cx.update(|cx| {
+            store.update(cx, |store, cx| {
+                store.update(cx, |s| s.ui_font = Some("Inter".into()))
+            });
+            copy_style(&store, cx);
+            store.update(cx, |store, cx| store.update(cx, |s| s.ui_font = None));
+            paste_style(&store, cx);
+            assert_eq!(store.read(cx).get().ui_font.as_deref(), Some("Inter"));
+            // A Mattermost theme leaves the fonts alone.
+            let denim = crate::mattermost_theme::BUILT_IN[0].1;
+            import_text(&store, Some(denim.into()), cx);
+            assert_eq!(store.read(cx).get().ui_font.as_deref(), Some("Inter"));
         });
     }
 }

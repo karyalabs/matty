@@ -15,7 +15,8 @@ Fixed, Removed.
   Appearance › Styles. Share a style by copying it as text or saving it to a
   file, and paste or open one someone shared. Pasting a Mattermost theme's
   colors turns it into your own style, and "Make it my own" does the same
-  for your account's Mattermost theme (#707).
+  for your account's Mattermost theme (#707). Saved and shared styles carry
+  their interface and code fonts.
 
 ## [0.1.0-beta.8] - 2026-11-07
 
