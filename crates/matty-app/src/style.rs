@@ -395,6 +395,19 @@ pub fn avatar_status(
     }
 }
 
+/// Matty's mark, "Overlap" (`packaging/icons`), at `size`: the two arches
+/// that stand for the app on the sign-in card.
+pub fn mark(size: Pixels) -> gpui_kit::Img {
+    static MARK: std::sync::LazyLock<std::sync::Arc<gpui_kit::Image>> =
+        std::sync::LazyLock::new(|| {
+            std::sync::Arc::new(gpui_kit::Image::from_bytes(
+                gpui_kit::ImageFormat::Png,
+                include_bytes!("../assets/brand/mark-128.png").to_vec(),
+            ))
+        });
+    gpui_kit::img(gpui_kit::ImageSource::Image(MARK.clone())).size(size)
+}
+
 /// Window options for a window that draws Matty's [`metrics::TITLE_BAR_HEIGHT`]
 /// title bar: gpuicn's, with the macOS traffic lights moved down to its
 /// middle.
