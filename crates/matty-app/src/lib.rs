@@ -175,7 +175,7 @@ pub fn run_with_links(links: Vec<String>) {
 ///
 /// GPUI's web text system has no system fonts and falls back to IBM Plex
 /// Sans for `.SystemUIFont`, which inputs use before the first render sets
-/// Geist, so the page passes that font in. `webgl` skips WebGPU.
+/// Matty's own Plex, so the page passes that font in. `webgl` skips WebGPU.
 ///
 /// `demo` is a sample workspace `matty-demo` wrote; it opens instead of the
 /// sign-in card while no account is saved.
@@ -228,7 +228,7 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     fd_limit::raise();
     ui::theme::init(cx);
     i18n::install_builtin(cx);
-    style::install(ThemeMode::Light, cx);
+    style::install(style::Preset::default(), ThemeMode::Light, cx);
     load_fonts(cx);
     let settings = SettingsStore::init(settings::default_path(), cx);
     if let Some(logs) = logs {
@@ -308,7 +308,11 @@ pub mod test_support {
     /// Themes, fonts, settings (in memory) and key bindings.
     pub fn init(cx: &mut App) {
         crate::ui::theme::init(cx);
-        crate::style::install(crate::ui::theme::ThemeMode::Light, cx);
+        crate::style::install(
+            crate::style::Preset::default(),
+            crate::ui::theme::ThemeMode::Light,
+            cx,
+        );
         crate::load_fonts(cx);
         crate::settings::SettingsStore::init(None, cx);
         crate::actions::bind(cx);
@@ -475,11 +479,14 @@ fn follow_close_to_tray(settings: &Entity<SettingsStore>, cx: &mut App) {
 fn load_fonts(cx: &mut App) {
     cx.text_system()
         .add_fonts(vec![
-            Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Regular.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/Geist-Medium.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/GeistMono-Regular.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Italic.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
+            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf")),
         ])
-        .expect("load bundled Geist fonts");
+        .expect("load bundled IBM Plex fonts");
 }
 
 /// The app's id: the macOS bundle id, and on Linux the Wayland app id and
@@ -576,7 +583,11 @@ pub(crate) fn apply_theme(window: &Window, cx: &mut App) {
         let (theme, palette) = imported.ui();
         style::install_theme(theme, palette, cx);
     } else {
-        style::install(mode, cx);
+        let preset = match settings.theme_source {
+            ThemeSource::Porcelain => style::Preset::Porcelain,
+            ThemeSource::Matty | ThemeSource::Mattermost => style::Preset::Graphite,
+        };
+        style::install(preset, mode, cx);
     }
     // Cached views (the sidebar, the right pane) only redraw on their own
     // notify, and the theme is a global.

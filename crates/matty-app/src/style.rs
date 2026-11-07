@@ -1,10 +1,11 @@
 //! Matty's design tokens on top of gpuicn's [`UiTheme`] (docs/DESIGN.md).
 //!
-//! The color theme is `assets/theme.css` in shadcn's variable format, so it
-//! can be tuned in tweakcn and pasted back. This module turns it into a
-//! [`UiTheme`] per mode, adds the semantic colors shadcn has no name for
-//! ([`Palette`]), and names the type scale and layout metrics every view
-//! shares, so a size appears once here and nowhere else.
+//! Each built-in color preset is an `assets/theme-*.css` file in shadcn's
+//! variable format, written by `scripts/theme_palette.py`. This module turns
+//! a preset into a [`UiTheme`] per mode, sets the type families, adds the
+//! semantic colors shadcn has no name for ([`Palette`]), and names the type
+//! scale and layout metrics every view shares, so a size appears once here
+//! and nowhere else.
 
 use gpui_kit::{
     App, ElementId, FontWeight, Global, InteractiveElement as _, IntoElement, ParentElement as _,
@@ -20,23 +21,55 @@ use crate::ui::empty::{
 use crate::ui::theme::{ThemeMode, UiTheme};
 use crate::ui::tooltip::text_tooltip;
 
-const THEME_CSS: &str = include_str!("../assets/theme.css");
+/// The interface and reading face (DESIGN.md §3).
+pub const SANS: &str = "IBM Plex Sans";
+/// Code, inline and in blocks.
+pub const MONO: &str = "IBM Plex Mono";
 
-/// Builds Matty's theme for `mode` from `assets/theme.css`.
+/// A built-in color preset (DESIGN.md §2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Preset {
+    /// Ink on paper: near-neutral greys and an ink accent. The default.
+    #[default]
+    Graphite,
+    /// Cool greys with a soft lapis accent.
+    Porcelain,
+}
+
+impl Preset {
+    fn css(self) -> &'static str {
+        match self {
+            Self::Graphite => include_str!("../assets/theme-graphite.css"),
+            Self::Porcelain => include_str!("../assets/theme-porcelain.css"),
+        }
+    }
+}
+
+/// Builds the default preset's theme for `mode`; see [`theme_for`].
+pub fn theme(mode: ThemeMode) -> UiTheme {
+    theme_for(Preset::default(), mode)
+}
+
+/// Builds `preset`'s theme for `mode` from its CSS.
 ///
 /// The CSS is checked by a test, so a parse failure here is a build mistake;
 /// the app still opens, on gpuicn's Neutral palette, rather than panicking.
-pub fn theme(mode: ThemeMode) -> UiTheme {
-    let mut theme = match UiTheme::from_shadcn_css(THEME_CSS, mode) {
+pub fn theme_for(preset: Preset, mode: ThemeMode) -> UiTheme {
+    let mut theme = match UiTheme::from_shadcn_css(preset.css(), mode) {
         Ok(theme) => theme,
         Err(error) => {
-            eprintln!("matty: theme.css did not parse ({error:?}); using the Neutral palette");
+            eprintln!(
+                "matty: {preset:?} colors did not parse ({error:?}); using the Neutral palette"
+            );
             match mode {
                 ThemeMode::Light => UiTheme::neutral_light(),
                 ThemeMode::Dark => UiTheme::neutral_dark(),
             }
         }
     };
+    theme.fonts.body = SANS.into();
+    theme.fonts.heading = SANS.into();
+    theme.fonts.mono = MONO.into();
     // Matty's sidebar reads quiet text and mention counts like the channel
     // view does; a Mattermost theme (#214) colors them apart.
     let c = &mut theme.colors;
@@ -79,11 +112,11 @@ impl Palette {
     }
 }
 
-/// Installs Matty's theme for `mode`, keeping the text scale, spacing unit
-/// and motion settings the app already applied. Does nothing when the
-/// installed theme is already this one, so views are not repainted.
-pub fn install(mode: ThemeMode, cx: &mut App) {
-    install_theme(theme(mode), Palette::for_mode(mode), cx);
+/// Installs `preset` for `mode`, keeping the text scale, spacing unit and
+/// motion settings the app already applied. Does nothing when the installed
+/// theme is already this one, so views are not repainted.
+pub fn install(preset: Preset, mode: ThemeMode, cx: &mut App) {
+    install_theme(theme_for(preset, mode), Palette::for_mode(mode), cx);
 }
 
 /// Installs `next` and its `palette`, such as an imported Mattermost theme
@@ -126,29 +159,30 @@ pub struct TypeStyle {
     pub weight: FontWeight,
 }
 
-/// Channel names in headers and dialog titles.
+/// Channel names in headers and dialog titles. A clear step above
+/// everything else, so the page has one loudest line.
 pub const TITLE: TypeStyle = TypeStyle {
-    size: 15.,
-    line: 20.,
-    weight: FontWeight::MEDIUM,
+    size: 17.,
+    line: 24.,
+    weight: FontWeight::SEMIBOLD,
 };
-/// Post text and the composer.
+/// Post text and the composer, set for reading.
 pub const BODY: TypeStyle = TypeStyle {
-    size: 14.,
-    line: 21.,
+    size: 14.5,
+    line: 22.,
     weight: FontWeight::NORMAL,
 };
 /// Sidebar rows, buttons, menus and the title bar.
 pub const UI: TypeStyle = TypeStyle {
-    size: 13.,
-    line: 18.,
+    size: 13.5,
+    line: 20.,
     weight: FontWeight::NORMAL,
 };
-/// Unread rows, author names and labels.
+/// Unread rows, author names and labels. The only bold step; keep it rare.
 pub const UI_STRONG: TypeStyle = TypeStyle {
-    size: 13.,
-    line: 18.,
-    weight: FontWeight::MEDIUM,
+    size: 13.5,
+    line: 20.,
+    weight: FontWeight::SEMIBOLD,
 };
 /// Timestamps, counts and descriptions.
 pub const META: TypeStyle = TypeStyle {
@@ -156,7 +190,7 @@ pub const META: TypeStyle = TypeStyle {
     line: 16.,
     weight: FontWeight::NORMAL,
 };
-/// Sidebar category names; render them uppercase with [`LABEL_TRACKING`].
+/// Sidebar category names, rendered uppercase.
 pub const LABEL: TypeStyle = TypeStyle {
     size: 11.,
     line: 16.,
@@ -168,8 +202,6 @@ pub const CODE: TypeStyle = TypeStyle {
     line: 20.,
     weight: FontWeight::NORMAL,
 };
-/// Letter spacing for [`LABEL`], in px at text scale 1.
-pub const LABEL_TRACKING: f32 = 0.4;
 
 /// Applies a [`TypeStyle`] to any styled element, scaled by the theme.
 pub trait TypeStyleExt: Styled + Sized {
@@ -386,9 +418,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn theme_css_parses_in_both_modes() {
-        UiTheme::from_shadcn_css(THEME_CSS, ThemeMode::Light).unwrap();
-        UiTheme::from_shadcn_css(THEME_CSS, ThemeMode::Dark).unwrap();
+    fn presets_parse_in_both_modes() {
+        for preset in [Preset::Graphite, Preset::Porcelain] {
+            UiTheme::from_shadcn_css(preset.css(), ThemeMode::Light).unwrap();
+            UiTheme::from_shadcn_css(preset.css(), ThemeMode::Dark).unwrap();
+        }
+    }
+
+    #[test]
+    fn presets_differ_and_use_plex() {
+        let graphite = theme_for(Preset::Graphite, ThemeMode::Light);
+        let porcelain = theme_for(Preset::Porcelain, ThemeMode::Light);
+        assert_ne!(graphite.colors.primary, porcelain.colors.primary);
+        assert_eq!(graphite.fonts.body, SANS);
+        assert_eq!(porcelain.fonts.mono, MONO);
     }
 
     #[test]

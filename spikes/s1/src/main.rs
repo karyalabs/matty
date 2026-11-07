@@ -109,7 +109,7 @@ impl Render for Spike {
             .flex_col()
             .bg(theme.colors.background)
             .text_color(theme.colors.foreground)
-            .font_family(theme.fonts.body.clone())
+            .font_family("IBM Plex Sans")
             .text_size(theme.text(14.))
             .child(MessageList::new("s1", &self.list, move |index, _, cx| {
                 render_row(transcript.borrow().rows[index], None, cx)
@@ -125,13 +125,13 @@ fn main() {
             cx.text_system()
                 .add_fonts(vec![
                     Cow::Borrowed(include_bytes!(
-                        "../../../crates/matty-app/assets/fonts/Geist-Regular.ttf"
+                        "../../../crates/matty-app/assets/fonts/IBMPlexSans-Regular.ttf"
                     )),
                     Cow::Borrowed(include_bytes!(
-                        "../../../crates/matty-app/assets/fonts/Geist-Medium.ttf"
+                        "../../../crates/matty-app/assets/fonts/IBMPlexSans-Medium.ttf"
                     )),
                 ])
-                .expect("load Geist");
+                .expect("load IBM Plex Sans");
             let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
             cx.open_window(
                 WindowOptions {

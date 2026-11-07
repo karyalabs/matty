@@ -12,7 +12,7 @@ silently**: a pin change is its own pull request that updates this table.
 | GPUI Kit | `gpui-kit =0.9.0` (`7591a35`) | gpuicn `release-pins.toml` `[gpui_kit]` | 2026-11-03, Claude for Arya |
 | GPUI runtime | `gpui-pre-platform =0.3.11` (`gpui-pre` `f816e1f`) | gpuicn `release-pins.toml` `[gpui]` | 2026-11-03, Claude for Arya |
 | gpui-icons | `=0.6.0` (Lucide 1.63.0) | gpuicn `release-pins.toml` `[gpui_icons]` | 2026-11-03, Claude for Arya |
-| Geist fonts | 1.7.1, SHA-256 checked by `gpuicn init` | gpuicn `release-pins.toml` `[geist]` | 2026-11-03, Claude for Arya |
+| IBM Plex Sans and Mono fonts | Google Fonts static instances (Plex Sans v23, Plex Mono v20; Mono Medium given the typographic family name "IBM Plex Mono" so it joins its family), `crates/matty-app/assets/fonts` | Google Fonts API, OFL | 2026-11-07, Claude for Arya |
 | Web toolchain | `nightly-2026-08-17` with `rust-src` (atomics, `-Z build-std`), wasm-bindgen CLI = Cargo.lock's `wasm-bindgen`, binaryen 132 | gpuicn `release-pins.toml` `[wasm]`; `scripts/web` | 2026-11-04, Claude for Arya |
 
 Gaps Matty reported in gpuicn, and their status, are listed in [`gpuicn-gaps.md`](gpuicn-gaps.md).
