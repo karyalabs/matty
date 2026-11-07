@@ -15,6 +15,12 @@
     <MajorUpgrade DowngradeErrorMessage="A newer Matty is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- The app icon (packaging/icons/make.py) for Installed apps and
+         Programs and Features. matty.exe carries the same icon itself
+         (crates/matty/build.rs), so the shortcut and windows show it. -->
+    <Icon Id="MattyIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\matty.ico" />
+    <Property Id="ARPPRODUCTICON" Value="MattyIcon" />
+
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
         <Directory Id="INSTALLFOLDER" Name="Matty" />
@@ -47,10 +53,14 @@
       <Component Id="Links" Guid="3D98A06A-7918-4138-92EE-F64993630A60">
         <RegistryValue Root="HKCU" Key="Software\Classes\matty" Value="URL:Matty" Type="string" KeyPath="yes" />
         <RegistryValue Root="HKCU" Key="Software\Classes\matty" Name="URL Protocol" Value="" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\matty\DefaultIcon"
+                       Value="&quot;[INSTALLFOLDER]matty.exe&quot;,0" Type="string" />
         <RegistryValue Root="HKCU" Key="Software\Classes\matty\shell\open\command"
                        Value="&quot;[INSTALLFOLDER]matty.exe&quot; &quot;%1&quot;" Type="string" />
         <RegistryValue Root="HKCU" Key="Software\Classes\mattermost" Value="URL:Mattermost" Type="string" />
         <RegistryValue Root="HKCU" Key="Software\Classes\mattermost" Name="URL Protocol" Value="" Type="string" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\mattermost\DefaultIcon"
+                       Value="&quot;[INSTALLFOLDER]matty.exe&quot;,0" Type="string" />
         <RegistryValue Root="HKCU" Key="Software\Classes\mattermost\shell\open\command"
                        Value="&quot;[INSTALLFOLDER]matty.exe&quot; &quot;%1&quot;" Type="string" />
       </Component>

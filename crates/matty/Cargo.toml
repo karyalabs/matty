@@ -14,5 +14,9 @@ workspace = true
 [dependencies]
 matty-app.workspace = true
 
+# The icon and version details of matty.exe on Windows.
+[build-dependencies]
+embed-resource.workspace = true
+
 [features]
 runtime_shaders = ["matty-app/runtime_shaders"]
