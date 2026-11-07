@@ -1251,18 +1251,7 @@ impl Render for LoginView {
                     .flex()
                     .items_center()
                     .gap(theme.space(2.))
-                    .child(
-                        div()
-                            .size(theme.space(8.))
-                            .rounded(theme.radius.lg)
-                            .bg(theme.colors.primary)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_color(theme.colors.primary_foreground)
-                            .type_style(style::UI_STRONG, &theme)
-                            .child("M"),
-                    )
+                    .child(style::mark(theme.space(10.)))
                     .child(
                         div()
                             .text_size(theme.text(18.))
