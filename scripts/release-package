@@ -45,8 +45,20 @@ if [[ "$notarize" == true ]]; then
 	# Notarizing the DMG covers the app inside it, so both can be stapled.
 	xcrun notarytool submit "$dmg" --wait \
 		--key "$MATTY_NOTARY_KEY" --key-id "$MATTY_NOTARY_KEY_ID" --issuer "$MATTY_NOTARY_ISSUER"
-	xcrun stapler staple "$dmg"
-	xcrun stapler staple "$app"
+	# The stapler downloads the ticket from Apple; a dropped connection
+	# (error 68) is worth retrying, since notarization already passed
+	# (karyalabs/gpuicn#162).
+	staple() {
+		local attempt
+		for attempt in 1 2 3 4 5; do
+			xcrun stapler staple "$1" && return 0
+			[[ $attempt == 5 ]] && return 1
+			echo "stapler failed for $1; retrying in $((attempt * 10))s" >&2
+			sleep $((attempt * 10))
+		done
+	}
+	staple "$dmg"
+	staple "$app"
 	spctl --assess --type execute --verbose=2 "$app"
 else
 	echo "notary credentials not set: $dmg is not notarized" >&2

@@ -34,7 +34,7 @@ use crate::sidebar::{ChannelKind, ChannelRow};
 use crate::style::{self, Palette, TypeStyleExt as _, metrics, scaled};
 use crate::t;
 use crate::ui::{
-    alert_dialog::{alert_dialog, alert_dialog_action, alert_dialog_cancel},
+    alert_dialog::{alert_dialog, alert_dialog_action, alert_dialog_cancel, alert_dialog_with},
     attachment::Attachment,
     avatar::{Avatar, AvatarSize},
     button::{Button, ButtonSize, ButtonVariant, style_button},
@@ -3569,49 +3569,54 @@ impl ChannelView {
 
     /// "Delete message?" with the action named in the button (PLAN §4.5).
     fn delete_dialog(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let channel: SharedString = match self.model.as_ref() {
-            Some(channel) => match channel.kind {
-                ChannelKind::Direct { .. } | ChannelKind::Group { .. } => {
-                    t!("chan-this-conversation")
-                }
-                _ => format!("#{}", channel.name).into(),
-            },
-            None => t!("chan-the-channel"),
+        // Built only while open: it scans the channel's posts (gpuicn#164).
+        let popup = |_: &mut Window, cx: &mut App| {
+            let channel: SharedString = match self.model.as_ref() {
+                Some(channel) => match channel.kind {
+                    ChannelKind::Direct { .. } | ChannelKind::Group { .. } => {
+                        t!("chan-this-conversation")
+                    }
+                    _ => format!("#{}", channel.name).into(),
+                },
+                None => t!("chan-the-channel"),
+            };
+            // A post the server never got is discarded, not deleted (#195).
+            let unsent = self.deleting.as_ref().is_some_and(|id| {
+                self.model.as_ref().is_some_and(|model| {
+                    model
+                        .posts
+                        .iter()
+                        .any(|post| &post.id == id && post.status != PostStatus::Sent)
+                })
+            });
+            let replies = self
+                .deleting
+                .as_ref()
+                .and_then(|id| {
+                    self.model
+                        .as_ref()?
+                        .posts
+                        .iter()
+                        .find(|post| &post.id == id)?
+                        .replies
+                        .as_ref()
+                        .map(|summary| summary.count)
+                })
+                .unwrap_or(0);
+            delete_popup("post.delete", unsent, &channel, replies, cx)
         };
-        // A post the server never got is discarded, not deleted (#195).
-        let unsent = self.deleting.as_ref().is_some_and(|id| {
-            self.model.as_ref().is_some_and(|model| {
-                model
-                    .posts
-                    .iter()
-                    .any(|post| &post.id == id && post.status != PostStatus::Sent)
-            })
-        });
-        let replies = self
-            .deleting
-            .as_ref()
-            .and_then(|id| {
-                self.model
-                    .as_ref()?
-                    .posts
-                    .iter()
-                    .find(|post| &post.id == id)?
-                    .replies
-                    .as_ref()
-                    .map(|summary| summary.count)
-            })
-            .unwrap_or(0);
-        let popup = delete_popup("post.delete", unsent, &channel, replies, cx);
         let view = cx.entity().downgrade();
-        alert_dialog("post.delete", &self.delete, popup, window, cx).on_ok(move |_, window, cx| {
-            view.update(cx, |this, cx| {
-                if let Some(id) = this.deleting.take() {
-                    this.delete_post(id, window, cx);
-                }
-            })
-            .ok();
-            true
-        })
+        alert_dialog_with("post.delete", &self.delete, popup, window, cx).on_ok(
+            move |_, window, cx| {
+                view.update(cx, |this, cx| {
+                    if let Some(id) = this.deleting.take() {
+                        this.delete_post(id, window, cx);
+                    }
+                })
+                .ok();
+                true
+            },
+        )
     }
 
     /// Rebuilds the channel name's menu for `model`: conversations with
