@@ -139,10 +139,13 @@ jobs:
               - 'crates/matty-app/Cargo.toml'
               - 'crates/matty/**'
               - 'packaging/windows/**'
+              - 'packaging/icons/matty.ico'
               - 'Cargo.toml'
               - 'rust-toolchain.toml'
             windows-package:
               - 'packaging/windows/**'
+              - 'packaging/icons/matty.ico'
+              - 'crates/matty/build.rs'
               - 'scripts/windows-package'
             new-images:
               - added: 'docs/**/*.{png,jpg,jpeg,gif,webp,mp4,mov}'
@@ -635,6 +638,8 @@ jobs:
           $exe = "$env:LOCALAPPDATA\Programs\Matty\matty.exe"
           if (-not (Test-Path $exe)) { Get-Content install.log -Tail 40; throw "matty.exe was not installed" }
           & $exe --version
+          # The icon and version details come from crates/matty/build.rs.
+          if ((Get-Item $exe).VersionInfo.ProductName -ne "Matty") { throw "matty.exe has no version resource" }
           if (-not (Test-Path "HKCU:\Software\Classes\mattermost\shell\open\command")) { throw "mattermost:// is not registered" }
           $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Filter Matty.lnk -Recurse
           if (-not $lnk) { throw "no Start menu shortcut" }
