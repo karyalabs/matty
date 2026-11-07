@@ -37,7 +37,10 @@ use crate::switcher::{Switcher, SwitcherEvent};
 use crate::threads::{ThreadsEvent, ThreadsModel, ThreadsView};
 use crate::ui::{
     button::{Button, ButtonSize, ButtonVariant},
-    dialog::{DialogHandle, dialog, dialog_close, dialog_description, dialog_popup, dialog_title},
+    dialog::{
+        DialogHandle, dialog, dialog_close, dialog_description, dialog_popup, dialog_title,
+        dialog_with,
+    },
     drawer::{Drawer, DrawerContent, DrawerHandle, DrawerSide},
     input::{InputEvent, InputState},
     kbd::Kbd,
@@ -4030,55 +4033,65 @@ impl MainWindow {
     }
 
     fn shortcut_sheet(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = UiTheme::read(cx).clone();
-        let platform = Platform::current();
-        let sheet_row = |label: SharedString, keys: Kbd| {
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(theme.space(6.))
-                .h(scaled(&theme, metrics::ROW_HEIGHT))
-                .type_style(style::UI, &theme)
-                .child(label)
-                .child(keys)
-        };
-        let rows = actions::bindings().into_iter().flat_map(|row| {
-            // Cmd/Ctrl+1…9 stay out of the keymap's rows; one line lists them.
-            let servers = (row.label == "Forward").then(|| {
-                let first = actions::format_keys("cmd-1", "ctrl-1");
-                sheet_row(
-                    crate::t!("shortcuts-servers"),
-                    Kbd::new(format!("{first}–9")),
-                )
-            });
-            std::iter::once(sheet_row(row.name(), Kbd::shortcut(row.keys(platform)))).chain(servers)
-        });
-        let popup = dialog_popup("shortcuts.popup", crate::t!("shortcuts-title"), cx)
-            .child(dialog_title("shortcuts.title", cx).child(crate::t!("shortcuts-title")))
-            .child(
-                dialog_description("shortcuts.description", cx)
-                    .child(crate::t!("shortcuts-description")),
-            )
-            .child(div().flex().flex_col().children(rows))
-            .child(
-                div()
-                    .pt(theme.space(3.))
-                    .pb(theme.space(1.))
-                    .type_style(style::META, &theme)
-                    .text_color(theme.colors.muted_foreground)
-                    .child(crate::t!("shortcuts-message-keys")),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .children(actions::MESSAGE_KEYS.into_iter().map(|(key, label)| {
-                        sheet_row(actions::message_key_name(label), Kbd::new(key))
-                    })),
-            )
-            .child(dialog_close("shortcuts.close", cx).label(crate::t!("shortcuts-close")));
-        dialog("shortcuts", &self.shortcuts, popup, window, cx)
+        // The sheet formats every binding, so it is built only while open
+        // (matty#673, gpuicn#164).
+        dialog_with(
+            "shortcuts",
+            &self.shortcuts,
+            |_, cx| {
+                let theme = UiTheme::read(cx).clone();
+                let platform = Platform::current();
+                let sheet_row = |label: SharedString, keys: Kbd| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap(theme.space(6.))
+                        .h(scaled(&theme, metrics::ROW_HEIGHT))
+                        .type_style(style::UI, &theme)
+                        .child(label)
+                        .child(keys)
+                };
+                let rows = actions::bindings().into_iter().flat_map(|row| {
+                    // Cmd/Ctrl+1…9 stay out of the keymap's rows; one line lists them.
+                    let servers = (row.label == "Forward").then(|| {
+                        let first = actions::format_keys("cmd-1", "ctrl-1");
+                        sheet_row(
+                            crate::t!("shortcuts-servers"),
+                            Kbd::new(format!("{first}–9")),
+                        )
+                    });
+                    std::iter::once(sheet_row(row.name(), Kbd::shortcut(row.keys(platform))))
+                        .chain(servers)
+                });
+                dialog_popup("shortcuts.popup", crate::t!("shortcuts-title"), cx)
+                    .child(dialog_title("shortcuts.title", cx).child(crate::t!("shortcuts-title")))
+                    .child(
+                        dialog_description("shortcuts.description", cx)
+                            .child(crate::t!("shortcuts-description")),
+                    )
+                    .child(div().flex().flex_col().children(rows))
+                    .child(
+                        div()
+                            .pt(theme.space(3.))
+                            .pb(theme.space(1.))
+                            .type_style(style::META, &theme)
+                            .text_color(theme.colors.muted_foreground)
+                            .child(crate::t!("shortcuts-message-keys")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .children(actions::MESSAGE_KEYS.into_iter().map(|(key, label)| {
+                                sheet_row(actions::message_key_name(label), Kbd::new(key))
+                            })),
+                    )
+                    .child(dialog_close("shortcuts.close", cx).label(crate::t!("shortcuts-close")))
+            },
+            window,
+            cx,
+        )
     }
 
     /// Escape in the channel (#147): closes the right pane when one is
