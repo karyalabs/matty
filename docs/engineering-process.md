@@ -20,7 +20,7 @@ the organization; run links still resolve through GitHub's redirect.
 
 | Workflow | Trigger | Jobs | Where |
 | --- | --- | --- | --- |
-| `ci.yml` | PR (opened, synchronize, reopened, ready_for_review, **labeled**), push to master, nightly 02:23 UTC | `changes`, `linux`, `web`, `deny`, `macos`, `macos universal bundle`, `windows`, `linux packages`, `windows installer`, `integration` ×2 or ×4, `ci` | OVH box (3 runners): linux, web, linux packages. Mac mini (1 runner): macos, universal. GitHub: changes, deny, integration, windows, ci |
+| `ci.yml` | PR (opened, synchronize, reopened, **labeled**), merge queue, push to master (checks nothing when the queue passed the commit), nightly 02:23 UTC | `changes`, `linux`, `web`, `deny`, `macos`, `macos universal bundle`, `windows`, `linux packages`, `windows installer`, `integration` ×2 or ×4, `ci` | OVH box (3 runners): linux, web, linux packages. Mac mini (1 runner): macos, universal. GitHub: changes, deny, integration, windows, ci |
 | `release.yml` | push of a `v*` tag (Arya only, tag ruleset) | `macos universal` (sign, notarize), `linux x86_64`, `windows x86_64`, `GitHub Release`, `Homebrew cask bump` (stable only) | Mac mini, OVH box, GitHub (Windows, publish, Homebrew) |
 | `record-fixtures.yml` | manual | records API fixtures per Mattermost version, pushes `fixtures/v<ver>` | GitHub |
 
