@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Compiles packaging/macos/AppIcon.icon, the Icon Composer source of Matty's
+# app icon (#65), with Xcode 26's actool. It writes two files into DIR:
+#
+#   Assets.car    the macOS 26 icon: the system draws its tile and glass,
+#                 and its dark, clear and tinted looks
+#   AppIcon.icns  actool's fallback for macOS 13 to 15
+#
+#   scripts/macos-icon DIR
+#
+# Fails when actool cannot compile it (no Xcode, or one older than 26).
+set -euo pipefail
+
+out="${1:?usage: scripts/macos-icon DIR}"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$out"
+partial="$(mktemp -t matty-icon).plist"
+trap 'rm -f "$partial"' EXIT
+
+xcrun actool "$root/packaging/macos/AppIcon.icon" \
+	--compile "$out" \
+	--app-icon AppIcon \
+	--include-all-app-icons \
+	--enable-on-demand-resources NO \
+	--development-region en \
+	--target-device mac \
+	--platform macosx \
+	--minimum-deployment-target 13.0 \
+	--output-partial-info-plist "$partial" \
+	--errors --warnings --notices --output-format human-readable-text
+
+for file in Assets.car AppIcon.icns; do
+	[[ -s "$out/$file" ]] || { echo "macos-icon: actool wrote no $file" >&2; exit 1; }
+done

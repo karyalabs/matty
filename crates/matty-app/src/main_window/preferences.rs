@@ -1271,6 +1271,20 @@ impl MainWindow {
             UpdateChannel::Stable => t!("prefs-update-stable-hint"),
             UpdateChannel::Beta => t!("prefs-update-beta-hint"),
         };
+        let check = labelled_row(
+            t!("prefs-check-updates"),
+            t!("prefs-check-updates-detail", version = crate::VERSION),
+            Button::new("preferences.check-updates")
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm)
+                .aria_label(t!("prefs-check-updates"))
+                .label(t!("prefs-check-updates-button"))
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(Box::new(crate::menu::CheckForUpdates), cx)
+                })
+                .into_any_element(),
+            &theme,
+        );
         let logs = group(
             t!("prefs-logs"),
             stack(&theme)
@@ -1325,7 +1339,9 @@ impl MainWindow {
         page(&theme)
             .child(group(
                 t!("prefs-updates"),
-                hinted(channel_group, channel_hint, &theme),
+                stack(&theme)
+                    .child(hinted(channel_group, channel_hint, &theme))
+                    .child(check),
                 false,
                 &theme,
             ))
