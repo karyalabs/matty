@@ -4146,7 +4146,7 @@ impl ChannelView {
     ) -> gpui_kit::AnyElement {
         let view = cx.entity().downgrade();
         let card_id = id.clone();
-        hover_popover(
+        let popover = hover_popover(
             gpui_kit::ElementId::Name(format!("post.{id}.{slot}.{card}").into()),
             label,
         )
@@ -4220,8 +4220,16 @@ impl ChannelView {
                 },
                 cx,
             )
-        })
-        .into_any_element()
+        });
+        // A click pins the card; it must not also reach the row, which
+        // opens the thread (#680).
+        div()
+            .id(gpui_kit::ElementId::Name(
+                format!("post.{id}.{slot}.click").into(),
+            ))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(popover)
+            .into_any_element()
     }
 
     fn post_row(
