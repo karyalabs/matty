@@ -20,10 +20,10 @@ use crate::attachments::{
     AttachmentStatus, PostFile, SendGate, UploadSource, UploadTray, post_files,
 };
 use crate::channel::{
-    ChannelModel, Post, PostKind, PostStatus, delete_popup, edit_composer, emoji_popup,
-    message_density, plain_text, post_editor, post_markers, post_time, queued, queued_marker,
-    quick_reaction_buttons, reaction_tooltip, waiting_items, waiting_to_send,
+    ChannelModel, Post, PostKind, PostStatus, delete_popup, edit_composer, emoji_popup, plain_text,
+    waiting_items, waiting_to_send,
 };
+use crate::post_row::{self, PostHost, RowParts, post_message};
 use crate::profile::{ProfileActions, UserProfile, profile_card, profile_pane};
 use crate::settings::{ClockFormat, SettingsChanged, SettingsStore};
 use crate::sidebar::{ChannelKind, Presence};
@@ -41,7 +41,7 @@ use crate::ui::{
     input::{Input, InputEvent, InputState},
     lightbox::{LightboxImage, LightboxState, lightbox},
     menu::{Menu, MenuItem, MenuState},
-    message::{Message, MessageHighlight, MessageStatus, message_action, message_actions},
+    message::MessageHighlight,
     message_list::{MessageList, MessageListState},
     popover::popover,
     spinner::Spinner,
@@ -386,6 +386,8 @@ pub enum RightPaneEvent {
     /// window (#210).
     Slash(crate::slash::Request),
     OpenLink(SharedString),
+    /// Open a post the client can't draw in the browser.
+    OpenInBrowser(SharedString),
     /// View profile on a member's profile card; the window shows it here.
     ViewProfile(UserProfile),
     /// "Add to channel" on a profile card or the profile pane (#212).
@@ -546,6 +548,124 @@ impl EventEmitter<RightPaneEvent> for RightPaneView {}
 impl Focusable for RightPaneView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
+    }
+}
+
+impl PostHost for RightPaneView {
+    const PREFIX: &'static str = "thread";
+
+    fn retry_post(&mut self, id: SharedString, cx: &mut Context<Self>) {
+        self.retry(id, cx);
+    }
+
+    fn discard_post(&mut self, id: SharedString, _: &mut Window, cx: &mut Context<Self>) {
+        let ephemeral = self
+            .thread_post(&id)
+            .is_some_and(|post| post.status == PostStatus::Ephemeral);
+        if ephemeral {
+            self.dismiss(id, cx);
+        } else {
+            self.discard(id, cx);
+        }
+    }
+
+    fn react_to(&mut self, id: SharedString, emoji: SharedString, cx: &mut Context<Self>) {
+        self.toggle_reaction(id, emoji, cx);
+    }
+
+    fn pick_reaction(&mut self, id: SharedString, cx: &mut Context<Self>) {
+        self.open_picker(Some(id), cx);
+    }
+
+    fn post_menu_open(&self, cx: &App) -> bool {
+        self.menu.read(cx).is_open()
+    }
+
+    fn open_post_menu_at(
+        &mut self,
+        post: &Post,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let reply = match self.content.as_ref() {
+            Some(RightPaneContent::Thread(thread)) => thread.root.id != post.id,
+            _ => false,
+        };
+        let items = Self::thread_items_for(&cx.entity().downgrade(), post, self.away, reply);
+        self.open_menu(items, at, window, cx);
+    }
+
+    fn open_post_link(&mut self, url: SharedString, cx: &mut Context<Self>) {
+        cx.emit(RightPaneEvent::OpenLink(url));
+    }
+
+    fn open_post_file(&mut self, file: SharedString, cx: &mut Context<Self>) {
+        cx.emit(RightPaneEvent::OpenFile(file));
+    }
+
+    fn open_in_browser(&mut self, post: SharedString, cx: &mut Context<Self>) {
+        cx.emit(RightPaneEvent::OpenInBrowser(post));
+    }
+
+    fn open_post_image(
+        &mut self,
+        post: &Post,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_lightbox(post, index, window, cx);
+    }
+
+    fn open_linked_post_image(
+        &mut self,
+        post: &Post,
+        url: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_linked_image(post, url, window, cx);
+    }
+
+    fn acknowledge_post(&mut self, post: SharedString, acknowledged: bool, cx: &mut Context<Self>) {
+        cx.emit(RightPaneEvent::Acknowledge { post, acknowledged });
+    }
+
+    fn run_post_action(
+        &mut self,
+        choice: crate::interactive::ActionChoice,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_action(choice, cx);
+    }
+
+    fn jump_to_post(&mut self, channel: SharedString, post: SharedString, cx: &mut Context<Self>) {
+        cx.emit(RightPaneEvent::Jump { channel, post });
+    }
+
+    fn collapse_post_previews(
+        &mut self,
+        post: SharedString,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) {
+        // Remembered with the channel's choice for the same post; the pane
+        // remeasures on the settings change.
+        let store = SettingsStore::global(cx);
+        if store.read(cx).get().previews_collapsed(&post) != collapsed {
+            store.update(cx, |store, cx| {
+                store.update(cx, |settings| settings.choose_previews(&post, collapsed))
+            });
+        }
+    }
+
+    fn cancel_post_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_edit(window, cx);
+    }
+
+    fn save_post_edit(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_edit(text, window, cx);
     }
 }
 
@@ -2508,180 +2628,39 @@ impl RightPaneView {
         cx: &mut App,
     ) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        let time = post_time(post, away, cx);
         let id = post.id.clone();
         let initial: String = post.author.chars().take(1).collect();
-        let (retry_view, retry_id) = (view.clone(), id.clone());
-        let (delete_view, delete_id) = (view.clone(), id.clone());
-        let (react_view, react_id) = (view.clone(), id.clone());
-        // Only the thread passes card menus; its sent posts can be reacted
-        // to from the hover toolbar, as in the channel (#620). Listings
-        // can't: their posts are not the pane's thread.
-        let reactable = menus.is_some() && post.status == PostStatus::Sent;
-        let mut row = Message::new(gpui_kit::ElementId::Name(format!("thread.{id}").into()))
-            .copy_prefix(crate::channel::copy_prefix(post, cx))
-            .status(match post.status {
-                PostStatus::Sent | PostStatus::Ephemeral => MessageStatus::Sent,
-                PostStatus::Pending => MessageStatus::Pending,
-                PostStatus::Failed => MessageStatus::Failed,
-            })
-            .on_retry(move |_, _, cx| {
-                let id = retry_id.clone();
-                retry_view.update(cx, |this, cx| this.retry(id, cx)).ok();
-            })
-            .on_delete(move |_, _, cx| {
-                let id = delete_id.clone();
-                delete_view.update(cx, |this, cx| this.discard(id, cx)).ok();
-            })
-            .on_reaction(move |emoji, _, cx| {
-                let (id, emoji) = (react_id.clone(), emoji.clone());
-                react_view
-                    .update(cx, |this, cx| this.toggle_reaction(id, emoji, cx))
-                    .ok();
-            })
-            .author(post.author.clone())
-            .timestamp(time.clone())
-            .when(
-                post.status == PostStatus::Sent && !post.date.is_empty(),
-                |row| {
-                    row.timestamp_tooltip(t!(
-                        "pane-sent-at",
-                        date = post.date.to_string(),
-                        time = time.to_string()
-                    ))
-                },
-            )
-            .gutter_time(time)
-            // A queued reply keeps its header so the clock shows (#195).
-            .continuation(post.continues && !root && !queued(post, away))
-            .density(message_density(cx))
-            .highlight(highlight)
-            .avatar(Self::avatar(&id, post, presence, initial, cx))
-            .reactions(post.reactions.iter().map(|reaction| {
-                crate::emoji::reaction(&reaction.emoji, reaction.count, reaction.mine, cx)
-            }))
-            .reaction_tooltip(reaction_tooltip(post.reactions.clone()))
-            // The hover toolbar is built only for the hovered or selected
-            // row (#674).
-            .when(reactable, |row| {
-                let (view, post) = (view.clone(), post.clone());
-                row.actions_with(move |_, cx| {
-                    Self::hover_actions(&view, &post, away, !root, cx).into_any_element()
-                })
-            })
-            .when(post.status == PostStatus::Ephemeral, |row| {
-                let (view, id) = (view.clone(), id.clone());
-                row.actions(
-                    message_actions(cx).child(
-                        message_action(
-                            gpui_kit::ElementId::Name(format!("thread.{id}.dismiss").into()),
-                            LucideIcon::X,
-                            t!("pane-dismiss"),
-                            cx,
-                        )
-                        .on_click(move |_, _, cx| {
-                            let id = id.clone();
-                            view.update(cx, |this, cx| this.dismiss(id, cx)).ok();
-                        }),
-                    ),
-                )
-            })
-            .px(theme.space(4.))
-            .child(match editor {
-                Some((composer, cap)) => {
-                    let (cancel, save) = (view.clone(), view.clone());
-                    post_editor(
-                        "thread.edit",
-                        composer,
-                        *cap,
-                        move |window, cx| {
-                            cancel
-                                .update(cx, |this, cx| this.cancel_edit(window, cx))
-                                .ok();
-                        },
-                        move |text, window, cx| {
-                            save.update(cx, |this, cx| this.save_edit(text, window, cx))
-                                .ok();
-                        },
-                        cx,
-                    )
-                    .into_any_element()
-                }
-                None => {
-                    let link_view = view.clone();
-                    crate::links::message_body(
-                        gpui_kit::ElementId::Name(format!("thread.{id}.body").into()),
-                        &post.body,
-                        &post.image_sizes,
-                        move |url, _, cx| {
-                            let event = RightPaneEvent::OpenLink(url.clone());
-                            link_view.update(cx, |_, cx| cx.emit(event)).ok();
-                        },
-                        cx,
-                    )
-                    .into_any_element()
-                }
-            })
-            .children(
-                menus
-                    .filter(|_| !post.embeds.is_empty())
-                    .map(|menus| Self::embeds(view, post, menus, cx).into_any_element()),
-            )
-            .children((!post.files.is_empty()).then(|| {
-                let (image_view, image_post) = (view.clone(), post.clone());
-                let file_view = view.clone();
-                post_files(
-                    &format!("thread.{id}"),
-                    &post.files,
-                    move |index, window, cx| {
-                        let post = image_post.clone();
-                        image_view
-                            .update(cx, |this, cx| this.open_lightbox(&post, index, window, cx))
-                            .ok();
-                    },
-                    move |file, _, cx| {
-                        file_view
-                            .update(cx, |_, cx| cx.emit(RightPaneEvent::OpenFile(file)))
-                            .ok();
-                    },
-                    cx,
-                )
-            }));
-        if queued(post, away) {
-            // Queued: a clock marks "Will send when back online" (#195).
-            row = row.header_child(queued_marker(&theme));
-        }
-        if let Some(label) = crate::priority::label(post.priority.as_ref(), cx) {
-            row = row.header_child(label);
-        }
-        for marker in post_markers(post, &theme) {
-            row = row.header_child(marker);
-        }
-        let (ack_view, ack_post) = (view.clone(), id.clone());
-        row = row.children(crate::priority::ack_bar(
-            &format!("thread.{id}"),
-            post.priority.as_ref(),
-            post.status == PostStatus::Sent,
-            std::rc::Rc::new(move |acknowledged, _, cx| {
-                let post = ack_post.clone();
-                ack_view
-                    .update(cx, |_, cx| {
-                        cx.emit(RightPaneEvent::Acknowledge { post, acknowledged })
-                    })
-                    .ok();
-            }),
+        // Only the thread passes card menus: its posts get the hover
+        // toolbar and cards, as in the channel (#620). Listings don't:
+        // their posts are not the pane's thread.
+        let in_thread = menus.is_some();
+        let collapsed = SettingsStore::global(cx)
+            .read(cx)
+            .get()
+            .previews_collapsed(&id);
+        let row = post_message(
+            view,
+            post,
+            RowParts {
+                away,
+                highlight,
+                continuation: post.continues && !root,
+                avatar: Self::avatar(&id, post, presence, initial, cx),
+                author: None,
+                editor,
+                above_body: None,
+                embeds: menus.map(|menus| (menus, collapsed)),
+                reactable: in_thread && post.status == PostStatus::Sent,
+            },
             cx,
-        ));
-        if reactable && !post.reactions.is_empty() {
-            // The chip row gets an add button, as in the channel (#620).
-            let (add_view, add_id) = (view.clone(), post.id.clone());
-            row = row.on_add_reaction(move |_, _, cx| {
-                let id = add_id.clone();
-                add_view
-                    .update(cx, |this, cx| this.open_picker(Some(id), cx))
-                    .ok();
-            });
-        }
+        )
+        // The hover toolbar is built only for the hovered or selected row
+        // (#674).
+        .when(in_thread, |row| {
+            let (view, post) = (view.clone(), post.clone());
+            row.actions_with(move |_, cx| post_row::hover_actions(&view, &post, Vec::new(), cx))
+        })
+        .px(theme.space(4.));
         // Right-click selects the row and opens its menu (design-42).
         // Menus are built when they open, not for every row on every frame
         // (#674).
@@ -2703,143 +2682,6 @@ impl RightPaneView {
                 },
             )
             .child(row)
-    }
-
-    /// A sent thread post's hover toolbar (#620): add a reaction, and
-    /// More with the right-click menu's actions.
-    fn hover_actions(
-        view: &gpui_kit::WeakEntity<Self>,
-        post: &Post,
-        away: bool,
-        reply: bool,
-        cx: &App,
-    ) -> impl IntoElement + use<> {
-        let id = post.id.clone();
-        // A tooltip would sit over the open menu.
-        let menu_open = view
-            .upgrade()
-            .is_some_and(|pane| pane.read(cx).menu.read(cx).is_open());
-        let quick_view = view.clone();
-        let quick_id = id.clone();
-        let quick = quick_reaction_buttons(
-            &id,
-            move |emoji, cx| {
-                let id = quick_id.clone();
-                quick_view
-                    .update(cx, |this, cx| this.toggle_reaction(id, emoji, cx))
-                    .ok();
-            },
-            cx,
-        );
-        let post = std::rc::Rc::new(post.clone());
-        let (react_view, react_id) = (view.clone(), id.clone());
-        let react_selector = format!("thread.{id}.react");
-        let (more_view, more_post) = (view.clone(), post);
-        message_actions(cx)
-            .children(quick)
-            .child(
-                style::tipped_when(
-                    !menu_open,
-                    gpui_kit::ElementId::Name(format!("thread.{id}.react.tip").into()),
-                    t!("pane-add-reaction"),
-                    message_action(
-                        gpui_kit::ElementId::Name(format!("thread.{id}.react").into()),
-                        LucideIcon::FaceSlightlySmilingPlus,
-                        t!("pane-add-reaction"),
-                        cx,
-                    )
-                    .on_click(move |_, _, cx| {
-                        let id = react_id.clone();
-                        react_view
-                            .update(cx, |this, cx| this.open_picker(Some(id), cx))
-                            .ok();
-                    }),
-                )
-                .debug_selector(move || react_selector.clone()),
-            )
-            .child(style::tipped_when(
-                !menu_open,
-                gpui_kit::ElementId::Name(format!("thread.{id}.more.tip").into()),
-                t!("pane-more-actions"),
-                message_action(
-                    gpui_kit::ElementId::Name(format!("thread.{id}.more").into()),
-                    LucideIcon::Ellipsis,
-                    t!("pane-more-actions"),
-                    cx,
-                )
-                .on_click(move |event: &gpui_kit::ClickEvent, window, cx| {
-                    let items = Self::thread_items_for(&more_view, &more_post, away, reply);
-                    more_view
-                        .update(cx, |this, cx| {
-                            this.open_menu(items, event.position(), window, cx)
-                        })
-                        .ok();
-                }),
-            ))
-    }
-
-    /// The cards under a thread post (#187), with an attachment's buttons
-    /// and menus (#211), as the channel draws them.
-    fn embeds(
-        view: &gpui_kit::WeakEntity<Self>,
-        post: &Post,
-        menus: &crate::interactive::Menus,
-        cx: &App,
-    ) -> impl IntoElement + use<> {
-        // The real id: a choice names its post by it.
-        let id = post.id.clone();
-        let collapsed = SettingsStore::global(cx)
-            .read(cx)
-            .get()
-            .previews_collapsed(&id);
-        let toggle_id = id.clone();
-        let on_toggle: crate::embeds::ToggleHandler = std::rc::Rc::new(move |collapsed, _, cx| {
-            // Remembered with the channel's choice for the same post; the
-            // pane remeasures on the settings change.
-            let store = SettingsStore::global(cx);
-            if store.read(cx).get().previews_collapsed(&toggle_id) != collapsed {
-                store.update(cx, |store, cx| {
-                    store.update(cx, |settings| {
-                        settings.choose_previews(&toggle_id, collapsed)
-                    })
-                });
-            }
-        });
-        // A linked image opens in the image viewer, as in the channel (#683).
-        let (image_view, image_post) = (view.clone(), post.clone());
-        let on_image: crate::embeds::ImageHandler = std::rc::Rc::new(move |url, window, cx| {
-            image_view
-                .update(cx, |this, cx| {
-                    this.open_linked_image(&image_post, url, window, cx)
-                })
-                .ok();
-        });
-        let jump_view = view.clone();
-        let on_jump: crate::embeds::OnJump = std::rc::Rc::new(move |channel, post, _, cx| {
-            let event = RightPaneEvent::Jump {
-                channel: channel.clone(),
-                post: post.clone(),
-            };
-            jump_view.update(cx, |_, cx| cx.emit(event)).ok();
-        });
-        let action_view = view.clone();
-        let on_action: crate::interactive::ActionHandler =
-            std::rc::Rc::new(move |choice, _, cx| {
-                action_view
-                    .update(cx, |this, cx| this.run_action(choice, cx))
-                    .ok();
-            });
-        crate::embeds::post_embeds(
-            &id,
-            &post.embeds,
-            collapsed,
-            on_toggle,
-            on_image,
-            on_jump,
-            (menus, on_action),
-            cx,
-        )
-        .into_any_element()
     }
 
     fn replies_divider(
@@ -4361,6 +4203,7 @@ impl Render for RightPaneView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::queued;
 
     #[test]
     fn arrows_walk_the_suggestions_and_wrap() {
