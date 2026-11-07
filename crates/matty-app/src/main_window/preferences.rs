@@ -437,7 +437,10 @@ impl MainWindow {
         let section = self.preferences_section;
         let controls = match section {
             Section::General => self.general(cx),
-            Section::Appearance => self.appearance(window, cx),
+            Section::Appearance => {
+                super::style_library::prepare(&self.settings, window, cx);
+                self.appearance(window, cx)
+            }
             Section::Messages => self.messages(cx),
             Section::Notifications => self.notifications(cx),
             Section::Advanced => self.advanced(cx),
@@ -814,6 +817,12 @@ impl MainWindow {
         page(&theme)
             .child(group(t!("prefs-theme"), theme_group, false, &theme))
             .child(group(t!("prefs-colors"), colors, false, &theme))
+            .child(group(
+                t!("prefs-styles"),
+                super::style_library::library(&store, cx),
+                false,
+                &theme,
+            ))
             .child(group(t!("prefs-text-size"), size_group, false, &theme))
             .child(group(
                 t!("prefs-fonts"),

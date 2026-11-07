@@ -280,6 +280,9 @@ pub struct Settings {
     pub ui_font: Option<String>,
     /// The code font family, or `None` for IBM Plex Mono (#706).
     pub code_font: Option<String>,
+    /// Styles the person saved under a name, in the order they saved them,
+    /// at most [`SAVED_MAX`](crate::style::share::SAVED_MAX) (#707).
+    pub saved_styles: Vec<crate::style::share::SavedStyle>,
     pub text_scale: f32,
     /// Window zoom from Cmd+= / Cmd+- / Cmd+0, scaling text and spacing.
     pub zoom: f32,
@@ -344,6 +347,7 @@ impl Default for Settings {
             custom_style: None,
             ui_font: None,
             code_font: None,
+            saved_styles: Vec::new(),
             text_scale: 1.,
             zoom: 1.,
             launch_at_login: false,
