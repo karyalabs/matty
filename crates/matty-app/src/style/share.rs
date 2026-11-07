@@ -9,18 +9,23 @@
 //!   "matty_style": 1,
 //!   "name": "Dusk",
 //!   "colors": { "neutral_hue": 260, "neutral_chroma": 0.006, … },
-//!   "radius": "soft"
+//!   "radius": "soft",
+//!   "ui_font": "IBM Plex Sans",
+//!   "code_font": "IBM Plex Mono"
 //! }
 //! ```
 //!
 //! [`import`] reads it back, or a Mattermost theme's JSON, and checks every
-//! number before it becomes a [`StyleSpec`]. The contrast guard in
+//! number before it becomes a [`StyleSpec`]. Fonts (#706) are a setting of
+//! their own, not part of a style's numbers, but a shared or saved style
+//! carries them so it looks the same elsewhere. A font the machine doesn't
+//! have is kept: Matty shows Plex in its place and Preferences says so. The contrast guard in
 //! [`palette::tokens`] runs on whatever comes in, so an imported style is
 //! as readable as one made in the editor.
 
 use serde::{Deserialize, Serialize};
 
-use super::{Radius, StyleSpec, palette::StyleColors};
+use super::{MONO, Radius, SANS, StyleSpec, palette::StyleColors};
 use crate::mattermost_theme::{self, Theme};
 use crate::ui::color_picker::Oklch;
 use crate::ui::theme::ThemeMode;
@@ -34,11 +39,52 @@ pub const SAVED_MAX: usize = 24;
 /// The longest name a saved style keeps, in characters.
 pub const NAME_MAX: usize = 40;
 
+/// The longest font family name kept, in characters.
+const FONT_MAX: usize = 100;
+
+/// The fonts a shared or saved style carries; `None` is IBM Plex, as in
+/// `Settings::ui_font` and `Settings::code_font`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fonts {
+    #[serde(default)]
+    pub ui_font: Option<String>,
+    #[serde(default)]
+    pub code_font: Option<String>,
+}
+
+impl Fonts {
+    /// The fonts `settings` has chosen.
+    pub fn of(settings: &crate::settings::Settings) -> Self {
+        Self {
+            ui_font: font(settings.ui_font.as_deref(), SANS),
+            code_font: font(settings.code_font.as_deref(), MONO),
+        }
+    }
+}
+
+/// `family` tidied, or `None` when it is empty or Plex (`default`).
+fn font(family: Option<&str>, default: &str) -> Option<String> {
+    let family = family?;
+    let family: String = family
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(FONT_MAX)
+        .collect();
+    let family = family.trim();
+    (!family.is_empty() && !family.eq_ignore_ascii_case(default)).then(|| family.to_owned())
+}
+
 /// A style saved under a name (#707), kept in `Settings::saved_styles`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SavedStyle {
     pub name: String,
     pub style: StyleSpec,
+    /// Its fonts; saved before fonts could be chosen means Plex.
+    #[serde(flatten)]
+    pub fonts: Fonts,
 }
 
 /// A style as it is written to text.
@@ -50,6 +96,12 @@ struct StyleFile {
     colors: StyleColors,
     #[serde(default)]
     radius: Radius,
+    /// Written as the family name, Plex's included, so a style made with
+    /// Plex sets Plex. A style without the key keeps the reader's font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ui_font: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    code_font: Option<String>,
 }
 
 /// A style read by [`import`].
@@ -61,6 +113,9 @@ pub struct Imported {
     pub style: StyleSpec,
     /// Whether it was converted from a Mattermost theme.
     pub from_mattermost: bool,
+    /// The fonts it sets, or `None` to keep the person's own: a Mattermost
+    /// theme, or a style shared without fonts.
+    pub fonts: Option<Fonts>,
 }
 
 /// Why [`import`] read nothing.
@@ -72,8 +127,8 @@ pub enum ImportError {
     TooNew,
 }
 
-/// `style` as shareable text, under `name` when it has one.
-pub fn export(style: &StyleSpec, name: Option<&str>) -> String {
+/// `style` with `fonts` as shareable text, under `name` when it has one.
+pub fn export(style: &StyleSpec, name: Option<&str>, fonts: &Fonts) -> String {
     let round = |x: f32| (x * 1000.).round() / 1000.;
     let c = style.colors;
     let file = StyleFile {
@@ -88,6 +143,8 @@ pub fn export(style: &StyleSpec, name: Option<&str>) -> String {
             accent_dark: round(c.accent_dark),
         },
         radius: style.radius,
+        ui_font: Some(fonts.ui_font.clone().unwrap_or_else(|| SANS.to_owned())),
+        code_font: Some(fonts.code_font.clone().unwrap_or_else(|| MONO.to_owned())),
     };
     serde_json::to_string_pretty(&file).expect("a style serializes")
 }
@@ -124,6 +181,10 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
         let file: StyleFile =
             serde_json::from_value(value.clone()).map_err(|_| ImportError::NotAStyle)?;
         let colors = checked(file.colors).ok_or(ImportError::NotAStyle)?;
+        let fonts = (file.ui_font.is_some() || file.code_font.is_some()).then(|| Fonts {
+            ui_font: font(file.ui_font.as_deref(), SANS),
+            code_font: font(file.code_font.as_deref(), MONO),
+        });
         return Ok(Imported {
             name: file.name.map(|n| clean_name(&n)).filter(|n| !n.is_empty()),
             style: StyleSpec {
@@ -131,6 +192,7 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
                 radius: file.radius,
             },
             from_mattermost: false,
+            fonts,
         });
     }
     let built_in = object
@@ -152,6 +214,7 @@ pub fn import(text: &str) -> Result<Imported, ImportError> {
         name: theme.is_built_in().then(|| theme.name()),
         style: from_mattermost(&theme),
         from_mattermost: true,
+        fonts: None,
     })
 }
 
@@ -256,7 +319,7 @@ pub fn clean_name(name: &str) -> String {
 /// `saved` with `style` stored under `name`: replacing a style of the same
 /// name (ignoring case), else added at the end while there is room.
 /// Returns whether it was stored.
-pub fn save(saved: &mut Vec<SavedStyle>, name: &str, style: StyleSpec) -> bool {
+pub fn save(saved: &mut Vec<SavedStyle>, name: &str, style: StyleSpec, fonts: Fonts) -> bool {
     let name = clean_name(name);
     if name.is_empty() {
         return false;
@@ -267,12 +330,13 @@ pub fn save(saved: &mut Vec<SavedStyle>, name: &str, style: StyleSpec) -> bool {
     {
         existing.name = name;
         existing.style = style;
+        existing.fonts = fonts;
         return true;
     }
     if saved.len() >= SAVED_MAX {
         return false;
     }
-    saved.push(SavedStyle { name, style });
+    saved.push(SavedStyle { name, style, fonts });
     true
 }
 
@@ -316,7 +380,7 @@ mod tests {
     fn a_style_survives_export_and_import() {
         let mut style = Preset::Porcelain.style().with_accent(0.6123, 0.15, 30.4);
         style.radius = Radius::Round;
-        let text = export(&style, Some("  Dusk\n"));
+        let text = export(&style, Some("  Dusk\n"), &Fonts::default());
         assert!(text.contains("\"matty_style\": 1"));
         let back = import(&text).unwrap();
         assert_eq!(back.name.as_deref(), Some("Dusk"));
@@ -324,7 +388,7 @@ mod tests {
         assert!(!back.from_mattermost);
         assert!(close(back.style, style));
         // An unnamed style has no name key at all.
-        assert!(!export(&style, None).contains("name"));
+        assert!(!export(&style, None, &Fonts::default()).contains("name"));
     }
 
     #[test]
@@ -340,7 +404,7 @@ mod tests {
         ] {
             assert_eq!(import(text), Err(ImportError::NotAStyle), "{text:?}");
         }
-        let newer = export(&Preset::Graphite.style(), None)
+        let newer = export(&Preset::Graphite.style(), None, &Fonts::default())
             .replace("\"matty_style\": 1", "\"matty_style\": 9");
         assert_eq!(import(&newer), Err(ImportError::TooNew));
     }
@@ -416,20 +480,65 @@ mod tests {
         let mut saved = Vec::new();
         let graphite = Preset::Graphite.style();
         let porcelain = Preset::Porcelain.style();
-        assert!(save(&mut saved, " Work ", graphite));
-        assert!(save(&mut saved, "work", porcelain));
+        assert!(save(&mut saved, " Work ", graphite, Fonts::default()));
+        assert!(save(&mut saved, "work", porcelain, Fonts::default()));
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].name, "work");
         assert_eq!(saved[0].style, porcelain);
-        assert!(!save(&mut saved, "   ", graphite));
+        assert!(!save(&mut saved, "   ", graphite, Fonts::default()));
         for n in 1..SAVED_MAX {
-            assert!(save(&mut saved, &format!("Style {n}"), graphite));
+            assert!(save(
+                &mut saved,
+                &format!("Style {n}"),
+                graphite,
+                Fonts::default()
+            ));
         }
-        assert!(!save(&mut saved, "One too many", graphite));
+        assert!(!save(
+            &mut saved,
+            "One too many",
+            graphite,
+            Fonts::default()
+        ));
         assert_eq!(saved.len(), SAVED_MAX);
         assert_eq!(unused_name(&saved, "Style"), "Style");
         assert_eq!(unused_name(&saved, "Style 1"), "Style 1 2");
         assert_eq!(unused_name(&saved, "work"), "work 2");
+    }
+
+    #[test]
+    fn fonts_travel_with_a_style() {
+        let style = Preset::Graphite.style();
+        let inter = Fonts {
+            ui_font: Some("Inter".into()),
+            code_font: None,
+        };
+        let text = export(&style, None, &inter);
+        // Plex is written by name, so it sets Plex where it is pasted.
+        assert!(text.contains("\"code_font\": \"IBM Plex Mono\""));
+        assert_eq!(import(&text).unwrap().fonts, Some(inter));
+        // A family this machine lacks is kept as written.
+        let missing = text.replace("Inter", "Comic Neue");
+        assert_eq!(
+            import(&missing).unwrap().fonts.unwrap().ui_font.as_deref(),
+            Some("Comic Neue")
+        );
+        // No font keys, or a Mattermost theme: keep the person's own.
+        let bare = r#"{"matty_style": 1, "colors": {
+            "neutral_hue": 0, "neutral_chroma": 0, "accent_hue": 0,
+            "accent_chroma": 0, "accent_light": 0.3, "accent_dark": 0.9
+        }}"#;
+        assert_eq!(import(bare).unwrap().fonts, None);
+        assert_eq!(import(mattermost_theme::BUILT_IN[0].1).unwrap().fonts, None);
+        // Saved styles from before fonts read as Plex.
+        let old: SavedStyle = serde_json::from_str(&format!(
+            r#"{{"name": "Old", "style": {}}}"#,
+            serde_json::to_string(&style).unwrap()
+        ))
+        .unwrap();
+        assert_eq!(old.fonts, Fonts::default());
+        assert_eq!(font(Some(" ibm plex sans "), SANS), None);
+        assert_eq!(font(Some("  "), SANS), None);
     }
 
     #[test]
