@@ -2,7 +2,10 @@
 """Draws Matty's app icon, "Overlap" (#65): a lowercase m made of two solid
 arches, two voices, in blue and pink that mix where they overlap.
 
-Writes the SVG masters here, then renders PNGs with Playwright's Chromium
+Writes the SVG masters here and the macOS 26 icon source,
+packaging/macos/AppIcon.icon (Icon Composer's format: one full-bleed
+layer per shape; the system draws the tile, its glass and the dark and
+tinted looks, and scripts/macos-icon compiles it). Then renders PNGs with Playwright's Chromium
 (`node`, `require('playwright')`) and packs AppIcon.icns, matty.ico, the
 Linux icon, the web favicon, the tray icon and the sign-in mark with
 Pillow:
@@ -24,6 +27,10 @@ ROOT = HERE.parent.parent
 LEFT = "M16 72V50a22 22 0 0 1 44 0v22z"
 RIGHT = "M40 72V50a22 22 0 0 1 44 0v22z"
 OVERLAP = "M40 72V50A22 22 0 0 1 50 31.56A22 22 0 0 1 60 50V72z"
+# The arches without their overlap, so the three Icon Composer layers do not
+# depend on their stacking order.
+LEFT_ONLY = "M16 72V50a22 22 0 0 1 34-18.44A22 22 0 0 0 40 50v22z"
+RIGHT_ONLY = "M60 72V50A22 22 0 0 0 50 31.56A22 22 0 0 1 84 50v22z"
 
 # Light: multiply of blue and pink. Dark: screen of the lighter pair.
 LIGHT = ("#3D5AFE", "#FF4F7B", "#3D1C7A")
@@ -70,6 +77,49 @@ SVGS = {
     "matty-mark-mono.svg": f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 14 76 76">\n  <g transform="translate(0 2)"><path d="{LEFT}"/><path d="{RIGHT}" fill-opacity=".55"/></g>\n</svg>\n',
 }
 
+def srgb(hex_color):
+    r, g, b = (int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return f"srgb:{r:.5f},{g:.5f},{b:.5f},1.00000"
+
+
+def icon_composer():
+    """AppIcon.icon: the mark on a 1024 canvas, opaque, with no tile of its
+    own. Each arch is a layer whose fill Icon Composer sets per appearance,
+    so the shapes are drawn in plain black. The arches leave a gap for the
+    overlap, which gets a hairline stroke so no seam shows."""
+    out = ROOT / "packaging/macos/AppIcon.icon"
+    assets = out / "Assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    layers = []
+    for name, path, light, dark, stroke in (
+        ("overlap", OVERLAP, LIGHT[2], DARK[2], ' stroke="#000" stroke-width=".4"'),
+        ("right", RIGHT_ONLY, LIGHT[1], DARK[1], ""),
+        ("left", LEFT_ONLY, LIGHT[0], DARK[0], ""),
+    ):
+        (assets / f"{name}.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">'
+            f'<g transform="translate(0 -20.48) scale(10.24)"><path d="{path}"{stroke}/></g></svg>\n')
+        layers.append({
+            "fill": {"solid": srgb(light)},
+            "fill-specializations": [{"appearance": "dark", "value": {"solid": srgb(dark)}}],
+            "glass": False,
+            "hidden": False,
+            "image-name": f"{name}.svg",
+            "name": name,
+        })
+    icon = {
+        "fill": {"solid": srgb("#FFFFFF")},
+        "fill-specializations": [{"appearance": "dark", "value": {"solid": srgb("#1B1C20")}}],
+        "groups": [{
+            "layers": layers,
+            "shadow": {"kind": "neutral", "opacity": 0.5},
+            "translucency": {"enabled": False, "value": 0.5},
+        }],
+        "supported-platforms": {"squares": ["macOS"]},
+    }
+    (out / "icon.json").write_text(json.dumps(icon, indent=2) + "\n")
+
+
 RENDER = r"""
 const {chromium} = require('playwright');
 const jobs = JSON.parse(process.argv[process.argv.length - 1]);
@@ -90,6 +140,7 @@ const jobs = JSON.parse(process.argv[process.argv.length - 1]);
 def main():
     for name, svg in SVGS.items():
         (HERE / name).write_text(svg)
+    icon_composer()
     png = HERE / "png"
     png.mkdir(exist_ok=True)
     (ROOT / "crates/matty-app/assets/brand").mkdir(exist_ok=True)
@@ -101,6 +152,9 @@ def main():
     jobs.append([str(HERE / "matty-mark.svg"), 128, str(ROOT / "crates/matty-app/assets/brand/mark-128.png")])
     subprocess.run(["node", "-e", RENDER, json.dumps(jobs)], check=True)
 
+    # The fallback for macOS 13 to 15, where the icon still carries its own
+    # tile. scripts/macos-icon replaces it with actool's own fallback when
+    # Xcode 26 is there.
     macos = Image.open(png / "macos-1024.png")
     macos.save(ROOT / "packaging/macos/AppIcon.icns",
                sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)])

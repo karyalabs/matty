@@ -54,12 +54,17 @@ for scheme in ${schemes[@]+"${schemes[@]}"}; do
 done
 scheme_lines="${scheme_lines%$'\n'}"
 
-# The app icon (#65) is optional until it lands.
-icon_lines=""
-icon="$root/packaging/macos/AppIcon.icns"
-if [[ -f "$icon" ]]; then
-	cp "$icon" "$app/Contents/Resources/AppIcon.icns"
-	icon_lines=$'\t<key>CFBundleIconFile</key>\n\t<string>AppIcon</string>'
+# The app icon (#65). With Xcode 26, actool compiles the Icon Composer source
+# into Assets.car, which macOS 26 draws with its own tile and looks, plus an
+# .icns for older systems. Without it, the committed .icns stands in.
+res="$app/Contents/Resources"
+icon_lines=$'\t<key>CFBundleIconFile</key>\n\t<string>AppIcon</string>'
+if [[ "$(uname)" == Darwin ]] && "$root/scripts/macos-icon" "$res" >/dev/null; then
+	icon_lines+=$'\n\t<key>CFBundleIconName</key>\n\t<string>AppIcon</string>'
+else
+	echo "macos-bundle: no Xcode 26 actool; using the committed AppIcon.icns" >&2
+	rm -f "$res/Assets.car"
+	cp "$root/packaging/macos/AppIcon.icns" "$res/AppIcon.icns"
 fi
 
 template="$root/packaging/macos/Info.plist.in"
