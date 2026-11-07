@@ -100,6 +100,79 @@ pub struct StyleSpec {
     pub radius: Radius,
 }
 
+/// How the greys of a custom style are tinted (#705).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Greys {
+    /// Almost pure grey.
+    Neutral,
+    /// A cool, blue-grey tint.
+    Cool,
+    /// A warm, paper-like tint.
+    Warm,
+    /// Tinted toward the accent.
+    Tinted,
+}
+
+impl Greys {
+    /// Every choice, in the order Preferences offers them.
+    pub const ALL: [Self; 4] = [Self::Neutral, Self::Cool, Self::Warm, Self::Tinted];
+
+    /// The neutral hue and chroma for an accent of `accent_hue`.
+    fn tint(self, accent_hue: f32) -> (f32, f32) {
+        match self {
+            Self::Neutral => (accent_hue, 0.002),
+            Self::Cool => (255., 0.007),
+            Self::Warm => (75., 0.007),
+            Self::Tinted => (accent_hue, 0.012),
+        }
+    }
+}
+
+impl StyleSpec {
+    /// The accent as one color: its hue, chroma and light-mode lightness.
+    pub fn accent(&self) -> (f32, f32, f32) {
+        let c = &self.colors;
+        (c.accent_light, c.accent_chroma, c.accent_hue)
+    }
+
+    /// This style with the accent `lightness`, `chroma` and `hue` (light
+    /// mode). Dark mode takes a lighter accent from it, as the presets do;
+    /// tinted greys follow the hue. The contrast guard does the rest.
+    pub fn with_accent(mut self, lightness: f32, chroma: f32, hue: f32) -> Self {
+        let greys = self.greys();
+        let c = &mut self.colors;
+        c.accent_light = lightness.clamp(0.05, 0.98);
+        c.accent_dark = (1.28 - lightness).clamp(0.6, 0.93);
+        c.accent_chroma = chroma.max(0.);
+        c.accent_hue = hue.rem_euclid(360.);
+        self.with_greys(greys)
+    }
+
+    /// How this style's greys are tinted, the nearest choice.
+    pub fn greys(&self) -> Greys {
+        let c = &self.colors;
+        Greys::ALL
+            .into_iter()
+            .min_by(|a, b| {
+                let distance = |greys: Greys| {
+                    let (hue, chroma) = greys.tint(c.accent_hue);
+                    let hue_gap = ((hue - c.neutral_hue + 540.).rem_euclid(360.) - 180.).abs();
+                    (chroma - c.neutral_chroma).abs() * 100. + hue_gap / 360.
+                };
+                distance(*a).total_cmp(&distance(*b))
+            })
+            .unwrap_or(Greys::Neutral)
+    }
+
+    /// This style with its greys tinted `greys`.
+    pub fn with_greys(mut self, greys: Greys) -> Self {
+        let (hue, chroma) = greys.tint(self.colors.accent_hue);
+        self.colors.neutral_hue = hue;
+        self.colors.neutral_chroma = chroma;
+        self
+    }
+}
+
 /// Builds the default preset's theme for `mode`; see [`theme_for`].
 pub fn theme(mode: ThemeMode) -> UiTheme {
     theme_for(Preset::default(), mode)
@@ -178,7 +251,12 @@ impl Palette {
 /// motion settings the app already applied. Does nothing when the installed
 /// theme is already this one, so views are not repainted.
 pub fn install(preset: Preset, mode: ThemeMode, cx: &mut App) {
-    install_theme(theme_for(preset, mode), Palette::for_mode(mode), cx);
+    install_style(&preset.style(), mode, cx);
+}
+
+/// Installs `style` for `mode`, as [`install`] does a preset.
+pub fn install_style(style: &StyleSpec, mode: ThemeMode, cx: &mut App) {
+    install_theme(theme_from(style, mode), Palette::for_mode(mode), cx);
 }
 
 /// Installs `next` and its `palette`, such as an imported Mattermost theme
@@ -499,6 +577,22 @@ mod tests {
             UiTheme::from_shadcn_css(&css, ThemeMode::Light).unwrap();
             UiTheme::from_shadcn_css(&css, ThemeMode::Dark).unwrap();
         }
+    }
+
+    #[test]
+    fn a_custom_accent_keeps_its_greys_and_lightens_for_dark() {
+        let style = Preset::Graphite
+            .style()
+            .with_greys(Greys::Warm)
+            .with_accent(0.55, 0.19, 262.);
+        assert_eq!(style.greys(), Greys::Warm);
+        assert_eq!(style.accent(), (0.55, 0.19, 262.));
+        assert!(style.colors.accent_dark > style.colors.accent_light);
+        let tinted = style.with_greys(Greys::Tinted).with_accent(0.6, 0.15, 30.);
+        assert_eq!(tinted.colors.neutral_hue, 30.);
+        assert_eq!(tinted.greys(), Greys::Tinted);
+        assert_eq!(Preset::Graphite.style().greys(), Greys::Neutral);
+        assert_eq!(Preset::Porcelain.style().greys(), Greys::Cool);
     }
 
     #[test]

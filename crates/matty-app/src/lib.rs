@@ -583,11 +583,14 @@ pub(crate) fn apply_theme(window: &Window, cx: &mut App) {
         let (theme, palette) = imported.ui();
         style::install_theme(theme, palette, cx);
     } else {
-        let preset = match settings.theme_source {
-            ThemeSource::Porcelain => style::Preset::Porcelain,
-            ThemeSource::Matty | ThemeSource::Mattermost => style::Preset::Graphite,
+        let style = match settings.theme_source {
+            ThemeSource::Porcelain => style::Preset::Porcelain.style(),
+            ThemeSource::Custom => settings
+                .custom_style
+                .unwrap_or_else(|| style::Preset::Graphite.style()),
+            ThemeSource::Matty | ThemeSource::Mattermost => style::Preset::Graphite.style(),
         };
-        style::install(preset, mode, cx);
+        style::install_style(&style, mode, cx);
     }
     // Cached views (the sidebar, the right pane) only redraw on their own
     // notify, and the theme is a global.

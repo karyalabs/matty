@@ -657,34 +657,12 @@ impl MainWindow {
                 };
                 theme_store.update(cx, |store, cx| store.update(cx, |s| s.theme = choice));
             });
-        let source_store = store.clone();
-        let colors_group = choices(
-            "preferences.colors",
-            t!("prefs-colors"),
-            match settings.theme_source {
-                ThemeSource::Matty => "matty",
-                ThemeSource::Porcelain => "porcelain",
-                ThemeSource::Mattermost => "mattermost",
-            },
-            &[
-                ("matty", t!("prefs-colors-graphite")),
-                ("porcelain", t!("prefs-colors-porcelain")),
-                ("mattermost", t!("prefs-colors-mattermost")),
-            ],
-            move |value, cx| {
-                let source = match value {
-                    "porcelain" => ThemeSource::Porcelain,
-                    "mattermost" => ThemeSource::Mattermost,
-                    _ => ThemeSource::Matty,
-                };
-                source_store.update(cx, |store, cx| {
-                    store.update(cx, |s| s.theme_source = source)
-                });
-            },
-        );
+        let colors_group = super::style_editor::gallery(&store, cx);
         let imported = crate::mattermost_theme::shown(&settings, cx);
         let use_imported = settings.theme_source == ThemeSource::Mattermost;
+        let custom = settings.theme_source == ThemeSource::Custom;
         let colors_hint: SharedString = match (&imported, use_imported) {
+            (_, false) if custom => t!("prefs-colors-own-hint"),
             (_, false) => t!("prefs-colors-matty-hint"),
             (Some(imported), true) => {
                 t!("prefs-colors-imported-hint", name = imported.name())
@@ -698,6 +676,9 @@ impl MainWindow {
         let colors = hinted(colors_group, colors_hint, &theme)
             .when(!failing.is_empty(), |colors| {
                 colors.child(contrast_warning(&failing, &theme))
+            })
+            .when(custom, |colors| {
+                colors.child(super::style_editor::editor(&store, cx))
             });
         let theme_group = if use_imported {
             hinted(theme_group, t!("prefs-theme-from-mattermost"), &theme)
@@ -1570,7 +1551,7 @@ fn labelled_row(
 
 /// A joined toggle group of `options` (value, text) with `value` chosen;
 /// `change` gets the value picked.
-fn choices(
+pub(super) fn choices(
     id: &'static str,
     label: SharedString,
     value: &'static str,
