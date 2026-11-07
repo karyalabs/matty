@@ -227,18 +227,19 @@ pub enum AddError {
 
 /// A font file's family name and whether it is monospace.
 fn describe(bytes: &[u8]) -> Option<(String, bool)> {
-    let face = ttf_parser::Face::parse(bytes, 0).ok()?;
-    let names = face.names();
+    use skrifa::MetadataProvider as _;
+    use skrifa::raw::TableProvider as _;
+    use skrifa::string::StringId;
+    let font = skrifa::FontRef::new(bytes).ok()?;
     let find = |id| {
-        names
-            .into_iter()
-            .filter(|name| name.name_id == id && name.is_unicode())
-            .find_map(|name| name.to_string())
+        font.localized_strings(id)
+            .english_or_first()
+            .map(|name| name.to_string())
             .filter(|name| !name.trim().is_empty())
     };
-    let family = find(ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
-        .or_else(|| find(ttf_parser::name_id::FAMILY))?;
-    Some((family, face.is_monospaced()))
+    let family = find(StringId::TYPOGRAPHIC_FAMILY_NAME).or_else(|| find(StringId::FAMILY_NAME))?;
+    let monospace = font.post().is_ok_and(|post| post.is_fixed_pitch() != 0);
+    Some((family, monospace))
 }
 
 /// Copies the font file at `path` into [`dir`], loads it, and returns its
