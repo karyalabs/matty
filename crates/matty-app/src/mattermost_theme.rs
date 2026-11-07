@@ -248,6 +248,9 @@ impl Theme {
         c.warning_foreground = readable_on(c.warning);
         c.info = over(m.link_color, bg);
         c.info_foreground = readable_on(c.info);
+        // Links follow `primary`, as they did before Matty's presets set
+        // their own link color.
+        c.link = None;
         c.border = tint(BORDER);
         c.input = tint(BORDER);
         c.ring = c.primary;

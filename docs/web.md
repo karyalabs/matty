@@ -144,7 +144,7 @@ wheel scrolling, hovering, typing, with the main-thread time of every frame.
   page's event loop (`matty_api::rt`). Timers go through `matty_api::rt`
   too, since tokio's have no driver in the browser.
 - **Fonts.** GPUI's web text system has no system fonts and falls back to
-  IBM Plex Sans, which the page bundles; Matty's own text uses Geist.
+  IBM Plex Sans, which the page bundles; Matty's own text is Plex too.
 - **Not yet on the web.** Attaching files (no file picker from GPUI yet),
   desktop notifications, the tray and opening downloaded files. Downloads go
   through the browser's own download.

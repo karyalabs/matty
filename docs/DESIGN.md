@@ -1,8 +1,9 @@
 # Matty design direction
 
-How Matty looks and feels, and the tokens behind it. The theme itself is
-`crates/matty-app/assets/theme.css` (shadcn format, so it opens in tweakcn)
-plus the semantic colors in `crates/matty-app/src/style.rs`. Everything
+How Matty looks and feels, and the tokens behind it. The color presets are
+`crates/matty-app/assets/theme-*.css` (shadcn format, so they open in
+tweakcn), written from a few OKLCH numbers by `scripts/theme_palette.py`,
+plus the semantic colors and type scale in `crates/matty-app/src/style.rs`. Everything
 below is applied through gpuicn's `UiTheme`; Matty never restyles a gpuicn
 component, it only sets tokens and composes.
 
@@ -11,12 +12,17 @@ component, it only sets tokens and composes.
 Matty should feel like a quiet native app, not a web page in a frame:
 
 - **Calm surfaces, one accent.** Near-white or near-black canvases, a
-  slightly tinted sidebar, hairline borders, and a single indigo-blue accent
-  for selection, links, mentions and primary actions. Nothing else is
-  saturated except presence dots and errors.
-- **Text carries the hierarchy.** Weight and color, not boxes and shadows,
-  separate unread from read, author from body, meta from content. Geist at
-  two weights (Regular, Medium) is enough.
+  slightly tinted sidebar, hairline borders, and a single accent for links,
+  mentions and primary actions. In Graphite, the default, that accent is
+  ink, so nothing is saturated except presence dots and errors. Selection
+  is a soft neutral fill, never the accent.
+- **Text carries the hierarchy.** Size, weight and color, not boxes and
+  shadows, separate unread from read, author from body, meta from content.
+  IBM Plex Sans has one bold step (SemiBold), kept for titles, names and
+  unread rows.
+- **Room to make it yours.** Graphite and Porcelain are built-in presets on
+  the same derived tokens, so more presets, a custom accent and the user's
+  own font can follow without touching views.
 - **Dense but breathable.** 4px grid, 28px sidebar rows, 48px headers, 20px
   content gutters. Slack-like density, Zed-like restraint.
 - **Native chrome.** Matty draws its own title bar (traffic lights inset on
@@ -30,26 +36,31 @@ Matty should feel like a quiet native app, not a web page in a frame:
 ## 2. Color
 
 Tokens are shadcn names so gpuicn components pick them up unchanged.
-Values are sRGB hex; the CSS is the source of truth.
+Values are sRGB hex, generated; change a preset in `scripts/theme_palette.py`.
 
-| Token | Light | Dark | Used for |
-| --- | --- | --- | --- |
-| `background` / `foreground` | `#ffffff` / `#1b1f2a` | `#15171c` / `#e8eaef` | Channel view, dialogs' text |
-| `sidebar` / `sidebar-foreground` | `#f4f5f7` / `#1b1f2a` | `#0f1114` / `#d6dae3` | Title bar, team rail, sidebar |
-| `sidebar-accent` | `#e6e8ed` | `#1d2129` | Hovered and selected sidebar rows |
-| `sidebar-border` / `border` | `#e3e5ea` / `#e6e8ec` | `#262a33` / `#2a2e37` | Hairlines |
-| `primary` / `primary-foreground` | `#3056d3` / `#ffffff` | `#6688f2` / `#0f1114` | Buttons, links, selected rail item, mention badges |
-| `accent` / `accent-foreground` | `#eef0f4` / `#1b1f2a` | `#242830` / `#e8eaef` | Hover on buttons and menu items |
-| `muted` / `muted-foreground` | `#f1f2f4` / `#5f6775` | `#262a33` / `#8b93a5` | Timestamps, placeholders, meta; avatar and icon frames |
-| `card` / `popover` | `#ffffff` | `#1c1f26` | Popovers, menus, dialogs |
-| `destructive` | `#d42020` | `#f0564f` | Errors, delete, DND |
-| `ring` | `#3056d3` | `#6688f2` | Focus |
-| `radius` | 8px | 8px | Base; buttons use 6px, inputs 8px, cards 10px |
+| Token | Graphite light | Graphite dark | Porcelain light | Porcelain dark | Used for |
+| --- | --- | --- | --- | --- | --- |
+| `background` / `foreground` | `#fdfdfe` / `#17181a` | `#131415` / `#eaebec` | `#fdfdff` / `#15181e` | `#121417` / `#e9ebee` | Channel view, dialogs' text |
+| `sidebar` | `#f5f6f7` | `#0d0e0f` | `#f4f6fa` | `#0c0e11` | Title bar, team rail, sidebar |
+| `sidebar-accent` | `#e5e6e8` | `#222324` | `#e3e6ec` | `#202327` | Hovered and selected sidebar rows |
+| `border` / `input` | `#e2e3e4` / `#d8d9da` | `#232425` / `#2d2e2f` | `#e1e3e7` / `#d7d9dd` | `#222427` / `#2c2e31` | Hairlines, field fills |
+| `primary` / `primary-foreground` | `#1f2226` / `#fcfcfc` | `#e5e8ed` / `#121212` | `#4b64ae` / `#fcfcfc` | `#94aff6` / `#101116` | Buttons, links, mention badges, send |
+| `accent` | `#ecedee` | `#212223` | `#eaedf1` | `#202225` | Hover on buttons and menu items |
+| `muted` / `muted-foreground` | `#eff0f1` / `#626365` | `#212223` / `#9d9ea0` | `#eef0f4` / `#5f636a` | `#202225` / `#9c9ea3` | Timestamps, placeholders, meta |
+| `card` / `popover` | `#fdfdfe` | `#1b1c1d` | `#fdfdff` | `#1a1c1f` | Popovers, menus, dialogs |
+| `destructive` | `#cf2a2a` | `#f0564f` | `#cf2a2a` | `#f0564f` | Errors, delete, DND |
+| `radius` | 8px | 8px | 8px | 8px | Base; buttons use 6px, inputs 8px, cards 10px |
+
+A preset is five numbers: the hue and chroma that tint every neutral, and
+the accent's hue, chroma and lightness per mode. Dark is designed rather
+than inverted: surfaces get lighter as they come forward (sidebar, page,
+popover), the accent goes lighter and a little less saturated, and text
+sits at 94% lightness so it does not glare.
 
 Every text token reaches 4.5:1 on every surface it sits on, and every
-presence color 3:1 (PLAN §8); `scripts/contrast.py` checks the CSS. In
-dark mode `primary` is a light blue with near-black text on it, because no
-mid-blue can carry white text and still read as a link on `#15171c`.
+presence color 3:1 (PLAN §8); `scripts/contrast.py` checks every preset.
+In dark mode `primary` is light with near-black text on it, because no
+mid-tone can carry white text and still read as a link on the dark page.
 Hairline borders are decorative and exempt; inputs are told apart by their
 `input` fill and placeholder, not their border.
 
@@ -107,21 +118,26 @@ reads the same way.
 
 Contrast: every foreground on its surface is at least 4.5:1, every
 `muted-foreground` at least 4.5:1 on `background` and `sidebar`, and the
-accent on white is 6.2:1. `style.rs` tests the pairs that matter.
+accent on the page is at least 5:1 in every preset. `style.rs` tests the
+pairs that matter.
 
 ## 3. Type
 
-Geist Sans for UI and messages, Geist Mono for code. Sizes are in px at
-text scale 1; everything multiplies by the user's text scale and zoom.
+IBM Plex Sans for UI and messages, IBM Plex Mono for code, both bundled
+(Regular, Italic, Medium and SemiBold; Mono Regular and Medium). Plex is
+humanist and stays readable at 12 to 14px, where most of a chat client's
+text lives. The scale has wide steps so the channel name, a message and a
+sidebar row read at different volumes. Sizes are in px at text scale 1;
+everything multiplies by the user's text scale and zoom.
 
 | Role | Size / line | Weight | Where |
 | --- | --- | --- | --- |
-| `title` | 15 / 20 | Medium | Channel name in the header, dialog titles |
-| `body` | 14 / 21 | Regular | Post text, composer |
-| `ui` | 13 / 18 | Regular | Sidebar rows, buttons, menus, title bar |
-| `ui_strong` | 13 / 18 | Medium | Unread rows, author names, labels |
+| `title` | 17 / 24 | SemiBold | Channel name in the header, dialog titles |
+| `body` | 14.5 / 22 | Regular | Post text, composer |
+| `ui` | 13.5 / 20 | Regular | Sidebar rows, buttons, menus, title bar |
+| `ui_strong` | 13.5 / 20 | SemiBold | Unread rows, author names, labels |
 | `meta` | 12 / 16 | Regular | Timestamps, counts, descriptions |
-| `label` | 11 / 16 | Medium, +0.4px tracking, uppercase | Sidebar category names |
+| `label` | 11 / 16 | Medium, uppercase | Sidebar category names |
 | `code` | 13 / 20 | Mono | Inline code and blocks |
 
 ## 4. Layout

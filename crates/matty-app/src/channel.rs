@@ -48,14 +48,13 @@ use crate::ui::{
     menu::{Menu, MenuItem, MenuState},
     message::{
         Message, MessageDensity, MessageHighlight, MessageStatus, Reaction, day_divider,
-        message_action, message_actions, new_messages_divider,
+        message_action, message_actions, message_emoji_action, new_messages_divider,
     },
     message_list::{MessageList, MessageListState},
     popover::{hover_popover, popover},
     skeleton::Skeleton,
     spinner::Spinner,
     theme::UiTheme,
-    tooltip::text_tooltip,
 };
 
 /// One reaction chip under a post.
@@ -96,7 +95,7 @@ impl PostReaction {
         t!(
             "chan-reacted-with",
             who = who,
-            emoji = self.emoji.to_string()
+            emoji = crate::emoji::shortcode(&self.emoji)
         )
         .to_string()
     }
@@ -374,24 +373,28 @@ pub(crate) fn delete_popup(
 }
 
 /// The tooltip builder for a message's reaction chips, looking each chip
-/// up in `reactions` by emoji.
+/// up in `reactions` by emoji: the emoji large, who reacted with its
+/// shortcode, and what a click does, as Mattermost's (#679).
 pub fn reaction_tooltip(
     reactions: Vec<PostReaction>,
 ) -> impl Fn(&Reaction, &mut Window, &mut App) -> gpui_kit::AnyView + 'static {
     move |reaction, _, cx| {
-        let text = reactions
-            .iter()
-            .find(|r| r.emoji == reaction.emoji)
-            .map(PostReaction::summary)
-            .unwrap_or_else(|| {
-                t!(
-                    "chan-reacted-with",
-                    who = reaction.count.to_string(),
-                    emoji = reaction.emoji.to_string()
-                )
-                .to_string()
-            });
-        text_tooltip(text.into(), cx)
+        let found = reactions.iter().find(|r| r.emoji == reaction.emoji);
+        let text = match found {
+            Some(found) => found.summary(),
+            None => t!(
+                "chan-reacted-with",
+                who = reaction.count.to_string(),
+                emoji = crate::emoji::shortcode(&reaction.emoji)
+            )
+            .to_string(),
+        };
+        let hint = if reaction.reacted {
+            t!("chan-reaction-click-remove")
+        } else {
+            t!("chan-reaction-click-add")
+        };
+        gpuicn::message::reaction_tooltip(reaction, text.into(), Some(hint), cx)
     }
 }
 
@@ -1160,25 +1163,69 @@ struct Editing {
 /// What a More-menu item does to the view.
 type MenuAction = Box<dyn Fn(&mut ChannelView, &mut Window, &mut Context<ChannelView>)>;
 
-/// The reactions one click away, as Mattermost's recent-emoji row. The full
-/// picker arrives with the emoji data from sync.
-/// Each one's English name stays the key for its ids; [`reaction_name`] is
-/// what people read.
-pub(crate) const QUICK_REACTIONS: [(&str, &str); 6] = [
-    ("👍", "Thumbs up"), // i18n-ignore: a key; see reaction_name
-    ("❤️", "Heart"),     // i18n-ignore: a key; see reaction_name
-    ("😂", "Joy"),       // i18n-ignore: a key; see reaction_name
-    ("🎉", "Tada"),      // i18n-ignore: a key; see reaction_name
-    ("👀", "Eyes"),      // i18n-ignore: a key; see reaction_name
-    ("🚀", "Rocket"),    // i18n-ignore: a key; see reaction_name
-];
+/// Which of a post's menus to open.
+#[derive(Clone, Copy)]
+enum PostMenu {
+    More,
+    Context,
+}
 
-/// A [`QUICK_REACTIONS`] name in the user's language.
-pub(crate) fn reaction_name(name: &str) -> SharedString {
-    crate::i18n::text(
-        &format!("chan-reaction-{}", name.to_lowercase().replace(' ', "-")),
-        &[],
-    )
+/// The emoji a hover bar offers before anyone has reacted, as
+/// Mattermost's defaults.
+const DEFAULT_REACTIONS: [&str; 3] = ["👍", "😀", "👋"];
+
+/// How many recent emoji a hover bar offers, as Mattermost's.
+const QUICK_REACTION_COUNT: usize = 3;
+
+/// The reactions one click away in a post's hover bar (#679): the emoji
+/// the user picked most, then Mattermost's defaults, as reaction values (a
+/// glyph, or `:name:` for a custom emoji).
+pub(crate) fn quick_reactions(cx: &App) -> Vec<SharedString> {
+    let mut quick: Vec<SharedString> = Vec::new();
+    let picked = crate::emoji::frequent(cx)
+        .into_iter()
+        .map(|name| crate::emoji::glyph(&name).unwrap_or_else(|| format!(":{name}:").into()));
+    for emoji in picked.chain(DEFAULT_REACTIONS.map(SharedString::from)) {
+        if quick.len() == QUICK_REACTION_COUNT {
+            break;
+        }
+        if !quick.contains(&emoji) {
+            quick.push(emoji);
+        }
+    }
+    quick
+}
+
+/// A hover bar's one-click reaction buttons for `post`, each toggling its
+/// emoji through `toggle` (#679).
+pub(crate) fn quick_reaction_buttons(
+    post: &SharedString,
+    toggle: impl Fn(SharedString, &mut App) + Clone + 'static,
+    cx: &App,
+) -> Vec<gpui_kit::AnyElement> {
+    quick_reactions(cx)
+        .into_iter()
+        .enumerate()
+        .map(|(at, emoji)| {
+            let name = crate::emoji::shortcode(&emoji);
+            let label = t!("chan-react-with", emoji = name.clone());
+            let image = crate::emoji::reaction(&emoji, 0, false, cx).image;
+            let toggle = toggle.clone();
+            style::tipped(
+                gpui_kit::ElementId::Name(format!("post.{post}.quick.{at}.tip").into()),
+                label.clone(),
+                message_emoji_action(
+                    gpui_kit::ElementId::Name(format!("post.{post}.quick.{at}").into()),
+                    emoji.clone(),
+                    image,
+                    label,
+                    cx,
+                )
+                .on_click(move |_, _, cx| toggle(emoji.clone(), cx)),
+            )
+            .into_any_element()
+        })
+        .collect()
 }
 
 /// What is behind an image in the lightbox, for its actions.
@@ -1285,9 +1332,6 @@ pub struct ChannelView {
     /// Part of every profile card's id: bumping it after a card's action
     /// closes the card, since a new id starts closed.
     profile_cards: usize,
-    /// The post under the pointer: only its row builds the hover toolbar,
-    /// which every row used to lay out and paint, invisible, every frame.
-    hovered_post: Option<SharedString>,
     /// The channel is one of split view's two panes: the header offers
     /// Swap panes and Close pane (#222).
     split_controls: bool,
@@ -1616,7 +1660,6 @@ impl ChannelView {
             offline: crate::preview::connection() == crate::main_window::ConnectionState::Offline,
             connected: crate::preview::enabled(),
             profile_cards: 0,
-            hovered_post: None,
             split_controls: false,
             action_menus: Default::default(),
             bookmarks,
@@ -3002,13 +3045,16 @@ impl ChannelView {
     }
 
     fn pick_emoji(&mut self, name: SharedString, window: &mut Window, cx: &mut Context<Self>) {
-        crate::emoji::record_pick(&name, cx);
         let glyph = crate::emoji::glyph(&name).unwrap_or_else(|| format!(":{name}:").into());
         match self.picker_target.take() {
+            // Reacting counts the pick itself.
             Some(post) => self.toggle_reaction(post, glyph, cx),
-            None => self.composer.update(cx, |composer, cx| {
-                composer.insert(format!("{glyph} "), window, cx);
-            }),
+            None => {
+                crate::emoji::record_pick(&name, cx);
+                self.composer.update(cx, |composer, cx| {
+                    composer.insert(format!("{glyph} "), window, cx);
+                })
+            }
         }
         self.close_picker(window, cx);
     }
@@ -3028,6 +3074,10 @@ impl ChannelView {
             cx,
         ) {
             return;
+        }
+        // What you react with leads the hover bar's quick reactions (#679).
+        if !mine && let Some(name) = crate::emoji::name_for(&emoji) {
+            crate::emoji::record_pick(&name, cx);
         }
         let changed = self.mutate_post(
             &id,
@@ -3171,37 +3221,24 @@ impl ChannelView {
         });
     }
 
-    fn reaction_items_for(post: &Post, cx: &Context<Self>) -> Vec<MenuItem> {
-        let view = cx.entity().downgrade();
-        let id = post.id.clone();
-        let more_view = view.clone();
-        let more_id = id.clone();
-        let more = MenuItem::new("react.more", t!("chan-more-emoji")).on_click(move |_, _, cx| {
-            let id = more_id.clone();
-            more_view
-                .update(cx, |this, cx| this.open_picker(Some(id), cx))
-                .ok();
-        });
-        QUICK_REACTIONS
-            .iter()
-            .map(|(emoji, name)| {
-                let view = view.clone();
-                let id = id.clone();
-                let emoji: SharedString = (*emoji).into();
-                let label: SharedString = format!("{emoji}  {}", reaction_name(name)).into();
-                MenuItem::new(
-                    gpui_kit::ElementId::Name(format!("react.{name}").into()),
-                    label,
-                )
-                .checked(post.reactions.iter().any(|r| r.emoji == emoji && r.mine))
-                .on_click(move |_, _, cx| {
-                    let (view, id, emoji) = (view.clone(), id.clone(), emoji.clone());
-                    view.update(cx, |this, cx| this.toggle_reaction(id, emoji, cx))
-                        .ok();
-                })
-            })
-            .chain([MenuItem::separator(), more])
-            .collect()
+    /// Opens one of `id`'s menus at `at`, built from the post as it is now.
+    fn open_post_menu(
+        &mut self,
+        id: &str,
+        menu: PostMenu,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(post) = self.shown_post(id).cloned() else {
+            return;
+        };
+        let delete_others = self.model.as_ref().is_some_and(|model| model.delete_others);
+        let items = match menu {
+            PostMenu::More => Self::more_items_for(&post, self.away, delete_others, cx),
+            PostMenu::Context => Self::context_items_for(&post, self.away, delete_others, cx),
+        };
+        self.open_menu(items, at, window, cx);
     }
 
     /// The "More" menu. A post the server does not have yet only offers
@@ -4109,7 +4146,7 @@ impl ChannelView {
     ) -> gpui_kit::AnyElement {
         let view = cx.entity().downgrade();
         let card_id = id.clone();
-        hover_popover(
+        let popover = hover_popover(
             gpui_kit::ElementId::Name(format!("post.{id}.{slot}.{card}").into()),
             label,
         )
@@ -4183,8 +4220,16 @@ impl ChannelView {
                 },
                 cx,
             )
-        })
-        .into_any_element()
+        });
+        // A click pins the card; it must not also reach the row, which
+        // opens the thread (#680).
+        div()
+            .id(gpui_kit::ElementId::Name(
+                format!("post.{id}.{slot}.click").into(),
+            ))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(popover)
+            .into_any_element()
     }
 
     fn post_row(
@@ -4192,14 +4237,7 @@ impl ChannelView {
         profile: Option<&UserProfile>,
         editor: Option<&(Entity<ComposerState>, Pixels)>,
         highlight: MessageHighlight,
-        (menu_open, away, previews_collapsed, delete_others, profile_card, hovered): (
-            bool,
-            bool,
-            bool,
-            bool,
-            usize,
-            bool,
-        ),
+        (menu_open, away, previews_collapsed, profile_card): (bool, bool, bool, usize),
         menus: &crate::interactive::Menus,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
@@ -4208,18 +4246,22 @@ impl ChannelView {
         let avatar = Self::avatar(id.clone(), post, profile, profile_card, cx);
         let author_name = Self::author_name(&id, post, profile, profile_card, cx);
         let thread_id = post.thread_root();
-        let save_id = id.clone();
+        // Menus are built when they open, not for every row on every frame
+        // (#674).
+        let ephemeral = post.status == PostStatus::Ephemeral;
+        let saved = post.saved;
+        // The hover toolbar is built only for the hovered or selected row
+        // (#674).
+        let (actions_view, aid) = (cx.entity().downgrade(), id.clone());
         // A post the server does not have yet can only be copied, edited
         // or discarded, all in More (#195).
         let sent = post.status == PostStatus::Sent;
-        let dismiss_id = id.clone();
-        // The toolbar only shows on the hovered or selected row.
-        let show_actions = hovered || highlight == MessageHighlight::Selected;
-        let actions = show_actions.then(|| {
-            let react_items = Self::reaction_items_for(post, cx);
-            let more_items = Self::more_items_for(post, away, delete_others, cx);
+        let build_actions = move |cx: &mut Context<Self>| {
+            let id = aid;
+            let (react_id, more_id, save_id, dismiss_id) =
+                (id.clone(), id.clone(), id.clone(), id.clone());
             message_actions(cx)
-                .when(post.status == PostStatus::Ephemeral, |actions| {
+                .when(ephemeral, |actions| {
                     actions.child(style::tipped_when(
                         !menu_open,
                         gpui_kit::ElementId::Name(format!("post.{id}.dismiss.tip").into()),
@@ -4238,7 +4280,19 @@ impl ChannelView {
                     ))
                 })
                 .when(sent, |actions| {
+                    let view = cx.entity().downgrade();
+                    let post = id.clone();
+                    let quick = quick_reaction_buttons(
+                        &id,
+                        move |emoji, cx| {
+                            let post = post.clone();
+                            view.update(cx, |this, cx| this.toggle_reaction(post, emoji, cx))
+                                .ok();
+                        },
+                        cx,
+                    );
                     actions
+                        .children(quick)
                         .child(style::tipped_when(
                             !menu_open,
                             gpui_kit::ElementId::Name(format!("post.{id}.react.tip").into()),
@@ -4250,14 +4304,7 @@ impl ChannelView {
                                 cx,
                             )
                             .on_click(cx.listener(
-                                move |this, event: &gpui_kit::ClickEvent, window, cx| {
-                                    this.open_menu(
-                                        react_items.clone(),
-                                        event.position(),
-                                        window,
-                                        cx,
-                                    )
-                                },
+                                move |this, _, _, cx| this.open_picker(Some(react_id.clone()), cx),
                             )),
                         ))
                         .child(style::tipped_when(
@@ -4279,19 +4326,19 @@ impl ChannelView {
                         .child(style::tipped_when(
                             !menu_open,
                             gpui_kit::ElementId::Name(format!("post.{id}.save.tip").into()),
-                            if post.saved {
+                            if saved {
                                 t!("chan-unsave")
                             } else {
                                 t!("chan-save")
                             },
                             message_action(
                                 gpui_kit::ElementId::Name(format!("post.{id}.save").into()),
-                                if post.saved {
+                                if saved {
                                     LucideIcon::BookmarkCheck
                                 } else {
                                     LucideIcon::Bookmark
                                 },
-                                if post.saved {
+                                if saved {
                                     t!("chan-unsave")
                                 } else {
                                     t!("chan-save")
@@ -4315,11 +4362,17 @@ impl ChannelView {
                     )
                     .on_click(cx.listener(
                         move |this, event: &gpui_kit::ClickEvent, window, cx| {
-                            this.open_menu(more_items.clone(), event.position(), window, cx)
+                            this.open_post_menu(
+                                &more_id,
+                                PostMenu::More,
+                                event.position(),
+                                window,
+                                cx,
+                            )
                         },
                     )),
                 ))
-        });
+        };
         let reaction_post = id.clone();
         let view = cx.entity().downgrade();
         let add_view = view.clone();
@@ -4349,6 +4402,15 @@ impl ChannelView {
                     view.update(cx, |this, cx| this.select_post(&id, window, cx))
                         .ok();
                 }
+            })
+            // A click on the message opens its thread, as in Mattermost
+            // (#680); links, buttons and a text selection keep their own.
+            .when(sent && editor.is_none(), |row| {
+                let (view, root) = (cx.entity().downgrade(), post.thread_root());
+                row.on_click(move |_, _, cx| {
+                    view.update(cx, |_, cx| cx.emit(ChannelEvent::OpenThread(root.clone())))
+                        .ok();
+                })
             })
             .continuation(post.continues && !queued(post, away))
             .highlight(highlight)
@@ -4382,7 +4444,11 @@ impl ChannelView {
                         .ok();
                 }
             })
-            .when_some(actions, |row, actions| row.actions(actions))
+            .actions_with(move |_, cx| {
+                actions_view
+                    .update(cx, |_, cx| build_actions(cx).into_any_element())
+                    .unwrap_or_else(|_| div().into_any_element())
+            })
             .density(message_density(cx))
             .px(scaled(&theme, metrics::GUTTER))
             .when_some(post.reply_to.as_ref(), |row, context| {
@@ -4436,15 +4502,9 @@ impl ChannelView {
             // The chip row gets an add button; posts without reactions use
             // the hover toolbar, so the transcript stays quiet.
             let add_id = id.clone();
-            row = row.on_add_reaction(move |event, window, cx| {
+            row = row.on_add_reaction(move |_, _, cx| {
                 add_view
-                    .update(cx, |this, cx| {
-                        let Some(post) = this.post(&add_id) else {
-                            return;
-                        };
-                        let items = Self::reaction_items_for(&post, cx);
-                        this.open_menu(items, event.position(), window, cx)
-                    })
+                    .update(cx, |this, cx| this.open_picker(Some(add_id.clone()), cx))
                     .ok();
             });
         }
@@ -4510,28 +4570,13 @@ impl ChannelView {
         }
         // Right-click selects the row and opens the same actions as the
         // toolbar's "More" button, plus reply and react (PLAN §4.2).
-        let hover_id = id.clone();
         div()
             .id(gpui_kit::ElementId::Name(format!("post.{id}.row").into()))
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                let was = this.hovered_post.as_ref() == Some(&hover_id);
-                if *hovered && !was {
-                    this.hovered_post = Some(hover_id.clone());
-                    cx.notify();
-                } else if !*hovered && was {
-                    this.hovered_post = None;
-                    cx.notify();
-                }
-            }))
             .on_mouse_down(
                 gpui_kit::MouseButton::Right,
                 cx.listener(move |this, event: &gpui_kit::MouseDownEvent, window, cx| {
                     this.select_post(&id, window, cx);
-                    let Some(post) = this.post(&id) else {
-                        return;
-                    };
-                    let items = Self::context_items_for(&post, this.away, this.delete_others(), cx);
-                    this.open_menu(items, event.position, window, cx);
+                    this.open_post_menu(&id, PostMenu::Context, event.position, window, cx);
                 }),
             )
             .child(row)
@@ -4732,9 +4777,10 @@ impl ChannelView {
             .gap(theme.space(2.))
             .cursor_pointer()
             .hover(|style| style.bg(theme.colors.accent))
-            .on_click(
-                cx.listener(move |_, _, _, cx| cx.emit(ChannelEvent::OpenThread(open_id.clone()))),
-            )
+            .on_click(cx.listener(move |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.emit(ChannelEvent::OpenThread(open_id.clone()))
+            }))
             .child(
                 crate::avatars::group(
                     &format!("post.{id}.thread.people"),
@@ -4826,22 +4872,6 @@ impl ChannelView {
         }
     }
 
-    /// A copy of the loaded post with this id, for an action that needs
-    /// more than its id.
-    fn post(&self, id: &str) -> Option<Post> {
-        self.model
-            .as_ref()?
-            .posts
-            .iter()
-            .find(|post| post.id.as_ref() == id)
-            .cloned()
-    }
-
-    /// Whether the user may delete other people's posts here.
-    fn delete_others(&self) -> bool {
-        self.model.as_ref().is_some_and(|model| model.delete_others)
-    }
-
     fn transcript(
         &self,
         channel: &Rc<ChannelModel>,
@@ -4892,7 +4922,6 @@ impl ChannelView {
                         let highlight = this.row_highlight(index, post);
                         let menu_open = this.menu.read(cx).is_open();
                         let away = this.away;
-                        let delete_others = this.delete_others();
                         let previews_collapsed = SettingsStore::global(cx)
                             .read(cx)
                             .get()
@@ -4902,14 +4931,7 @@ impl ChannelView {
                             profile,
                             editor.as_ref(),
                             highlight,
-                            (
-                                menu_open,
-                                away,
-                                previews_collapsed,
-                                delete_others,
-                                this.profile_cards,
-                                this.hovered_post.as_ref() == Some(&post.id),
-                            ),
+                            (menu_open, away, previews_collapsed, this.profile_cards),
                             &this.action_menus,
                             cx,
                         )
@@ -5599,7 +5621,7 @@ fn person_details(person: &crate::profile::UserProfile, cx: &App) -> Option<gpui
     )
 }
 
-fn emoji_popup(picker: EmojiPicker, cx: &App) -> impl IntoElement + use<> {
+pub(crate) fn emoji_popup(picker: EmojiPicker, cx: &App) -> impl IntoElement + use<> {
     let theme = UiTheme::read(cx);
     div()
         .rounded(theme.radius.xl)
@@ -5881,14 +5903,25 @@ fn system_icon(lines: &[&str]) -> LucideIcon {
 mod tests {
     use super::*;
 
-    #[test]
-    fn every_quick_reaction_has_a_translatable_name() {
-        for (_, name) in QUICK_REACTIONS {
-            assert!(
-                !reaction_name(name).starts_with("chan-"),
-                "channel.ftl lacks {name:?}"
+    /// The hover bar offers the emoji picked most, topped up with the
+    /// defaults, without repeats (#679).
+    #[gpui_kit::test]
+    fn quick_reactions_lead_with_the_emoji_picked_most(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            crate::settings::SettingsStore::init(None, cx);
+            assert_eq!(
+                quick_reactions(cx),
+                DEFAULT_REACTIONS.map(SharedString::from)
             );
-        }
+            crate::emoji::record_pick("tada", cx);
+            crate::emoji::record_pick("tada", cx);
+            crate::emoji::record_pick("+1", cx);
+            assert_eq!(
+                quick_reactions(cx),
+                ["🎉", "👍", "😀"].map(SharedString::from),
+                "most picked first, then the defaults not already there"
+            );
+        });
     }
 
     /// A copy across messages reads one line per message (#108).
@@ -6087,14 +6120,14 @@ mod tests {
                 .map(|u| SharedString::from(u.to_string()))
                 .collect(),
         };
-        assert_eq!(reaction(1, true, &[]).summary(), "You reacted with 👍");
+        assert_eq!(reaction(1, true, &[]).summary(), "You reacted with :+1:");
         assert_eq!(
             reaction(2, false, &["Priya Nair", "Sam Okafor"]).summary(),
-            "Priya Nair and Sam Okafor reacted with 👍"
+            "Priya Nair and Sam Okafor reacted with :+1:"
         );
         assert_eq!(
             reaction(4, true, &["Priya Nair", "Sam Okafor", "Lena Fischer"]).summary(),
-            "You, Priya Nair, Sam Okafor and Lena Fischer reacted with 👍"
+            "You, Priya Nair, Sam Okafor and Lena Fischer reacted with :+1:"
         );
         // Everyone by name, however many (#621); only names still
         // loading are counted.
@@ -6102,15 +6135,18 @@ mod tests {
         let ten: Vec<&str> = ten.iter().map(String::as_str).collect();
         let all = reaction(10, false, &ten).summary();
         assert!(all.starts_with("User 1, User 2, "), "{all}");
-        assert!(all.ends_with("User 9 and User 10 reacted with 👍"), "{all}");
+        assert!(
+            all.ends_with("User 9 and User 10 reacted with :+1:"),
+            "{all}"
+        );
         assert_eq!(
             reaction(5, false, &["Priya Nair", "Sam Okafor"]).summary(),
-            "Priya Nair, Sam Okafor and 3 others reacted with 👍"
+            "Priya Nair, Sam Okafor and 3 others reacted with :+1:"
         );
         // Sync has the count before the names.
         assert_eq!(
             reaction(3, false, &[]).summary(),
-            "3 others reacted with 👍"
+            "3 others reacted with :+1:"
         );
     }
 
