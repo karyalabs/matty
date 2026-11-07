@@ -189,6 +189,7 @@ mod sounds;
 mod split;
 mod sso;
 mod style_editor;
+mod style_library;
 mod teams;
 mod triage;
 
