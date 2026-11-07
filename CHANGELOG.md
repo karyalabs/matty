@@ -9,14 +9,27 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.9] - 2026-11-07
+
+Styles you can save and share, and any font you like.
+
 ### Added
 
+- Choose any interface and code font installed on your computer, or add
+  your own font files.
 - Save several named styles and switch between them in Preferences ›
   Appearance › Styles. Share a style by copying it as text or saving it to a
   file, and paste or open one someone shared. Pasting a Mattermost theme's
   colors turns it into your own style, and "Make it my own" does the same
   for your account's Mattermost theme (#707). Saved and shared styles carry
   their interface and code fonts.
+
+### Changed
+
+- Windows uses the Matty icon for the app, its windows and the installer.
+- gpuicn 0.9.13: "Show more" works everywhere, dragging and scrolling
+  redraw less, and the shortcut sheet and delete dialog are built only
+  while open.
 
 ## [0.1.0-beta.8] - 2026-11-07
 
@@ -110,7 +123,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.8...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.9...HEAD
+[0.1.0-beta.9]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.6
