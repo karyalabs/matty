@@ -9,8 +9,27 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.8] - 2026-11-07
+
+A new look, and styles you can make your own (#698).
+
+### Added
+
+- Appearance's Colors is a gallery: Graphite, Porcelain, Your own and My
+  Mattermost theme, each drawn as a small window in its colors. Your own
+  opens an editor for the accent (swatches or a color picker), the greys
+  and the corners, with a guard that keeps text readable.
+- Matty > Check for updates… and a Check now row under Preferences >
+  Advanced > Updates.
+
 ### Changed
 
+- Matty is set in IBM Plex Sans and Mono, with Graphite and Porcelain
+  color presets.
+- "Overlap" is Matty's new app icon.
+- The channel and the thread pane share one message row, so they look
+  and behave the same.
+- gpuicn 0.9.12.
 - Matty on the web moved to <https://karyalabs.dev/matty/>, which opens the
   sign-in card for your own server, and the demo workspace to
   <https://demo.karyalabs.dev/matty/>. matty.jha.sh redirects to the demo.
@@ -82,7 +101,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.7...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.8...HEAD
+[0.1.0-beta.8]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.5
