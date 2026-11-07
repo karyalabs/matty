@@ -281,7 +281,7 @@ One time:
    `ci`, linear history, squash only, delete branches on merge, merge
    queue).
 2. A `release` environment in matty with `CLOUDFLARE_API_TOKEN` and
-   `CLOUDFLARE_ACCOUNT_ID`, so CI deploys matty.jha.sh.
+   `CLOUDFLARE_ACCOUNT_ID`, so CI deploys the web build (karyalabs.dev/matty).
 3. `HOMEBREW_TAP_TOKEN`, before the first stable release.
 4. The `karyalabs/assets` repository (D6) and the cross-repository token or
    GitHub App (section 7.4).

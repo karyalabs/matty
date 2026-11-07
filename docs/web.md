@@ -1,8 +1,15 @@
 # Matty on the web
 
-Matty also runs in the browser, on GPUI's web platform, at
-<https://matty.jha.sh>. It is the same app as the desktop build: the same UI,
-sync engine and API client, compiled to WebAssembly by `crates/matty-web`.
+Matty also runs in the browser, on GPUI's web platform. It is the same app
+as the desktop build: the same UI, sync engine and API client, compiled to
+WebAssembly by `crates/matty-web`. One build serves two addresses:
+
+| Address | Opens |
+| --- | --- |
+| <https://karyalabs.dev/matty/> | the sign-in card, for your own server |
+| <https://demo.karyalabs.dev/matty/> | [the demo workspace](#the-demo-workspace); **Connect your server** goes to karyalabs.dev/matty |
+
+The old address, `matty.jha.sh`, redirects to the demo.
 
 ## What the server needs
 
@@ -12,7 +19,7 @@ admin has to allow it once (**System Console → Web Server → CORS**, or
 
 | Setting | Value |
 | --- | --- |
-| `ServiceSettings.AllowCorsFrom` | `https://matty.jha.sh` (space separated, add others as needed) |
+| `ServiceSettings.AllowCorsFrom` | `https://karyalabs.dev` (space separated, add others as needed) |
 | `ServiceSettings.CorsExposedHeaders` | `Token ETag X-Request-Id X-Ratelimit-Limit X-Ratelimit-Remaining X-Ratelimit-Reset` |
 
 Matty reads the session from the `Token` header that signing in returns, and
@@ -26,11 +33,14 @@ and `http://localhost:8080`, which `scripts/web serve` uses.
 
 ```sh
 scripts/web setup        # once: nightly toolchain, wasm-bindgen CLI, and on macOS Homebrew llvm + binaryen
-scripts/web serve        # release build, then http://127.0.0.1:8080
+scripts/web serve        # release build, then http://127.0.0.1:8080/matty/
 scripts/web serve --dev  # faster build, ~200 MB of WebAssembly
 ```
 
-Open `http://127.0.0.1:8080/?preview=1` for the design fixtures
+The build goes to `crates/matty-web/dist`, with the app in `dist/matty/`
+as it is served; the page loads everything by relative path, so it works
+under any folder. Locally it opens the demo; `?demo=0` goes to the sign-in
+card. Open `http://127.0.0.1:8080/matty/?preview=1` for the design fixtures
 (`MATTY_PREVIEW=1` on the desktop). `?backend=webgl` skips WebGPU, which
 headless browsers need for screenshots.
 
@@ -42,14 +52,16 @@ atomics (`-Z build-std`). The page must be cross-origin isolated (the
 
 ## The demo workspace
 
-With no account signed in, the page opens a sample workspace instead of the
-sign-in card: Lumen Labs, a made-up company of twelve people a few weeks
+On demo.karyalabs.dev (any `demo.` host) and locally, with no account
+signed in, the page opens a sample workspace instead of the sign-in card: Lumen Labs, a made-up company of twelve people a few weeks
 before a launch, with 22 channels, direct and group messages, threads,
 reactions, pinned and saved posts, images and files, a CI bot's message
 attachments, unread channels and mentions, and a **Formatting Tour**
 channel with one post per kind of message. A banner says it is a demo and
-offers **Connect your server**, which goes to the sign-in card. `?demo=0`
-skips it.
+offers **Connect your server**, which goes to the same path without
+`demo.` (karyalabs.dev/matty), so servers only need to allow that one
+origin; locally it goes to the sign-in card. `?demo=0` skips the demo
+anywhere and `?demo=1` opens it anywhere: `web/index.html` decides.
 
 Nothing in the demo talks to a server. It is a snapshot of the cache the
 desktop app would have after signing in to a seeded server: one SQLite file,
@@ -75,18 +87,20 @@ the snapshot tool: it signs in as the demo user and has the sync engine load
 every channel, thread, avatar and image the way the app would. A snapshot
 from an older schema still opens, because the store migrates it on load.
 
-## Deploying to matty.jha.sh (manual, for now)
+## Deploying
 
-The site is a Cloudflare Worker that only serves static assets
-(`crates/matty-web/wrangler.jsonc`), with `matty.jha.sh` as its custom
-domain. Once:
+The site is one Cloudflare Worker (`crates/matty-web/wrangler.jsonc`) that
+serves `dist/` as static assets on three routes:
 
-1. `scripts/web setup`.
-2. The `jha.sh` zone must be on the Cloudflare account you deploy with.
-   Wrangler creates the `matty.jha.sh` DNS record and certificate on the first
-   deploy because of `"custom_domain": true`.
+- `karyalabs.dev/matty*` and `demo.karyalabs.dev/matty*`, Worker routes in
+  the `karyalabs.dev` zone. They are routes, not custom domains, so the rest
+  of karyalabs.dev and demo.karyalabs.dev stays free for other things. A
+  route only runs on a host that has a **proxied** (orange cloud) DNS record.
+- `matty.jha.sh`, a custom domain, where `worker.js` answers every request
+  with a 301 to `https://demo.karyalabs.dev/matty/`.
 
-Then, each time:
+Each release deploys it from the `release` environment (`.github/workflows/release.yml`).
+To deploy by hand:
 
 ```sh
 scripts/web deploy
@@ -94,9 +108,19 @@ scripts/web deploy
 
 It builds the release, checks every file is under Cloudflare's 25 MiB limit,
 and runs `npx wrangler@4 deploy`. The first run opens a browser to sign in
-to Cloudflare; on a machine without one, set `CLOUDFLARE_API_TOKEN` (a token
-with **Workers Scripts: Edit** and **Zone: Workers Routes: Edit** on
-`jha.sh`) and `CLOUDFLARE_ACCOUNT_ID`.
+to Cloudflare; on a machine without one, set `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`.
+
+Once, in the Cloudflare dashboard:
+
+1. The `karyalabs.dev` zone is on the account that deploys (and `jha.sh`,
+   for the redirect).
+2. DNS records for both hosts, proxied, unless they already exist:
+   `karyalabs.dev` (`@`) and `demo`, each `AAAA` to `100::` if nothing else
+   serves them. The Worker answers only under `/matty`.
+3. The API token (**Edit Cloudflare Workers** template) covers both zones:
+   **Workers Scripts: Edit** on the account and **Workers Routes: Edit** on
+   `karyalabs.dev` and `jha.sh`.
 
 Without the toolchain: every CI run uploads the release build as the
 `matty-web` artifact. Unzip it into `crates/matty-web/dist` and run
@@ -133,7 +157,8 @@ wheel scrolling, hovering, typing, with the main-thread time of every frame.
 ## What differs from the desktop
 
 - **Storage.** Settings and the session token live in the origin's
-  `localStorage`; the message cache is SQLite in memory, so each visit syncs
+  `localStorage` (karyalabs.dev and demo.karyalabs.dev are separate
+  origins, so the demo never sees a real session); the message cache is SQLite in memory, so each visit syncs
   from the server again. Persisting the cache (SQLite on OPFS) is follow-up
   work.
 - **Network.** Requests are browser `fetch` calls and the WebSocket is the

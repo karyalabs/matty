@@ -9,6 +9,14 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+### Changed
+
+- Matty on the web moved to <https://karyalabs.dev/matty/>, which opens the
+  sign-in card for your own server, and the demo workspace to
+  <https://demo.karyalabs.dev/matty/>. matty.jha.sh redirects to the demo.
+  Mattermost servers that allowed `https://matty.jha.sh` for CORS need
+  `https://karyalabs.dev` instead.
+
 ## [0.1.0-beta.7] - 2026-11-07
 
 The jank and paper-cut review (#670): smoother scrolling, and the rough

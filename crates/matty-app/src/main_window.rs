@@ -3984,7 +3984,11 @@ impl MainWindow {
                         .variant(ButtonVariant::Ghost)
                         .size(ButtonSize::Xs)
                         .aria_label("Connect your server")
-                        .on_click(cx.listener(|this, _, window, cx| this.sign_out(window, cx)))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if !crate::open_app_from_demo() {
+                                this.sign_out(window, cx);
+                            }
+                        }))
                         .child("Connect your server"),
                 )
             })

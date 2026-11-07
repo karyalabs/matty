@@ -804,7 +804,7 @@ and manually on the reference machines before each release.
   typing. Flatpak and package managers update themselves.
 - **Release process:** merging a release PR (version bump and changelog) →
   CI builds all platforms → signs → waits for green CI → tags, uploads
-  artifacts and checksums → updates feeds and matty.jha.sh
+  artifacts and checksums → updates feeds and karyalabs.dev/matty
   ([releasing.md](releasing.md)). Merging the release PR is the go.
 - **Licensing and trademarks:** MIT like gpuicn. Do not use the Mattermost
   logo; describe Matty as "an unofficial client for Mattermost".

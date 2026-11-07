@@ -24,11 +24,24 @@
       if (!crossOriginIsolated) {
         loading.textContent = "Matty needs a cross-origin isolated page (COOP and COEP headers).";
       } else {
+        // demo.<domain> opens the sample workspace, and its "Connect your
+        // server" goes to the same path on <domain>, the app for real
+        // servers, so those only allow that one origin. Local builds open the
+        // demo too. ?demo=1 or ?demo=0 decides anywhere.
+        const params = new URLSearchParams(location.search);
+        const host = location.hostname;
+        const demoHost = host.startsWith("demo.");
+        const showDemo = params.has("demo")
+          ? params.get("demo") !== "0"
+          : demoHost || host === "localhost" || host === "127.0.0.1";
+        if (demoHost) {
+          window.mattyConnectUrl = `https://${host.slice("demo.".length)}${location.pathname}`;
+        }
         // The app and the demo workspace download side by side; the app
-        // reads the demo from window.mattyDemo as it starts (?demo=0 skips it).
+        // reads the demo from window.mattyDemo as it starts.
         // The demo is gzipped by scripts/web, since hosts only compress text.
         const app = fetch("./matty-web_bg.wasm");
-        const demo = new URLSearchParams(location.search).get("demo") === "0"
+        const demo = !showDemo
           ? Promise.resolve(null)
           : fetch("./demo.sqlite.gz")
               .then((r) => (r.ok ? new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer() : null))
