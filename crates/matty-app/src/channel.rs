@@ -22,13 +22,12 @@ use gpui_kit::{
 use crate::actions::{
     self, EditLastMessage, FocusComposer, MarkChannelRead, ReplyToLastMessage, UploadFiles,
 };
-use crate::attachments::{
-    AttachmentStatus, PostFile, SendGate, Upload, UploadSource, UploadTray, post_files,
-};
+use crate::attachments::{AttachmentStatus, PostFile, SendGate, Upload, UploadSource, UploadTray};
 use crate::channel_settings::{
     ChannelEditEvent, ChannelEditView, ChannelField, NotificationsEvent, NotificationsView,
 };
 use crate::directory::{AddMembersEvent, AddMembersView};
+use crate::post_row::{self, PostHost, RowParts, extra_action, post_message};
 use crate::profile::{ProfileActions, UserProfile, profile_card};
 use crate::settings::{ClockFormat, MessageDisplay, SendKey, SettingsChanged, SettingsStore};
 use crate::sidebar::{ChannelKind, ChannelRow};
@@ -41,14 +40,13 @@ use crate::ui::{
     button::{Button, ButtonSize, ButtonVariant, style_button},
     composer::{Composer, ComposerEvent, ComposerState, ComposerSuggestion},
     dialog::{DialogHandle, dialog, dialog_description, dialog_popup, dialog_title},
-    embed::MessageEmbed,
     emoji_picker::{EmojiPicker, EmojiPickerEvent, EmojiPickerState},
     empty::EmptyContent,
     lightbox::{LightboxImage, LightboxState, lightbox},
     menu::{Menu, MenuItem, MenuState},
     message::{
-        Message, MessageDensity, MessageHighlight, MessageStatus, Reaction, day_divider,
-        message_action, message_actions, message_emoji_action, new_messages_divider,
+        Message, MessageDensity, MessageHighlight, Reaction, day_divider, message_emoji_action,
+        new_messages_divider,
     },
     message_list::{MessageList, MessageListState},
     popover::{hover_popover, popover},
@@ -1363,6 +1361,105 @@ pub(crate) fn follow_send_key(
         let submit = send_on.submits_on_enter(&composer.value(cx));
         composer.set_submit_on_enter(submit);
     });
+}
+
+impl PostHost for ChannelView {
+    const PREFIX: &'static str = "post";
+
+    fn retry_post(&mut self, id: SharedString, cx: &mut Context<Self>) {
+        self.retry(id, cx);
+    }
+
+    fn discard_post(&mut self, id: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_post(id, window, cx);
+    }
+
+    fn react_to(&mut self, id: SharedString, emoji: SharedString, cx: &mut Context<Self>) {
+        self.toggle_reaction(id, emoji, cx);
+    }
+
+    fn pick_reaction(&mut self, id: SharedString, cx: &mut Context<Self>) {
+        self.open_picker(Some(id), cx);
+    }
+
+    fn post_menu_open(&self, cx: &App) -> bool {
+        self.menu.read(cx).is_open()
+    }
+
+    fn open_post_menu_at(
+        &mut self,
+        post: &Post,
+        at: gpui_kit::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_post_menu(&post.id, PostMenu::More, at, window, cx);
+    }
+
+    fn open_post_link(&mut self, url: SharedString, cx: &mut Context<Self>) {
+        cx.emit(ChannelEvent::OpenLink(url));
+    }
+
+    fn open_post_file(&mut self, file: SharedString, cx: &mut Context<Self>) {
+        cx.emit(ChannelEvent::OpenFile(file));
+    }
+
+    fn open_in_browser(&mut self, post: SharedString, cx: &mut Context<Self>) {
+        cx.emit(ChannelEvent::OpenInBrowser(post));
+    }
+
+    fn open_post_image(
+        &mut self,
+        post: &Post,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_lightbox(post.id.clone(), index, window, cx);
+    }
+
+    fn open_linked_post_image(
+        &mut self,
+        post: &Post,
+        url: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_linked_image(post.id.clone(), url, window, cx);
+    }
+
+    fn acknowledge_post(&mut self, post: SharedString, acknowledged: bool, cx: &mut Context<Self>) {
+        self.acknowledge(post, acknowledged, cx);
+    }
+
+    fn run_post_action(
+        &mut self,
+        choice: crate::interactive::ActionChoice,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(ChannelEvent::PostAction(choice));
+    }
+
+    fn jump_to_post(&mut self, channel: SharedString, post: SharedString, cx: &mut Context<Self>) {
+        cx.emit(ChannelEvent::OpenPermalink { channel, post });
+    }
+
+    fn collapse_post_previews(
+        &mut self,
+        post: SharedString,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.collapse_preview(post, collapsed, cx);
+    }
+
+    fn cancel_post_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_edit(window, cx);
+    }
+
+    fn save_post_edit(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_edit(text, window, cx);
+    }
 }
 
 impl ChannelView {
@@ -2917,31 +3014,6 @@ impl ChannelView {
         self.cancel_edit(window, cx);
     }
 
-    /// The in-place editor for a post: its composer, the key hint and the
-    /// Cancel and Save buttons.
-    fn editor(
-        composer: &Entity<ComposerState>,
-        cap: Pixels,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let (cancel, save) = (cx.weak_entity(), cx.weak_entity());
-        post_editor(
-            "post.edit",
-            composer,
-            cap,
-            move |window, cx| {
-                cancel
-                    .update(cx, |this, cx| this.cancel_edit(window, cx))
-                    .ok();
-            },
-            move |text, window, cx| {
-                save.update(cx, |this, cx| this.save_edit(text, window, cx))
-                    .ok();
-            },
-            cx,
-        )
-    }
-
     /// Applies `change` to the post with `id`, if it is loaded, and redraws.
     /// Rows index posts, so nothing else moves.
     fn mutate_post(
@@ -4237,334 +4309,59 @@ impl ChannelView {
         profile: Option<&UserProfile>,
         editor: Option<&(Entity<ComposerState>, Pixels)>,
         highlight: MessageHighlight,
-        (menu_open, away, previews_collapsed, profile_card): (bool, bool, bool, usize),
+        (away, previews_collapsed, profile_card): (bool, bool, usize),
         menus: &crate::interactive::Menus,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let id = post.id.clone();
+        let view = cx.entity().downgrade();
         let avatar = Self::avatar(id.clone(), post, profile, profile_card, cx);
-        let author_name = Self::author_name(&id, post, profile, profile_card, cx);
-        let thread_id = post.thread_root();
-        // Menus are built when they open, not for every row on every frame
-        // (#674).
-        let ephemeral = post.status == PostStatus::Ephemeral;
-        let saved = post.saved;
+        let author = Self::author_name(&id, post, profile, profile_card, cx);
+        let above_body = post
+            .reply_to
+            .as_ref()
+            .map(|context| Self::reply_context(post, context, cx).into_any_element());
+        let sent = post.status == PostStatus::Sent;
+        let mut row = post_message(
+            &view,
+            post,
+            RowParts {
+                away,
+                highlight,
+                continuation: post.continues,
+                avatar,
+                author,
+                editor,
+                above_body,
+                embeds: Some((menus, previews_collapsed)),
+                reactable: true,
+            },
+            cx,
+        )
+        .on_gutter_click({
+            let (view, id) = (view.clone(), id.clone());
+            move |_, window, cx| {
+                view.update(cx, |this, cx| this.select_post(&id, window, cx))
+                    .ok();
+            }
+        })
+        // A click on the message opens its thread, as in Mattermost
+        // (#680); links, buttons and a text selection keep their own.
+        .when(sent && editor.is_none(), |row| {
+            let (view, root) = (view.clone(), post.thread_root());
+            row.on_click(move |_, _, cx| {
+                view.update(cx, |_, cx| cx.emit(ChannelEvent::OpenThread(root.clone())))
+                    .ok();
+            })
+        })
         // The hover toolbar is built only for the hovered or selected row
         // (#674).
-        let (actions_view, aid) = (cx.entity().downgrade(), id.clone());
-        // A post the server does not have yet can only be copied, edited
-        // or discarded, all in More (#195).
-        let sent = post.status == PostStatus::Sent;
-        let build_actions = move |cx: &mut Context<Self>| {
-            let id = aid;
-            let (react_id, more_id, save_id, dismiss_id) =
-                (id.clone(), id.clone(), id.clone(), id.clone());
-            message_actions(cx)
-                .when(ephemeral, |actions| {
-                    actions.child(style::tipped_when(
-                        !menu_open,
-                        gpui_kit::ElementId::Name(format!("post.{id}.dismiss.tip").into()),
-                        t!("chan-dismiss"),
-                        message_action(
-                            gpui_kit::ElementId::Name(format!("post.{id}.dismiss").into()),
-                            LucideIcon::X,
-                            t!("chan-dismiss"),
-                            cx,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                this.delete_post(dismiss_id.clone(), window, cx)
-                            },
-                        )),
-                    ))
-                })
-                .when(sent, |actions| {
-                    let view = cx.entity().downgrade();
-                    let post = id.clone();
-                    let quick = quick_reaction_buttons(
-                        &id,
-                        move |emoji, cx| {
-                            let post = post.clone();
-                            view.update(cx, |this, cx| this.toggle_reaction(post, emoji, cx))
-                                .ok();
-                        },
-                        cx,
-                    );
-                    actions
-                        .children(quick)
-                        .child(style::tipped_when(
-                            !menu_open,
-                            gpui_kit::ElementId::Name(format!("post.{id}.react.tip").into()),
-                            t!("chan-add-reaction"),
-                            message_action(
-                                gpui_kit::ElementId::Name(format!("post.{id}.react").into()),
-                                LucideIcon::FaceSlightlySmilingPlus,
-                                t!("chan-add-reaction"),
-                                cx,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| this.open_picker(Some(react_id.clone()), cx),
-                            )),
-                        ))
-                        .child(style::tipped_when(
-                            !menu_open,
-                            gpui_kit::ElementId::Name(format!("post.{id}.reply.tip").into()),
-                            t!("chan-reply-in-thread"),
-                            message_action(
-                                gpui_kit::ElementId::Name(format!("post.{id}.reply").into()),
-                                LucideIcon::MessageSquareReply,
-                                t!("chan-reply-in-thread"),
-                                cx,
-                            )
-                            .on_click(cx.listener(
-                                move |_, _, _, cx| {
-                                    cx.emit(ChannelEvent::OpenThread(thread_id.clone()))
-                                },
-                            )),
-                        ))
-                        .child(style::tipped_when(
-                            !menu_open,
-                            gpui_kit::ElementId::Name(format!("post.{id}.save.tip").into()),
-                            if saved {
-                                t!("chan-unsave")
-                            } else {
-                                t!("chan-save")
-                            },
-                            message_action(
-                                gpui_kit::ElementId::Name(format!("post.{id}.save").into()),
-                                if saved {
-                                    LucideIcon::BookmarkCheck
-                                } else {
-                                    LucideIcon::Bookmark
-                                },
-                                if saved {
-                                    t!("chan-unsave")
-                                } else {
-                                    t!("chan-save")
-                                },
-                                cx,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| this.toggle_save(save_id.clone(), cx),
-                            )),
-                        ))
-                })
-                .child(style::tipped_when(
-                    !menu_open,
-                    gpui_kit::ElementId::Name(format!("post.{id}.more.tip").into()),
-                    t!("chan-more-actions"),
-                    message_action(
-                        gpui_kit::ElementId::Name(format!("post.{id}.more").into()),
-                        LucideIcon::Ellipsis,
-                        t!("chan-more-actions"),
-                        cx,
-                    )
-                    .on_click(cx.listener(
-                        move |this, event: &gpui_kit::ClickEvent, window, cx| {
-                            this.open_post_menu(
-                                &more_id,
-                                PostMenu::More,
-                                event.position(),
-                                window,
-                                cx,
-                            )
-                        },
-                    )),
-                ))
-        };
-        let reaction_post = id.clone();
-        let view = cx.entity().downgrade();
-        let add_view = view.clone();
-        let retry_view = view.clone();
-        let retry_id = id.clone();
-        let time = post_time(post, away, cx);
-        let mut row = Message::new(gpui_kit::ElementId::Name(format!("post.{id}").into()))
-            .author(post.author.clone())
-            .when_some(author_name, |row, name| row.author_element(name))
-            .timestamp(time.clone())
-            .gutter_time(time.clone())
-            .copy_prefix(copy_prefix(post, cx))
-            .when(
-                matches!(post.status, PostStatus::Sent | PostStatus::Ephemeral)
-                    && !post.date.is_empty(),
-                |row| {
-                    row.timestamp_tooltip(t!(
-                        "chan-sent-at",
-                        date = post.date.to_string(),
-                        time = time.to_string()
-                    ))
-                },
-            )
-            .on_gutter_click({
-                let (view, id) = (cx.entity().downgrade(), id.clone());
-                move |_, window, cx| {
-                    view.update(cx, |this, cx| this.select_post(&id, window, cx))
-                        .ok();
-                }
-            })
-            // A click on the message opens its thread, as in Mattermost
-            // (#680); links, buttons and a text selection keep their own.
-            .when(sent && editor.is_none(), |row| {
-                let (view, root) = (cx.entity().downgrade(), post.thread_root());
-                row.on_click(move |_, _, cx| {
-                    view.update(cx, |_, cx| cx.emit(ChannelEvent::OpenThread(root.clone())))
-                        .ok();
-                })
-            })
-            .continuation(post.continues && !queued(post, away))
-            .highlight(highlight)
-            .avatar(avatar)
-            .reactions(post.reactions.iter().map(|reaction| {
-                crate::emoji::reaction(&reaction.emoji, reaction.count, reaction.mine, cx)
-            }))
-            .reaction_tooltip(reaction_tooltip(post.reactions.clone()))
-            .on_reaction(move |emoji, _, cx| {
-                let (id, emoji) = (reaction_post.clone(), emoji.clone());
-                view.update(cx, |this, cx| this.toggle_reaction(id, emoji, cx))
-                    .ok();
-            })
-            .status(match post.status {
-                PostStatus::Sent | PostStatus::Ephemeral => MessageStatus::Sent,
-                PostStatus::Pending => MessageStatus::Pending,
-                PostStatus::Failed => MessageStatus::Failed,
-            })
-            .on_retry({
-                let (view, id) = (retry_view.clone(), retry_id.clone());
-                move |_, _, cx| {
-                    let id = id.clone();
-                    view.update(cx, |this, cx| this.retry(id, cx)).ok();
-                }
-            })
-            .on_delete({
-                let (view, id) = (retry_view, retry_id);
-                move |_, window, cx| {
-                    let id = id.clone();
-                    view.update(cx, |this, cx| this.delete_post(id, window, cx))
-                        .ok();
-                }
-            })
-            .actions_with(move |_, cx| {
-                actions_view
-                    .update(cx, |_, cx| build_actions(cx).into_any_element())
-                    .unwrap_or_else(|_| div().into_any_element())
-            })
-            .density(message_density(cx))
-            .px(scaled(&theme, metrics::GUTTER))
-            .when_some(post.reply_to.as_ref(), |row, context| {
-                row.child(Self::reply_context(post, context, cx))
-            })
-            .child(match editor {
-                Some((composer, cap)) => Self::editor(composer, *cap, cx).into_any_element(),
-                None => match &post.kind {
-                    PostKind::Unsupported(_) => Self::unsupported_card(&id, cx).into_any_element(),
-                    _ => {
-                        let link_view = cx.entity().downgrade();
-                        crate::links::message_body(
-                            gpui_kit::ElementId::Name(format!("post.{id}.body").into()),
-                            &post.body,
-                            &post.image_sizes,
-                            move |url, _, cx| {
-                                let event = ChannelEvent::OpenLink(url.clone());
-                                link_view.update(cx, |_, cx| cx.emit(event)).ok();
-                            },
-                            cx,
-                        )
-                        .into_any_element()
-                    }
-                },
-            });
-        if queued(post, away) {
-            // Queued: a clock marks "Will send when back online" (#195).
-            row = row.header_child(queued_marker(&theme));
-        }
-        if let Some(label) = crate::priority::label(post.priority.as_ref(), cx) {
-            row = row.header_child(label);
-        }
-        for marker in post_markers(post, &theme) {
-            row = row.header_child(marker);
-        }
-        let ack_view = cx.entity().downgrade();
-        let ack_post = id.clone();
-        row = row.children(crate::priority::ack_bar(
-            &id,
-            post.priority.as_ref(),
-            post.status == PostStatus::Sent,
-            std::rc::Rc::new(move |acknowledged, _, cx| {
-                let post = ack_post.clone();
-                ack_view
-                    .update(cx, |this, cx| this.acknowledge(post, acknowledged, cx))
-                    .ok();
-            }),
-            cx,
-        ));
-        if !post.reactions.is_empty() {
-            // The chip row gets an add button; posts without reactions use
-            // the hover toolbar, so the transcript stays quiet.
-            let add_id = id.clone();
-            row = row.on_add_reaction(move |_, _, cx| {
-                add_view
-                    .update(cx, |this, cx| this.open_picker(Some(add_id.clone()), cx))
-                    .ok();
-            });
-        }
-        if !post.embeds.is_empty() {
-            let jump_view = cx.entity().downgrade();
-            let on_jump: crate::embeds::OnJump = std::rc::Rc::new(move |channel, post, _, cx| {
-                let event = ChannelEvent::OpenPermalink {
-                    channel: channel.clone(),
-                    post: post.clone(),
-                };
-                jump_view.update(cx, |_, cx| cx.emit(event)).ok();
-            });
-            let (view, post_id) = (cx.entity().downgrade(), id.clone());
-            let (image_view, image_post) = (view.clone(), id.clone());
-            row = row.child(crate::embeds::post_embeds(
-                &id,
-                &post.embeds,
-                previews_collapsed,
-                std::rc::Rc::new(move |collapsed, _, cx| {
-                    let post_id = post_id.clone();
-                    view.update(cx, |this, cx| this.collapse_preview(post_id, collapsed, cx))
-                        .ok();
-                }),
-                std::rc::Rc::new(move |url, window, cx| {
-                    let post = image_post.clone();
-                    image_view
-                        .update(cx, |this, cx| this.open_linked_image(post, url, window, cx))
-                        .ok();
-                }),
-                on_jump,
-                (menus, {
-                    let view = cx.entity().downgrade();
-                    std::rc::Rc::new(move |choice, _, cx| {
-                        view.update(cx, |_, cx| cx.emit(ChannelEvent::PostAction(choice)))
-                            .ok();
-                    })
-                }),
-                cx,
-            ));
-        }
-        if !post.files.is_empty() {
-            let (image_view, image_post) = (cx.entity().downgrade(), id.clone());
-            let file_view = image_view.clone();
-            row = row.child(post_files(
-                &format!("post.{id}"),
-                &post.files,
-                move |index, window, cx| {
-                    let post = image_post.clone();
-                    image_view
-                        .update(cx, |this, cx| this.open_lightbox(post, index, window, cx))
-                        .ok();
-                },
-                move |file, _, cx| {
-                    file_view
-                        .update(cx, |_, cx| cx.emit(ChannelEvent::OpenFile(file)))
-                        .ok();
-                },
-                cx,
-            ));
-        }
+        .actions_with({
+            let (view, post) = (view.clone(), post.clone());
+            move |_, cx| Self::hover_actions(&view, &post, cx)
+        })
+        .px(scaled(&theme, metrics::GUTTER));
         if let Some(summary) = &post.replies {
             row = row.child(Self::reply_footer(&id, summary, cx));
         }
@@ -4580,6 +4377,49 @@ impl ChannelView {
                 }),
             )
             .child(row)
+    }
+
+    /// A post's hover toolbar: the shared one, with reply in thread and
+    /// save for a sent post.
+    fn hover_actions(
+        view: &gpui_kit::WeakEntity<Self>,
+        post: &Post,
+        cx: &mut App,
+    ) -> gpui_kit::AnyElement {
+        let id = post.id.clone();
+        let root = post.thread_root();
+        let saved = post.saved;
+        let save_label = if saved {
+            t!("chan-unsave")
+        } else {
+            t!("chan-save")
+        };
+        let save_id = id.clone();
+        let extra = vec![
+            extra_action(
+                view,
+                &id,
+                "reply",
+                LucideIcon::MessageSquareReply,
+                t!("chan-reply-in-thread"),
+                move |_, _, cx| cx.emit(ChannelEvent::OpenThread(root.clone())),
+                cx,
+            ),
+            extra_action(
+                view,
+                &id,
+                "save",
+                if saved {
+                    LucideIcon::BookmarkCheck
+                } else {
+                    LucideIcon::Bookmark
+                },
+                save_label,
+                move |this, _, cx| this.toggle_save(save_id.clone(), cx),
+                cx,
+            ),
+        ];
+        post_row::hover_actions(view, post, extra, cx)
     }
 
     /// A system message (#104, #624): an icon for the kind of change, then
@@ -4655,41 +4495,6 @@ impl ChannelView {
                             }
                             text.flex().flex_wrap()
                         })),
-                ),
-        )
-    }
-
-    /// The body of a post whose type Matty does not draw yet (#104): a card
-    /// that says so and opens the post in the web app.
-    fn unsupported_card(id: &SharedString, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let theme = UiTheme::read(cx).clone();
-        let open = id.clone();
-        MessageEmbed::new(gpui_kit::ElementId::Name(
-            format!("post.{id}.unsupported").into(),
-        ))
-        .density(message_density(cx))
-        .mt(theme.space(1.))
-        .body(
-            div()
-                .flex()
-                .flex_col()
-                .items_start()
-                .gap(theme.space(2.))
-                .child(
-                    div()
-                        .text_color(theme.colors.muted_foreground)
-                        .child(t!("chan-unsupported")),
-                )
-                .child(
-                    Button::new(gpui_kit::ElementId::Name(
-                        format!("post.{id}.open-in-browser").into(),
-                    ))
-                    .variant(ButtonVariant::Outline)
-                    .size(ButtonSize::Sm)
-                    .label(t!("chan-open-in-browser"))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        cx.emit(ChannelEvent::OpenInBrowser(open.clone()))
-                    })),
                 ),
         )
     }
@@ -4920,7 +4725,6 @@ impl ChannelView {
                             .filter(|editing| editing.post == post.id)
                             .map(|editing| (editing.composer.clone(), this.composer_cap));
                         let highlight = this.row_highlight(index, post);
-                        let menu_open = this.menu.read(cx).is_open();
                         let away = this.away;
                         let previews_collapsed = SettingsStore::global(cx)
                             .read(cx)
@@ -4931,7 +4735,7 @@ impl ChannelView {
                             profile,
                             editor.as_ref(),
                             highlight,
-                            (menu_open, away, previews_collapsed, this.profile_cards),
+                            (away, previews_collapsed, this.profile_cards),
                             &this.action_menus,
                             cx,
                         )

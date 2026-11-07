@@ -61,7 +61,7 @@ tray-icon = { version = "=0.26.1", default-features = false }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Storage", "Window", "Navigator", "console"] }
+web-sys = { version = "0.3", features = ["Location", "Storage", "Window", "Navigator", "console"] }
 # The browser's clock and time zone, and a bundled zone database, since the
 # web has no /usr/share/zoneinfo.
 jiff = { workspace = true, features = ["js", "tzdb-bundle-always"] }

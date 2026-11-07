@@ -35,7 +35,9 @@ if (!/^https?:/.test(target)) {
     } catch { res.writeHead(404); res.end(); }
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  base = `http://127.0.0.1:${server.address().port}/`;
+  // scripts/web builds the app into dist/matty, as it is served.
+  const sub = await stat(join(root, 'matty', 'index.html')).then(() => 'matty/', () => '');
+  base = `http://127.0.0.1:${server.address().port}/${sub}`;
 }
 
 const launchOpts = { headless: !headed, args: ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--window-size=1280,860'] };

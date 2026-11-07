@@ -3077,6 +3077,7 @@ impl MainWindow {
                 }
             }
             RightPaneEvent::OpenLink(url) => self.open_message_link(url.clone(), window, cx),
+            RightPaneEvent::OpenInBrowser(post) => self.open_in_browser(post, cx),
             RightPaneEvent::OpenPinned => self.show_pinned(cx),
             RightPaneEvent::AddToChannel(profile) => self.pick_channel_for(profile, window),
             RightPaneEvent::OpenChannelFiles => self.show_channel_files(cx),
@@ -3985,7 +3986,11 @@ impl MainWindow {
                         .variant(ButtonVariant::Ghost)
                         .size(ButtonSize::Xs)
                         .aria_label("Connect your server")
-                        .on_click(cx.listener(|this, _, window, cx| this.sign_out(window, cx)))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if !crate::open_app_from_demo() {
+                                this.sign_out(window, cx);
+                            }
+                        }))
                         .child("Connect your server"),
                 )
             })

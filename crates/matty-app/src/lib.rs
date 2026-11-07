@@ -44,6 +44,7 @@ pub mod menu;
 pub mod offline;
 pub mod perf;
 pub mod popout;
+mod post_row;
 pub mod preview;
 pub mod priority;
 pub mod profile;
@@ -101,6 +102,8 @@ static OFFLINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 
 static DEMO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static DEMO_SNAPSHOT: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();
+#[cfg(target_family = "wasm")]
+static DEMO_CONNECT_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Whether `matty --offline` started the app, or the web demo is open: the
 /// cache shows without signing in, and nothing connects.
@@ -120,6 +123,17 @@ pub(crate) fn set_demo(on: bool) {
 /// The web demo's snapshot, which opens when no account is saved.
 pub(crate) fn demo_snapshot() -> Option<&'static [u8]> {
     DEMO_SNAPSHOT.get().copied()
+}
+
+/// Leaves the web demo for the page where you sign in to your own server
+/// (`https://karyalabs.dev/matty/` from the demo's host), when the page named
+/// one. False when there is none, and the demo shows the sign-in card itself.
+pub(crate) fn open_app_from_demo() -> bool {
+    #[cfg(target_family = "wasm")]
+    if let Some(url) = DEMO_CONNECT_URL.get() {
+        return web_sys::window().is_some_and(|window| window.location().set_href(url).is_ok());
+    }
+    false
 }
 
 /// [`run`] with the cache of the last account and no network.
@@ -178,7 +192,8 @@ pub fn run_with_links(links: Vec<String>) {
 /// Matty's own Plex, so the page passes that font in. `webgl` skips WebGPU.
 ///
 /// `demo` is a sample workspace `matty-demo` wrote; it opens instead of the
-/// sign-in card while no account is saved.
+/// sign-in card while no account is saved. `connect_url` is the page its
+/// "Connect your server" opens instead of the sign-in card.
 ///
 /// `threads` runs GPUI's background tasks on web workers. It is off by
 /// default: the main thread may not block in the browser, so when it meets a
@@ -190,9 +205,13 @@ pub fn run_web(
     webgl: bool,
     threads: bool,
     demo: Option<&'static [u8]>,
+    connect_url: Option<String>,
 ) {
     if let Some(demo) = demo {
         let _ = DEMO_SNAPSHOT.set(demo);
+    }
+    if let Some(url) = connect_url {
+        let _ = DEMO_CONNECT_URL.set(url);
     }
     gpui_kit::platform::web_init();
     let backend = if webgl {

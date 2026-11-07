@@ -1531,6 +1531,12 @@ impl PopOutView {
         }
         match event {
             RightPaneEvent::CopyLink(post) => return self.copy_link(post, cx),
+            RightPaneEvent::OpenInBrowser(post) => {
+                if let Some(link) = self.permalink(post) {
+                    cx.open_url(&link);
+                }
+                return;
+            }
             RightPaneEvent::MarkUnread(post) => return self.mark_unread(post, cx),
             RightPaneEvent::Remind { post, at } => return self.remind(post, *at, cx),
             RightPaneEvent::OpenFile(id) => return self.download_file(id, cx),
