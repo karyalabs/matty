@@ -100,7 +100,9 @@ serves `dist/` as static assets on three routes:
   with a 301 to `https://demo.karyalabs.dev/matty/`.
 
 Each release deploys it from the `release` environment (`.github/workflows/release.yml`).
-To deploy by hand:
+To deploy without a release (a web fix, a hosting change), run **Release**
+by hand with "Only deploy the web build" ticked: it deploys the chosen
+branch's web build and nothing else. To deploy from your own machine:
 
 ```sh
 scripts/web deploy

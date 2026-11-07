@@ -42,11 +42,17 @@ on:
     branches: [master]
     paths: [Cargo.toml]
   # A manual run builds, signs and notarizes without publishing, unless
-  # `publish` is ticked (to finish a release whose run failed).
+  # `publish` is ticked (to finish a release whose run failed). With
+  # `web_only` it only deploys the chosen branch's web build, for a web fix
+  # or a hosting change that shouldn't wait for a release.
   workflow_dispatch:
     inputs:
       publish:
         description: Publish the release (otherwise a dry run)
+        type: boolean
+        default: false
+      web_only:
+        description: Only deploy the web build (karyalabs.dev/matty), nothing else
         type: boolean
         default: false
   # Every Monday, a dry run of the whole pipeline on master, so a broken
@@ -76,12 +82,14 @@ jobs:
       prerelease: ${{ steps.plan.outputs.prerelease }}
       tag: ${{ steps.plan.outputs.tag }}
       sha: ${{ steps.plan.outputs.sha }}
+      web_only: ${{ steps.plan.outputs.web_only }}
     steps:
       - uses: actions/checkout@v4
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
           PUBLISH: ${{ inputs.publish }}
+          WEB_ONLY: ${{ inputs.web_only }}
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
@@ -91,7 +99,7 @@ jobs:
           [[ "$version" != *-* ]] || prerelease=true
           released=false
           gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false && released=true
-          build=true publish=false
+          build=true publish=false web_only=false
           case "$EVENT" in
             push)
               if [[ "$released" == true ]]; then
@@ -101,7 +109,10 @@ jobs:
                 publish=true
               fi ;;
             workflow_dispatch)
-              if [[ "$PUBLISH" == true ]]; then
+              if [[ "$WEB_ONLY" == true ]]; then
+                echo "Deploying only the web build of ${sha::7}"
+                build=false web_only=true
+              elif [[ "$PUBLISH" == true ]]; then
                 if [[ "$released" == true ]]; then
                   echo "::error::$tag is released already; bump the version in a release PR."
                   exit 1
@@ -121,6 +132,7 @@ jobs:
             echo "prerelease=$prerelease"
             echo "tag=$tag"
             echo "sha=$sha"
+            echo "web_only=$web_only"
           } | tee -a "$GITHUB_OUTPUT"
 
   build:
@@ -516,7 +528,7 @@ jobs:
   web:
     name: deploy karyalabs.dev/matty
     needs: [plan, publish]
-    if: needs.publish.result == 'success'
+    if: always() && (needs.publish.result == 'success' || needs.plan.outputs.web_only == 'true')
     runs-on: ${{ fromJSON(vars.KARYA_LINUX_RUNNER || vars.MATTY_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 45
     environment: release
