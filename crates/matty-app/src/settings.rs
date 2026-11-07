@@ -49,6 +49,8 @@ pub enum ThemeSource {
     Matty,
     /// Matty's Porcelain colors, light or dark as [`ThemeChoice`] says.
     Porcelain,
+    /// The person's own style, [`Settings::custom_style`] (#705).
+    Custom,
     /// The account's Mattermost theme for the team on screen, which is
     /// light or dark by itself.
     Mattermost,
@@ -269,6 +271,10 @@ pub struct Settings {
     /// so Matty starts in it before sync connects (#214). Dropped on
     /// signing out.
     pub mattermost_theme: Option<String>,
+    /// The person's own style, used when [`theme_source`](Self::theme_source)
+    /// is [`ThemeSource::Custom`] (#705). Kept when they switch away, so
+    /// switching back finds it.
+    pub custom_style: Option<crate::style::StyleSpec>,
     pub text_scale: f32,
     /// Window zoom from Cmd+= / Cmd+- / Cmd+0, scaling text and spacing.
     pub zoom: f32,
@@ -330,6 +336,7 @@ impl Default for Settings {
             theme: ThemeChoice::System,
             theme_source: ThemeSource::Matty,
             mattermost_theme: None,
+            custom_style: None,
             text_scale: 1.,
             zoom: 1.,
             launch_at_login: false,
