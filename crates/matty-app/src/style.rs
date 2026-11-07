@@ -9,6 +9,7 @@
 //! shares, so a size appears once here and nowhere else.
 
 pub mod palette;
+pub mod share;
 
 use gpui_kit::{
     App, ElementId, FontWeight, Global, InteractiveElement as _, IntoElement, ParentElement as _,

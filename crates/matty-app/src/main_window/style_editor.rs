@@ -67,6 +67,15 @@ fn accent_picker(store: &Entity<SettingsStore>, cx: &mut App) -> Entity<ColorPic
     picker
 }
 
+/// Forgets the accent picker, so the next render makes it again from the
+/// custom style: for when the whole style was replaced, by an import or a
+/// saved style (#707).
+pub(super) fn reset_accent_picker(cx: &mut App) {
+    if cx.has_global::<AccentPicker>() {
+        cx.remove_global::<AccentPicker>();
+    }
+}
+
 /// The colors a style shows in its gallery card.
 struct Swatch {
     sidebar: Rgba,
