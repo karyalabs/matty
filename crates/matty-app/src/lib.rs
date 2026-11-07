@@ -226,7 +226,7 @@ pub fn run_web(
         .with_assets(LucideAssetSource);
     std::mem::forget(app.run_embedded(move |cx: &mut App| {
         cx.text_system()
-            .add_fonts(vec![Cow::Borrowed(fallback_font)])
+            .add_fonts(vec![std::borrow::Cow::Borrowed(fallback_font)])
             .expect("load the fallback font");
         // The browser opens no `mattermost://` links.
         let (_, links_rx) = async_channel::unbounded::<String>();
