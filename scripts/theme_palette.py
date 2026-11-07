@@ -6,6 +6,10 @@ A preset is a few numbers: the neutral hue and chroma that tint every grey,
 and the accent's hue, chroma and lightness in each mode. Every token is
 derived from them in OKLCH, so light and dark stay in step and a new preset
 costs one line. Run it after changing PRESETS, then scripts/contrast.py.
+
+The app derives the same tokens at runtime (crates/matty-app/src/style/
+palette.rs), with a contrast guard for people's own styles; keep
+Preset::colors there in step with PRESETS (a test checks).
 """
 import math
 from pathlib import Path

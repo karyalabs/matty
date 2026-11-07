@@ -1,9 +1,13 @@
 # Matty design direction
 
-How Matty looks and feels, and the tokens behind it. The color presets are
+How Matty looks and feels, and the tokens behind it. A style is a few OKLCH
+numbers and a corner radius; `crates/matty-app/src/style/palette.rs` derives
+every color token from them at runtime, with a contrast guard, so built-in
+presets and a person's own style take the same path (#698). The semantic
+colors and type scale live in `crates/matty-app/src/style.rs`.
+`scripts/theme_palette.py` writes the same presets to
 `crates/matty-app/assets/theme-*.css` (shadcn format, so they open in
-tweakcn), written from a few OKLCH numbers by `scripts/theme_palette.py`,
-plus the semantic colors and type scale in `crates/matty-app/src/style.rs`. Everything
+tweakcn) for this page and the contrast table; a test keeps both in step. Everything
 below is applied through gpuicn's `UiTheme`; Matty never restyles a gpuicn
 component, it only sets tokens and composes.
 
@@ -36,7 +40,17 @@ Matty should feel like a quiet native app, not a web page in a frame:
 ## 2. Color
 
 Tokens are shadcn names so gpuicn components pick them up unchanged.
-Values are sRGB hex, generated; change a preset in `scripts/theme_palette.py`.
+Values are sRGB hex, generated. To change a preset, change its numbers in
+both `Preset::colors` (style.rs) and `scripts/theme_palette.py`, then rerun the
+script; the palette test fails until they agree.
+
+**Contrast guard.** Before a style is applied, `palette::tokens` checks
+the foreground, muted text and links for 4.5:1 on the page, cards, sidebar
+and muted fills. It also checks the accent for 3:1 on the page and 4.5:1
+under its own button label. Any color that falls short moves in lightness,
+darker in light mode and lighter in dark, until it passes. A test runs every
+hue through it, so any accent a person picks stays readable. The built-in
+presets pass without moving.
 
 | Token | Graphite light | Graphite dark | Porcelain light | Porcelain dark | Used for |
 | --- | --- | --- | --- | --- | --- |
