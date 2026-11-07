@@ -192,3 +192,15 @@ prefs-account = Account
 prefs-sign-out = Sign out
 prefs-sign-out-detail = Removes Matty's copy of your messages and files from this computer.
 prefs-sign-out-button = Sign out…
+
+## Fonts (#706)
+prefs-fonts = Fonts
+prefs-font-interface = Interface and messages
+prefs-font-code = Code
+prefs-font-default = { $family } (default)
+prefs-font-missing = “{ $family }” isn’t on this computer, so Matty uses IBM Plex instead.
+prefs-font-add = Add font file…
+prefs-font-add-choose = Add font
+prefs-font-add-hint = A .ttf or .otf file. Matty keeps a copy and loads it every time it starts.
+prefs-font-add-not-a-font = That file isn’t a font Matty can read. Choose a .ttf or .otf file.
+prefs-font-add-failed = Matty couldn’t add that font. Try again, or choose another file.

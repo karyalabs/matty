@@ -144,6 +144,12 @@ text lives. The scale has wide steps so the channel name, a message and a
 sidebar row read at different volumes. Sizes are in px at text scale 1;
 everything multiplies by the user's text scale and zoom.
 
+People can swap either face in Preferences › Appearance › Fonts (#706): any
+installed family for the interface, any monospace family for code, or a
+.ttf/.otf file they add (kept in the data folder's `fonts/` and loaded at
+start). The scale and weights stay the same. A chosen family missing on this
+machine falls back to Plex, and Preferences says so.
+
 | Role | Size / line | Weight | Where |
 | --- | --- | --- | --- |
 | `title` | 17 / 24 | SemiBold | Channel name in the header, dialog titles |

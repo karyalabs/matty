@@ -28,6 +28,7 @@ pub mod embeds;
 pub mod emoji;
 pub mod emoji_manager;
 pub mod fd_limit;
+pub mod fonts;
 pub mod forward;
 pub mod i18n;
 pub mod instance;
@@ -79,8 +80,6 @@ pub mod watch;
 pub mod web_storage;
 pub mod webhooks;
 mod when;
-
-use std::borrow::Cow;
 
 use gpui_icons::LucideAssetSource;
 use gpui_kit::{
@@ -227,7 +226,7 @@ pub fn run_web(
         .with_assets(LucideAssetSource);
     std::mem::forget(app.run_embedded(move |cx: &mut App| {
         cx.text_system()
-            .add_fonts(vec![Cow::Borrowed(fallback_font)])
+            .add_fonts(vec![std::borrow::Cow::Borrowed(fallback_font)])
             .expect("load the fallback font");
         // The browser opens no `mattermost://` links.
         let (_, links_rx) = async_channel::unbounded::<String>();
@@ -248,7 +247,7 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     ui::theme::init(cx);
     i18n::install_builtin(cx);
     style::install(style::Preset::default(), ThemeMode::Light, cx);
-    load_fonts(cx);
+    fonts::load(cx);
     let settings = SettingsStore::init(settings::default_path(), cx);
     if let Some(logs) = logs {
         follow_log_level(&settings, logs, cx);
@@ -332,7 +331,7 @@ pub mod test_support {
             crate::ui::theme::ThemeMode::Light,
             cx,
         );
-        crate::load_fonts(cx);
+        crate::fonts::load(cx);
         crate::settings::SettingsStore::init(None, cx);
         crate::actions::bind(cx);
     }
@@ -495,19 +494,6 @@ fn follow_close_to_tray(settings: &Entity<SettingsStore>, cx: &mut App) {
     .detach();
 }
 
-fn load_fonts(cx: &mut App) {
-    cx.text_system()
-        .add_fonts(vec![
-            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Italic.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-SemiBold.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
-            Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf")),
-        ])
-        .expect("load bundled IBM Plex fonts");
-}
-
 /// The app's id: the macOS bundle id, and on Linux the Wayland app id and
 /// X11 class that desktops match to `packaging/linux/dev.arya.matty.desktop`.
 pub const APP_ID: &str = "dev.arya.matty";
@@ -587,11 +573,19 @@ pub(crate) fn apply_theme(window: &Window, cx: &mut App) {
     };
     let text_scale = settings.text_scale * settings.zoom;
     let unit = px(4. * settings.zoom);
+    let chosen = fonts::chosen(&settings, cx);
     let theme = UiTheme::read(cx);
-    if theme.text_scale != text_scale || theme.spacing.unit != unit {
+    if theme.text_scale != text_scale
+        || theme.spacing.unit != unit
+        || theme.fonts.body != chosen.sans
+        || theme.fonts.mono != chosen.mono
+    {
         let mut theme = theme.clone();
         theme.text_scale = text_scale;
         theme.spacing.unit = unit;
+        theme.fonts.body = chosen.sans.clone();
+        theme.fonts.heading = chosen.sans;
+        theme.fonts.mono = chosen.mono;
         UiTheme::set(cx, theme);
     }
     // The account's Mattermost theme, when chosen and known (#214), sets
