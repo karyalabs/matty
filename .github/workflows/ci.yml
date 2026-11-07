@@ -4,9 +4,11 @@ name: CI
 #
 # - T1, every pull request push: fmt, Linux clippy, macOS clippy and the
 #   plain-Rust checks; cargo-deny when the dependencies change.
-# - T2, every master push (and the merge queue): T1 plus the workspace tests
-#   on Linux and macOS, the web build and the live tests on Mattermost 12.0.
-#   The packaging jobs join when their own files change.
+# - T2, the merge queue: T1 plus the workspace tests on Linux and macOS, the
+#   web build and the live tests on Mattermost 12.0. The packaging jobs join
+#   when their own files change. The queue lands exactly the commit it
+#   checked, so the master push that follows checks nothing again; only a
+#   commit that reached master without the queue runs T2 there.
 # - T3, nightly when master moved (or by hand): the macOS release build and
 #   dev bundle, the universal bundle, the Linux packages, both Windows jobs,
 #   the live tests on every supported Mattermost, and cargo-deny.
@@ -19,7 +21,8 @@ name: CI
 # variables MATTY_*_RUNNER) name them. See docs/CI.md.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    # Not ready_for_review: a draft's pushes already ran CI on the same commit.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master]
   merge_group:
@@ -157,6 +160,31 @@ jobs:
           else
             echo "moved=true" >>"$GITHUB_OUTPUT"
           fi
+      # The merge queue fast-forwards master to the commit it checked, so a
+      # master push whose commit already passed there has nothing left to
+      # check. Only a commit that skipped the queue runs T2 on master.
+      - name: Did the merge queue already check this commit
+        id: queued
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Master moves once the queue's `ci` passed, which can be seconds
+          # before that run itself reports completed.
+          checked=false
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            read -r status conclusion url < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$GITHUB_SHA&per_page=1" \
+              --jq '.workflow_runs[0] // {} | "\(.status // "none") \(.conclusion // "none") \(.html_url // "")"')
+            [ "$status" = completed ] || [ "$status" = none ] && break
+            sleep 10
+          done
+          if [ "$conclusion" = success ]; then
+            echo "The merge queue already checked ${GITHUB_SHA::7}: $url"
+            checked=true
+          else
+            echo "No passing merge queue run for ${GITHUB_SHA::7} (${status}/${conclusion}); running T2."
+          fi
+          echo "checked=$checked" >>"$GITHUB_OUTPUT"
       # PR screenshots go to karyalabs/assets, not the repository (D6 in
       # docs/engineering-process.md): every clone carries every image.
       - name: No new images under docs/
@@ -177,6 +205,7 @@ jobs:
           LABEL: ${{ github.event.label.name }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
           MOVED: ${{ steps.moved.outputs.moved }}
+          QUEUED: ${{ steps.queued.outputs.checked }}
           CODE: ${{ steps.code.outputs.code }}
           DEPS: ${{ steps.filter.outputs.deps }}
           PACKAGING: ${{ steps.filter.outputs.packaging }}
@@ -192,7 +221,8 @@ jobs:
               else
                 tier=pr
               fi ;;
-            push|merge_group) tier=merge ;;
+            push) [ "$QUEUED" = true ] && tier=none || tier=merge ;;
+            merge_group) tier=merge ;;
             schedule) [ "$MOVED" = true ] && tier=nightly || tier=none ;;
             workflow_dispatch) tier=nightly ;;
           esac
@@ -747,6 +777,12 @@ jobs:
           # A run for a label that is not a CI label checks nothing itself:
           # it repeats the result of the latest other `ci` check on the
           # commit, so it can neither hide a failure nor fail a green PR.
+          # A master push of a commit the merge queue already passed checks
+          # nothing either: `changes` found that run.
+          if [ "$TIER" = none ] && [ "$EVENT" = push ]; then
+            echo "The merge queue already passed ${SHA::7}."
+            exit 0
+          fi
           if [ "$TIER" = none ] && [ "$EVENT" = pull_request ]; then
             latest="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=ci&filter=all" \
               --jq "[.check_runs[] | select(.details_url | contains(\"/runs/$GITHUB_RUN_ID/\") | not)] | sort_by(.started_at) | last | .conclusion // \"\"")"

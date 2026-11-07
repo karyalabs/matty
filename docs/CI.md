@@ -2,12 +2,12 @@
 
 `.github/workflows/ci.yml` runs the tiers of
 [engineering-process.md](engineering-process.md) (section 5.2): pull
-requests lint (T1), every merge to master runs the tests and one live
-server (T2), and the slow release builds, Windows and every supported
+requests lint (T1), the merge queue runs the tests and one live server
+(T2), and the slow release builds, Windows and every supported
 Mattermost run once a night (T3), only when master moved since the last
 good nightly. A manual run (`workflow_dispatch`) runs the nightly set.
 
-| Job | Pull request (T1) | master and the merge queue (T2) | nightly (T3) |
+| Job | Pull request (T1) | merge queue (T2) | nightly (T3) |
 | --- | --- | --- | --- |
 | `linux`: fmt, clippy, plain-Rust checks | always (skipped for docs-only changes) | always | no |
 | `linux` workspace tests | `tests` label | always | no |
@@ -51,6 +51,22 @@ Artifacts are kept for 7 days.
 
 `linux` also runs a test of the Linux notification backend against a
 stand-in notification service, on a private `dbus-daemon` the test starts.
+
+## Each commit is checked once
+
+The merge queue squashes a pull request onto the latest master, runs T2 on
+that commit, and then moves master to exactly that commit. So the push to
+master that follows has nothing left to check: its `changes` job finds the
+passing merge queue run for the same commit, and `ci` passes without running
+anything (a release still waits for that `ci`). Only a commit that reached
+master without the queue runs T2 on master. For the same reason there is no
+need to merge master into a pull request before queueing it: the queue
+tests the combined tree. Marking a draft ready for review does not start a
+run either, since the draft's own pushes already checked that commit.
+
+The jobs on GitHub's runners save their Rust cache only from master, which
+is now the nightly run (and the rare push outside the queue); every other
+run restores the newest master cache.
 
 ## Runners
 
