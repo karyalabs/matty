@@ -260,12 +260,14 @@ pub fn install_style(style: &StyleSpec, mode: ThemeMode, cx: &mut App) {
 }
 
 /// Installs `next` and its `palette`, such as an imported Mattermost theme
-/// (#214), keeping the text scale, spacing unit and motion settings the app
-/// already applied. Does nothing when both are already installed.
+/// (#214), keeping the text scale, spacing unit, fonts (#706) and motion
+/// settings the app already applied. Does nothing when both are already
+/// installed.
 pub fn install_theme(mut next: UiTheme, palette: Palette, cx: &mut App) {
     if cx.has_global::<UiTheme>() {
         let current = UiTheme::read(cx);
         next.text_scale = current.text_scale;
+        next.fonts = current.fonts.clone();
         next.spacing = current.spacing;
         next.motion = current.motion;
         if *current == next && cx.try_global::<Palette>() == Some(&palette) {

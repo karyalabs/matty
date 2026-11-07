@@ -52,6 +52,7 @@ tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry", "ansi"] }
 tracing-appender = "0.2"
+ttf-parser = "0.25"
 regex = "1"
 emojis = "0.6"
 async-channel = "2"

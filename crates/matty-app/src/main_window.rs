@@ -178,6 +178,7 @@ type Retry = Box<dyn Fn(&mut Window, &mut gpui_kit::App)>;
 
 mod background;
 mod drafts;
+mod font_menus;
 mod other_servers;
 mod popouts;
 mod preferences;
@@ -222,6 +223,11 @@ pub struct MainWindow {
     log_level: Entity<SelectState>,
     /// Preferences' notification sound picker (#142).
     sound: Entity<SelectState>,
+    /// Preferences' interface and code font menus (#706).
+    ui_font: Entity<SelectState>,
+    code_font: Entity<SelectState>,
+    /// Why the last font file could not be added.
+    font_error: Option<SharedString>,
     /// The user's `notify_props` as the server last sent them.
     notify_props: Option<std::collections::HashMap<String, String>>,
     /// Whether the user may choose collapsed reply threads, and whether
@@ -1136,6 +1142,7 @@ impl MainWindow {
         })
         .detach();
         let sound = sounds::picker(preview_props.as_ref(), window, cx);
+        let (ui_font, code_font) = font_menus::menus(window, cx);
         let history: Vec<SharedString> = selected_channel.iter().cloned().collect();
         // A click on a notification opens its channel at its post (#139).
         let (clicked_tx, clicked) = async_channel::bounded(8);
@@ -1169,6 +1176,9 @@ impl MainWindow {
             highlight_keys: crate::preview::enabled(),
             log_level,
             sound,
+            ui_font,
+            code_font,
+            font_error: None,
             // The preview's fixtures, in screenshots and tests, never reach
             // the desktop's notifications.
             notifier: if crate::preview::enabled() {

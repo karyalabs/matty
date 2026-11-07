@@ -437,7 +437,7 @@ impl MainWindow {
         let section = self.preferences_section;
         let controls = match section {
             Section::General => self.general(cx),
-            Section::Appearance => self.appearance(cx),
+            Section::Appearance => self.appearance(window, cx),
             Section::Messages => self.messages(cx),
             Section::Notifications => self.notifications(cx),
             Section::Advanced => self.advanced(cx),
@@ -601,7 +601,7 @@ impl MainWindow {
             .into_any_element()
     }
 
-    fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn appearance(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = UiTheme::read(cx).clone();
         let settings = self.settings.read(cx).get().clone();
         let store = self.settings.clone();
@@ -815,6 +815,12 @@ impl MainWindow {
             .child(group(t!("prefs-theme"), theme_group, false, &theme))
             .child(group(t!("prefs-colors"), colors, false, &theme))
             .child(group(t!("prefs-text-size"), size_group, false, &theme))
+            .child(group(
+                t!("prefs-fonts"),
+                self.font_controls(window, cx),
+                false,
+                &theme,
+            ))
             .child(group(
                 t!("prefs-display"),
                 hinted(display_group, display_hint, &theme),

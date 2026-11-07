@@ -275,6 +275,11 @@ pub struct Settings {
     /// is [`ThemeSource::Custom`] (#705). Kept when they switch away, so
     /// switching back finds it.
     pub custom_style: Option<crate::style::StyleSpec>,
+    /// The interface and reading font family, or `None` for IBM Plex Sans
+    /// (#706). Applies to every style.
+    pub ui_font: Option<String>,
+    /// The code font family, or `None` for IBM Plex Mono (#706).
+    pub code_font: Option<String>,
     pub text_scale: f32,
     /// Window zoom from Cmd+= / Cmd+- / Cmd+0, scaling text and spacing.
     pub zoom: f32,
@@ -337,6 +342,8 @@ impl Default for Settings {
             theme_source: ThemeSource::Matty,
             mattermost_theme: None,
             custom_style: None,
+            ui_font: None,
+            code_font: None,
             text_scale: 1.,
             zoom: 1.,
             launch_at_login: false,
