@@ -258,4 +258,17 @@ async fn send_now_posts_the_scheduled_message_with_its_priority() {
         |c| matches!(c, ChangeSet::Posts { posts, .. } if posts.iter().any(|p| p.id == "server1")),
     )
     .await;
+    // The scheduled copy is deleted after the post is sent; wait for that
+    // request, or the test can end first and fail the DELETE mock.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !requested(&server)
+            .await
+            .iter()
+            .any(|p| p == "/api/v4/posts/schedule/s1")
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
 }
