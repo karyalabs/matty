@@ -40,13 +40,10 @@ pane-older-loading-text = Loading older replies…
 pane-no-thread = No thread open
 pane-no-thread-detail = Hover a message and choose Reply in thread to follow it here.
 pane-discard-place = the channel
-pane-sent-at = { $date } at { $time }
 
 ## A message's menu and hover toolbar
 
-pane-add-reaction = Add reaction
 pane-add-reaction-menu = Add reaction…
-pane-more-actions = More actions
 pane-copy-text = Copy text
 pane-copy-markdown = Copy as Markdown
 pane-dismiss = Dismiss message

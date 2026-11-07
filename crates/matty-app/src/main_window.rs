@@ -3076,6 +3076,7 @@ impl MainWindow {
                 }
             }
             RightPaneEvent::OpenLink(url) => self.open_message_link(url.clone(), window, cx),
+            RightPaneEvent::OpenInBrowser(post) => self.open_in_browser(post, cx),
             RightPaneEvent::OpenPinned => self.show_pinned(cx),
             RightPaneEvent::AddToChannel(profile) => self.pick_channel_for(profile, window),
             RightPaneEvent::OpenChannelFiles => self.show_channel_files(cx),

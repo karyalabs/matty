@@ -44,6 +44,7 @@ pub mod menu;
 pub mod offline;
 pub mod perf;
 pub mod popout;
+mod post_row;
 pub mod preview;
 pub mod priority;
 pub mod profile;
