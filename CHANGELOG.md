@@ -9,6 +9,31 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.12] - 2026-11-08
+
+Fixes for the paper-cuts found in beta.11 (#748).
+
+### Added
+
+- Right-click a link to open it or copy its address; right-clicking no
+  longer opens the link (#757).
+- The sidebar channel menu has "Copy link" (#754).
+
+### Fixed
+
+- Clicking a control in a message (code block copy, Show more, a reaction,
+  an image, a mention) no longer opens the thread (#749).
+- Clicking the root of the open thread no longer empties the thread pane
+  (#750).
+- Pressing a reaction and moving the mouse no longer starts a text
+  selection (#758).
+- In Settings, the selected row keeps its look on hover (#751).
+- Tooltips follow the theme instead of always being light (#752).
+- The status tooltip in the sidebar is the same card as a reaction's (#753).
+- SVG files preview (#755).
+- Link previews show images that the site gives without a size, such as
+  Figma's (#756).
+
 ## [0.1.0-beta.11] - 2026-11-08
 
 A new Settings window, and a team switcher in place of the team rail.
@@ -163,7 +188,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.9...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.12...HEAD
+[0.1.0-beta.12]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.9
