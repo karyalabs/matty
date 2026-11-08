@@ -9,6 +9,22 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.10] - 2026-11-08
+
+Matty now looks like your other Mattermost apps.
+
+### Changed
+
+- Matty uses your account's Mattermost theme by default, and Mattermost's
+  Denim until your account's theme has loaded. Your saved choice in
+  Preferences › Appearance stays as it was.
+
+### Fixed
+
+- Text on macOS no longer looks bold or semi-bold next to the official
+  Mattermost client. Matty draws text without macOS font smoothing, as
+  Mattermost does (#726).
+
 ## [0.1.0-beta.9] - 2026-11-07
 
 Styles you can save and share, and any font you like.
@@ -124,6 +140,7 @@ The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
 [Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.9...HEAD
+[0.1.0-beta.10]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.7
