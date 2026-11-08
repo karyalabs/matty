@@ -94,6 +94,7 @@ fn menu(role: Role, window: &mut Window, cx: &mut Context<MainWindow>) -> Entity
                 let setting = role.setting(s);
                 if *setting != wanted {
                     *setting = wanted;
+                    super::style_library::fonts_changed(s);
                 }
             })
         });
@@ -190,6 +191,7 @@ impl MainWindow {
                                 } else {
                                     s.ui_font = Some(family);
                                 }
+                                super::style_library::fonts_changed(s);
                             })
                         });
                     }
@@ -211,8 +213,13 @@ impl MainWindow {
         .detach();
     }
 
-    /// The Fonts group's controls.
-    pub(super) fn font_controls(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// The font rows' controls: the interface and code font menus (220px),
+    /// and what goes under them: missing fonts and Add font file….
+    pub(super) fn font_controls(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (AnyElement, AnyElement, AnyElement) {
         let theme = UiTheme::read(cx).clone();
         let families = fonts::families(cx);
         if families.mono().is_none() && !families.scanning() {
@@ -224,42 +231,23 @@ impl MainWindow {
         }
         let settings = self.settings.read(cx).get().clone();
         let missing = fonts::chosen(&settings, cx).missing;
-        let label = |text: SharedString| {
-            div()
-                .type_style(style::UI, &theme)
-                .text_color(theme.colors.foreground)
-                .child(text)
-        };
-        let row = |text: SharedString, control: AnyElement| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(theme.space(2.))
-                .child(label(text))
-                .child(control)
-        };
         let note = |text: SharedString, color| {
             div()
                 .type_style(style::META, &theme)
                 .text_color(color)
                 .child(text)
         };
-        div()
+        let menu = |state: &Entity<SelectState>, label: SharedString| {
+            div()
+                .w(gpui_kit::px(220.))
+                .child(combobox(state).aria_label(label))
+                .into_any_element()
+        };
+        let under = div()
             .flex()
             .flex_col()
-            .gap(theme.space(4.))
-            .child(row(
-                t!("prefs-font-interface"),
-                combobox(&self.ui_font)
-                    .aria_label(t!("prefs-font-interface"))
-                    .into_any_element(),
-            ))
-            .child(row(
-                t!("prefs-font-code"),
-                combobox(&self.code_font)
-                    .aria_label(t!("prefs-font-code"))
-                    .into_any_element(),
-            ))
+            .items_start()
+            .gap(theme.space(2.))
             .children(missing.into_iter().map(|family| {
                 note(
                     t!("prefs-font-missing", family = family.to_string()),
@@ -267,30 +255,29 @@ impl MainWindow {
                 )
             }))
             .when(!cfg!(target_family = "wasm"), |group| {
-                group.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_start()
-                        .gap(theme.space(2.))
-                        .child(
-                            Button::new("preferences.font-add")
-                                .variant(ButtonVariant::Outline)
-                                .size(ButtonSize::Sm)
-                                .label(t!("prefs-font-add"))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.add_font_file(window, cx)
-                                })),
-                        )
-                        .child(note(
-                            t!("prefs-font-add-hint"),
-                            theme.colors.muted_foreground,
-                        ))
-                        .when_some(self.font_error.clone(), |group, error| {
-                            group.child(note(error, theme.colors.destructive))
-                        }),
-                )
+                group
+                    .child(
+                        Button::new("preferences.font-add")
+                            .variant(ButtonVariant::Outline)
+                            .size(ButtonSize::Sm)
+                            .label(t!("prefs-font-add"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.add_font_file(window, cx)),
+                            ),
+                    )
+                    .child(note(
+                        t!("prefs-font-add-hint"),
+                        theme.colors.muted_foreground,
+                    ))
+                    .when_some(self.font_error.clone(), |group, error| {
+                        group.child(note(error, theme.colors.destructive))
+                    })
             })
-            .into_any_element()
+            .into_any_element();
+        (
+            menu(&self.ui_font, t!("prefs-font-interface")),
+            menu(&self.code_font, t!("prefs-font-code")),
+            under,
+        )
     }
 }

@@ -1,187 +1,288 @@
-//! Preferences' Styles group (#707): the styles a person saved under a
-//! name, and sharing a style as text or a file. Pasting or opening a
-//! Mattermost theme turns it into the person's own style.
+//! Settings' Style gallery (#707, #733): the Mattermost theme, Matty's
+//! presets and the styles a person saved, as cards to pick from, and the
+//! rules for changing one. Editing a preset or the Mattermost theme saves
+//! a copy and edits that; editing a saved style edits it in place. Styles
+//! share as text or a file, and pasting or opening one saves it.
 
 use std::path::PathBuf;
 
 use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::{
-    App, AppContext as _, ClipboardItem, Div, Entity, Global, InteractiveElement as _,
-    ParentElement as _, SharedString, Stateful, Styled as _, Window, div,
-    prelude::FluentBuilder as _,
+    AnyElement, App, ClipboardItem, Div, Entity, Global, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, WeakEntity,
+    div, px,
 };
 
-use super::style_editor::{custom_or_seed, reset_accent_picker};
+use super::style_editor::{StyleCard, custom_or_seed, reset_accent_picker};
 use crate::settings::{Settings, SettingsStore, ThemeSource};
-use crate::style::share::{self, Fonts, ImportError, SavedStyle};
-use crate::style::{self, Preset, StyleSpec, TypeStyleExt as _, metrics, palette, scaled};
+use crate::style::share::{self, Fonts, ImportError};
+use crate::style::{self, Preset, StyleSpec, TypeStyleExt as _};
 use crate::t;
 use crate::ui::{
-    button::{Button, ButtonSize, ButtonVariant},
-    input::{Input, InputEvent, InputState},
-    tag::{Tag, TagVariant},
+    menu::{Menu, MenuItem, MenuState},
     theme::UiTheme,
+    toast::{Notice, ToastState},
 };
 
-/// What the group keeps between renders: the name field, the line saying
-/// what the last action did, and the name an imported style came with.
-struct Library {
-    name: Entity<InputState>,
-    notice: Option<Notice>,
-    imported_name: Option<String>,
-}
+/// Where the style actions say what they did: the Settings window's
+/// toasts, while it is open.
+pub(super) struct StyleToasts(pub(super) WeakEntity<ToastState>);
 
-impl Global for Library {}
+impl Global for StyleToasts {}
 
-#[derive(Clone)]
-struct Notice {
-    text: SharedString,
-    error: bool,
-}
-
-/// Makes the name field, once; Preferences calls it before drawing
-/// Appearance, while it has the window.
-pub(super) fn prepare(store: &Entity<SettingsStore>, window: &mut Window, cx: &mut App) {
-    if cx.has_global::<Library>() {
+/// Shows `text` as a toast in Settings.
+pub(super) fn say(text: SharedString, error: bool, cx: &mut App) {
+    let Some(toasts) = cx
+        .try_global::<StyleToasts>()
+        .and_then(|toasts| toasts.0.upgrade())
+    else {
         return;
-    }
-    let name =
-        cx.new(|cx| InputState::new(window, cx).placeholder(t!("prefs-styles-name-placeholder")));
-    let store = store.clone();
-    cx.subscribe(&name, move |_, event: &InputEvent, cx| {
-        if matches!(event, InputEvent::PressEnter { .. }) {
-            save_current(&store, cx);
-        }
-    })
-    .detach();
-    cx.set_global(Library {
-        name,
-        notice: None,
-        imported_name: None,
+    };
+    toasts.update(cx, |toasts, cx| {
+        let id = if error {
+            "settings.style.error"
+        } else {
+            "settings.style"
+        };
+        // A new toast replaces the last one rather than stacking.
+        toasts.dismiss(&SharedString::from(id), cx);
+        toasts.push(id, Notice::new(text), cx);
     });
 }
 
-fn say(text: SharedString, error: bool, cx: &mut App) {
-    if cx.has_global::<Library>() {
-        let library = cx.global_mut::<Library>();
-        library.notice = Some(Notice { text, error });
+/// Which card is selected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Choice {
+    Mattermost,
+    Graphite,
+    Porcelain,
+    /// A saved style, by name.
+    Saved(String),
+    /// The person's own style before saved styles had names.
+    Unsaved,
+}
+
+/// The card that is selected now.
+pub(super) fn chosen(settings: &Settings) -> Choice {
+    match settings.theme_source {
+        ThemeSource::Mattermost => Choice::Mattermost,
+        ThemeSource::Matty => Choice::Graphite,
+        ThemeSource::Porcelain => Choice::Porcelain,
+        ThemeSource::Custom => selected(settings)
+            .map(|saved| Choice::Saved(saved.name.clone()))
+            .unwrap_or(Choice::Unsaved),
     }
-    cx.refresh_windows();
+}
+
+/// The saved style in use: the one named, else the one that matches.
+fn selected(settings: &Settings) -> Option<&share::SavedStyle> {
+    if settings.theme_source != ThemeSource::Custom {
+        return None;
+    }
+    let fonts = Fonts::of(settings);
+    let style = custom_or_seed(settings);
+    settings
+        .selected_style
+        .as_ref()
+        .and_then(|name| settings.saved_styles.iter().find(|s| &s.name == name))
+        .or_else(|| {
+            settings
+                .saved_styles
+                .iter()
+                .find(|s| s.style == style && s.fonts == fonts)
+        })
 }
 
 /// The style on screen and the name it goes by: a preset's, a saved
 /// style's, or the Mattermost theme's.
-fn shown(settings: &Settings, cx: &App) -> (StyleSpec, Option<String>) {
+pub(super) fn shown(settings: &Settings, cx: &App) -> (StyleSpec, String) {
     match settings.theme_source {
         ThemeSource::Matty => (
             Preset::Graphite.style(),
-            Some(t!("prefs-colors-graphite").to_string()),
+            t!("prefs-colors-graphite").to_string(),
         ),
         ThemeSource::Porcelain => (
             Preset::Porcelain.style(),
-            Some(t!("prefs-colors-porcelain").to_string()),
+            t!("prefs-colors-porcelain").to_string(),
         ),
         ThemeSource::Custom => {
-            let style = custom_or_seed(settings);
-            let fonts = Fonts::of(settings);
-            (style, saved_name(&settings.saved_styles, &style, &fonts))
+            let name = selected(settings)
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| t!("prefs-styles-default-name").to_string());
+            (custom_or_seed(settings), name)
         }
-        ThemeSource::Mattermost => match crate::mattermost_theme::shown(settings, cx) {
-            Some(theme) => (share::from_mattermost(&theme), Some(theme.name())),
-            None => (Preset::Graphite.style(), None),
-        },
+        ThemeSource::Mattermost => {
+            let theme = crate::mattermost_theme::shown(settings, cx)
+                .unwrap_or_else(crate::mattermost_theme::Theme::denim);
+            (share::from_mattermost(&theme), theme.name())
+        }
     }
 }
 
-/// The name of the saved style that is `style`, if one is.
-fn saved_name(saved: &[SavedStyle], style: &StyleSpec, fonts: &Fonts) -> Option<String> {
-    saved
-        .iter()
-        .find(|s| s.style == *style && s.fonts == *fonts)
-        .map(|s| s.name.clone())
-}
-
-/// Makes `style` the person's own and shows it, with `fonts` when it
-/// brings them.
-fn use_style(store: &Entity<SettingsStore>, style: StyleSpec, fonts: Option<Fonts>, cx: &mut App) {
+/// Makes the saved style `name` the one on screen, with its fonts.
+fn use_saved(store: &Entity<SettingsStore>, name: &str, cx: &mut App) {
     store.update(cx, |store, cx| {
         store.update(cx, |s| {
-            s.custom_style = Some(style);
+            let Some(saved) = s
+                .saved_styles
+                .iter()
+                .find(|saved| saved.name == name)
+                .cloned()
+            else {
+                return;
+            };
+            s.custom_style = Some(saved.style);
+            s.ui_font = saved.fonts.ui_font;
+            s.code_font = saved.fonts.code_font;
+            s.selected_style = Some(saved.name);
             s.theme_source = ThemeSource::Custom;
-            if let Some(fonts) = fonts {
-                s.ui_font = fonts.ui_font;
-                s.code_font = fonts.code_font;
-            }
         })
     });
     reset_accent_picker(cx);
 }
 
-/// Reads `text` as a style or Mattermost theme and uses it.
+/// Saves `style` with `fonts` as a new style named after `base` and shows
+/// it. Says so, or that the library is full; returns the name it saved.
+fn save_new(
+    store: &Entity<SettingsStore>,
+    base: &str,
+    style: StyleSpec,
+    fonts: Fonts,
+    cx: &mut App,
+) -> Option<String> {
+    let settings = store.read(cx).get().clone();
+    let name = share::unused_name(&settings.saved_styles, &share::clean_name(base));
+    let mut saved = settings.saved_styles.clone();
+    if !share::save(&mut saved, &name, style, fonts.clone()) {
+        say(t!("prefs-styles-full", count = share::SAVED_MAX), true, cx);
+        return None;
+    }
+    store.update(cx, |store, cx| {
+        store.update(cx, |s| {
+            s.saved_styles = saved;
+            s.custom_style = Some(style);
+            s.ui_font = fonts.ui_font;
+            s.code_font = fonts.code_font;
+            s.selected_style = Some(name.clone());
+            s.theme_source = ThemeSource::Custom;
+        })
+    });
+    reset_accent_picker(cx);
+    say(t!("prefs-styles-saved", name = name.clone()), false, cx);
+    Some(name)
+}
+
+/// "New style from <current>": a saved copy of the style on screen.
+pub(super) fn new_style(store: &Entity<SettingsStore>, cx: &mut App) {
+    let settings = store.read(cx).get().clone();
+    let (style, name) = shown(&settings, cx);
+    let base = t!("prefs-styles-copy-name", name = name).to_string();
+    save_new(store, &base, style, Fonts::of(&settings), cx);
+}
+
+/// Changes the style on screen. A saved style changes in place; a preset,
+/// the Mattermost theme or an unnamed style is first saved as
+/// "<name> copy", which then changes (spec §1.3, fork semantics).
+pub(super) fn edit_style(
+    store: &Entity<SettingsStore>,
+    change: impl FnOnce(StyleSpec) -> StyleSpec,
+    cx: &mut App,
+) {
+    let settings = store.read(cx).get().clone();
+    if let Some(saved) = selected(&settings) {
+        let name = saved.name.clone();
+        store.update(cx, |store, cx| {
+            store.update(cx, |s| {
+                let style = change(custom_or_seed(s));
+                s.custom_style = Some(style);
+                s.selected_style = Some(name.clone());
+                if let Some(saved) = s.saved_styles.iter_mut().find(|saved| saved.name == name) {
+                    saved.style = style;
+                }
+            })
+        });
+        return;
+    }
+    let (base, name) = shown(&settings, cx);
+    let copy = t!("prefs-styles-copy-name", name = name).to_string();
+    save_new(store, &copy, change(base), Fonts::of(&settings), cx);
+}
+
+/// Keeps the saved style in use in step with the fonts, which are part of
+/// it (#724); Settings calls it after a font changes.
+pub(super) fn fonts_changed(settings: &mut Settings) {
+    if settings.theme_source != ThemeSource::Custom {
+        return;
+    }
+    let fonts = Fonts::of(settings);
+    if let Some(name) = settings.selected_style.clone()
+        && let Some(saved) = settings.saved_styles.iter_mut().find(|s| s.name == name)
+    {
+        saved.fonts = fonts;
+    }
+}
+
+/// Renames the saved style `from`; a clash or an empty name keeps it.
+pub(super) fn rename(store: &Entity<SettingsStore>, from: &str, to: &str, cx: &mut App) {
+    let to = share::clean_name(to);
+    let settings = store.read(cx).get();
+    let clash = settings
+        .saved_styles
+        .iter()
+        .any(|s| s.name != from && s.name.to_lowercase() == to.to_lowercase());
+    if to.is_empty() || clash || to == from {
+        return;
+    }
+    let from = from.to_owned();
+    store.update(cx, |store, cx| {
+        store.update(cx, |s| {
+            if let Some(saved) = s.saved_styles.iter_mut().find(|saved| saved.name == from) {
+                saved.name = to.clone();
+            }
+            if s.selected_style.as_deref() == Some(from.as_str()) {
+                s.selected_style = Some(to.clone());
+            }
+        })
+    });
+    say(t!("prefs-styles-renamed", name = to), false, cx);
+}
+
+/// Deletes the saved style `name`. Deleting the one in use shows Graphite.
+pub(super) fn delete(store: &Entity<SettingsStore>, name: &str, cx: &mut App) {
+    let name = name.to_owned();
+    store.update(cx, |store, cx| {
+        store.update(cx, |s| {
+            s.saved_styles.retain(|saved| saved.name != name);
+            if s.selected_style.as_deref() == Some(name.as_str()) {
+                s.selected_style = None;
+                s.theme_source = ThemeSource::Matty;
+            }
+        })
+    });
+    say(t!("prefs-styles-deleted", name = name), false, cx);
+}
+
+/// Reads `text` as a style or Mattermost theme and saves it.
 fn import_text(store: &Entity<SettingsStore>, text: Option<String>, cx: &mut App) {
     let result = text
         .as_deref()
         .map_or(Err(ImportError::NotAStyle), share::import);
     match result {
         Ok(imported) => {
-            use_style(store, imported.style, imported.fonts.clone(), cx);
-            let name = imported.name.clone();
-            if cx.has_global::<Library>() {
-                let library = cx.global_mut::<Library>();
-                library.imported_name = name.clone();
-            }
-            let text = match (imported.from_mattermost, name) {
-                (true, Some(name)) => t!("prefs-styles-imported-mattermost-named", name = name),
-                (true, None) => t!("prefs-styles-imported-mattermost"),
-                (false, Some(name)) => t!("prefs-styles-imported-named", name = name),
-                (false, None) => t!("prefs-styles-imported"),
-            };
-            say(text, false, cx);
+            let settings = store.read(cx).get().clone();
+            let fonts = imported
+                .fonts
+                .clone()
+                .unwrap_or_else(|| Fonts::of(&settings));
+            let base = imported
+                .name
+                .clone()
+                .unwrap_or_else(|| t!("prefs-styles-imported-name").to_string());
+            save_new(store, &base, imported.style, fonts, cx);
         }
         Err(ImportError::NotAStyle) => say(t!("prefs-styles-not-a-style"), true, cx),
         Err(ImportError::TooNew) => say(t!("prefs-styles-too-new"), true, cx),
     }
-}
-
-/// Saves the person's own style under the name typed, else the name it was
-/// imported with, else a new "My style". Returns whether it saved.
-fn save_current(store: &Entity<SettingsStore>, cx: &mut App) -> bool {
-    let Some((input, imported)) = cx
-        .try_global::<Library>()
-        .map(|l| (l.name.clone(), l.imported_name.clone()))
-    else {
-        return false;
-    };
-    let typed = share::clean_name(input.read(cx).value().as_ref());
-    let settings = store.read(cx).get().clone();
-    let style = custom_or_seed(&settings);
-    let fonts = Fonts::of(&settings);
-    let name = if !typed.is_empty() {
-        typed
-    } else {
-        imported.unwrap_or_else(|| {
-            share::unused_name(&settings.saved_styles, &t!("prefs-styles-default-name"))
-        })
-    };
-    let mut saved = settings.saved_styles.clone();
-    if !share::save(&mut saved, &name, style, fonts) {
-        say(t!("prefs-styles-full", count = share::SAVED_MAX), true, cx);
-        return false;
-    }
-    store.update(cx, |store, cx| {
-        store.update(cx, |s| {
-            s.saved_styles = saved;
-            s.custom_style = Some(style);
-            s.theme_source = ThemeSource::Custom;
-        })
-    });
-    if cx.has_global::<Library>() {
-        let library = cx.global_mut::<Library>();
-        library.imported_name = None;
-    }
-    let name = share::clean_name(&name);
-    say(t!("prefs-styles-saved", name = name), false, cx);
-    true
 }
 
 /// Where a save or open dialog starts: the download folder, else home.
@@ -193,26 +294,26 @@ fn start_folder(settings: &Settings) -> PathBuf {
         .unwrap_or_default()
 }
 
-fn copy_style(store: &Entity<SettingsStore>, cx: &mut App) {
+pub(super) fn copy_style(store: &Entity<SettingsStore>, cx: &mut App) {
     let settings = store.read(cx).get().clone();
     let (style, name) = shown(&settings, cx);
-    let text = share::export(&style, name.as_deref(), &Fonts::of(&settings));
+    let text = share::export(&style, Some(&name), &Fonts::of(&settings));
     cx.write_to_clipboard(ClipboardItem::new_string(text));
     say(t!("prefs-styles-copied"), false, cx);
 }
 
-fn paste_style(store: &Entity<SettingsStore>, cx: &mut App) {
+pub(super) fn paste_style(store: &Entity<SettingsStore>, cx: &mut App) {
     let text = cx.read_from_clipboard().and_then(|item| item.text());
     import_text(store, text, cx);
 }
 
-fn save_file(store: &Entity<SettingsStore>, cx: &mut App) {
+pub(super) fn save_file(store: &Entity<SettingsStore>, cx: &mut App) {
     let settings = store.read(cx).get().clone();
     let (style, name) = shown(&settings, cx);
-    let text = share::export(&style, name.as_deref(), &Fonts::of(&settings));
+    let text = share::export(&style, Some(&name), &Fonts::of(&settings));
     let answer = cx.prompt_for_new_path(
         &start_folder(&settings),
-        Some(&share::file_name(name.as_deref())),
+        Some(&share::file_name(Some(&name))),
     );
     cx.spawn(async move |cx| {
         let Ok(Ok(Some(path))) = answer.await else {
@@ -236,7 +337,7 @@ fn save_file(store: &Entity<SettingsStore>, cx: &mut App) {
     .detach();
 }
 
-fn open_file(store: &Entity<SettingsStore>, cx: &mut App) {
+pub(super) fn open_file(store: &Entity<SettingsStore>, cx: &mut App) {
     let answer = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
         files: true,
         directories: false,
@@ -261,248 +362,259 @@ fn open_file(store: &Entity<SettingsStore>, cx: &mut App) {
     .detach();
 }
 
-/// A dot in a style's accent, as it shows in the mode on screen.
-fn accent_dot(style: &StyleSpec, theme: &UiTheme) -> Div {
-    let tokens = palette::tokens(&style.colors, theme.mode);
-    let accent = tokens.get("primary").unwrap_or(theme.colors.primary);
-    let page = tokens.get("background").unwrap_or(theme.colors.background);
-    div()
-        .size(theme.space(4.))
-        .flex_none()
-        .rounded_full()
-        .border_1()
-        .border_color(theme.colors.border)
-        .bg(page)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(div().size(theme.space(2.5)).rounded_full().bg(accent))
+/// One card in the gallery: what it shows and what picking it does.
+pub(super) struct Card {
+    pub(super) id: SharedString,
+    pub(super) choice: Choice,
+    pub(super) name: SharedString,
+    pub(super) subtitle: SharedString,
+    pub(super) preview: StyleCard,
+    /// A saved style's ⋯ menu.
+    pub(super) menu: Option<Entity<MenuState>>,
 }
 
-fn small_button(id: impl Into<gpui_kit::ElementId>, label: SharedString) -> Button {
-    Button::new(id)
-        .variant(ButtonVariant::Outline)
-        .size(ButtonSize::Sm)
-        .aria_label(label.clone())
-        .label(label)
+/// The cards in gallery order: the Mattermost theme, Graphite, Porcelain,
+/// then the saved styles (spec §1.3).
+pub(super) fn cards(settings: &Settings, cx: &App) -> Vec<Card> {
+    let mode = UiTheme::read(cx).mode;
+    let mattermost = crate::mattermost_theme::shown(settings, cx)
+        .unwrap_or_else(crate::mattermost_theme::Theme::denim);
+    let mut cards = vec![
+        Card {
+            id: "preferences.style.mattermost".into(),
+            choice: Choice::Mattermost,
+            name: mattermost.name().into(),
+            subtitle: t!("prefs-style-mattermost"),
+            preview: StyleCard::mattermost(&mattermost),
+            menu: None,
+        },
+        Card {
+            id: "preferences.style.graphite".into(),
+            choice: Choice::Graphite,
+            name: t!("prefs-colors-graphite"),
+            subtitle: t!("prefs-style-preset"),
+            preview: StyleCard::of(&Preset::Graphite.style(), mode),
+            menu: None,
+        },
+        Card {
+            id: "preferences.style.porcelain".into(),
+            choice: Choice::Porcelain,
+            name: t!("prefs-colors-porcelain"),
+            subtitle: t!("prefs-style-preset"),
+            preview: StyleCard::of(&Preset::Porcelain.style(), mode),
+            menu: None,
+        },
+    ];
+    if chosen(settings) == Choice::Unsaved {
+        cards.push(Card {
+            id: "preferences.style.unsaved".into(),
+            choice: Choice::Unsaved,
+            name: t!("prefs-styles-default-name"),
+            subtitle: t!("prefs-style-unsaved"),
+            preview: StyleCard::of(&custom_or_seed(settings), mode),
+            menu: None,
+        });
+    }
+    cards.extend(
+        settings
+            .saved_styles
+            .iter()
+            .enumerate()
+            .map(|(index, saved)| Card {
+                id: format!("preferences.style.saved.{index}").into(),
+                choice: Choice::Saved(saved.name.clone()),
+                name: saved.name.clone().into(),
+                subtitle: t!("prefs-style-saved"),
+                preview: StyleCard::of(&saved.style, mode),
+                menu: None,
+            }),
+    );
+    cards
 }
 
-/// One saved style: its accent, its name, "In use" when it is the style
-/// on screen, and Use and Delete.
-fn saved_row(
-    index: usize,
-    saved: &SavedStyle,
-    in_use: bool,
+/// Picks `choice`'s style.
+pub(super) fn pick(store: &Entity<SettingsStore>, choice: &Choice, cx: &mut App) {
+    let source = match choice {
+        Choice::Mattermost => ThemeSource::Mattermost,
+        Choice::Graphite => ThemeSource::Matty,
+        Choice::Porcelain => ThemeSource::Porcelain,
+        Choice::Unsaved => ThemeSource::Custom,
+        Choice::Saved(name) => return use_saved(store, name, cx),
+    };
+    store.update(cx, |store, cx| {
+        store.update(cx, |s| {
+            s.theme_source = source;
+            s.selected_style = None;
+        })
+    });
+    reset_accent_picker(cx);
+}
+
+/// The gallery: `cards` in rows of `columns`, the selected one ringed and
+/// checked, a saved style's ⋯ menu at its corner.
+pub(super) fn gallery(
     store: &Entity<SettingsStore>,
+    cards: Vec<Card>,
+    columns: usize,
+    cx: &App,
+) -> Div {
+    let theme = UiTheme::read(cx).clone();
+    let selected = chosen(store.read(cx).get());
+    let gap = theme.space(3.);
+    let mut rows = Vec::new();
+    let mut cards = cards.into_iter().peekable();
+    while cards.peek().is_some() {
+        let mut row = div().flex().gap(gap).w_full();
+        for _ in 0..columns {
+            match cards.next() {
+                Some(card) => {
+                    let on = card.choice == selected;
+                    row = row.child(card_element(store, card, on, &theme));
+                }
+                None => row = row.child(div().flex_1().min_w_0()),
+            }
+        }
+        rows.push(row);
+    }
+    div().flex().flex_col().gap(gap).w_full().children(rows)
+}
+
+/// One card: the tiny window, the name and subtitle, the selected ring and
+/// check, and a saved style's ⋯ menu.
+fn card_element(
+    store: &Entity<SettingsStore>,
+    card: Card,
+    selected: bool,
     theme: &UiTheme,
-) -> Stateful<Div> {
-    let use_store = store.clone();
-    let delete_store = store.clone();
-    let style = saved.style;
-    let fonts = saved.fonts.clone();
-    let name = saved.name.clone();
-    div()
-        .id(gpui_kit::ElementId::Name(
-            format!("preferences.styles.saved.{index}").into(),
-        ))
-        .flex()
-        .items_center()
-        .gap(theme.space(2.))
-        .px(theme.space(3.))
-        .py(theme.space(1.5))
-        .child(accent_dot(&style, theme))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .type_style(style::UI, theme)
-                .text_color(theme.colors.foreground)
-                .child(saved.name.clone()),
-        )
-        .when(in_use, |row| {
-            row.child(
-                Tag::new(
-                    gpui_kit::ElementId::Name(format!("preferences.styles.in-use.{index}").into()),
-                    t!("prefs-styles-in-use"),
-                )
-                .variant(TagVariant::Secondary),
-            )
-        })
-        .when(!in_use, |row| {
-            row.child(
-                Button::new(gpui_kit::ElementId::Name(
-                    format!("preferences.styles.use.{index}").into(),
-                ))
-                .variant(ButtonVariant::Ghost)
-                .size(ButtonSize::Sm)
-                .aria_label(t!("prefs-styles-use-label", name = saved.name.clone()))
-                .label(t!("prefs-styles-use"))
-                .on_click(move |_, _, cx| {
-                    use_style(&use_store, style, Some(fonts.clone()), cx);
-                    say(t!("prefs-styles-using", name = name.clone()), false, cx);
-                }),
-            )
-        })
-        .child(
-            Button::new(gpui_kit::ElementId::Name(
-                format!("preferences.styles.delete.{index}").into(),
-            ))
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::IconSm)
-            .aria_label(t!("prefs-styles-delete-label", name = saved.name.clone()))
+) -> AnyElement {
+    let store = store.clone();
+    let choice = card.choice.clone();
+    let check = selected.then(|| {
+        div()
+            .absolute()
+            .top(px(-6.))
+            .right(px(-6.))
+            .size(px(18.))
+            .rounded_full()
+            .bg(theme.colors.primary)
+            .flex()
+            .items_center()
+            .justify_center()
             .child(
-                lucide(LucideIcon::Trash2)
-                    .size(scaled(theme, metrics::ICON_SMALL))
+                lucide(LucideIcon::Check)
+                    .size(px(12.))
+                    .text_color(theme.colors.primary_foreground),
+            )
+    });
+    let label: SharedString = if selected {
+        t!("prefs-style-card-selected", name = card.name.to_string())
+    } else {
+        card.name.clone()
+    };
+    let menu = card.menu.clone().map(|menu| {
+        let theme = theme.clone();
+        div().flex_none().child(
+            Menu::new(
+                &menu,
+                t!("prefs-style-options", name = card.name.to_string()),
+            )
+            .trigger(
+                lucide(LucideIcon::Ellipsis)
+                    .size(px(14.))
                     .text_color(theme.colors.muted_foreground),
             )
-            .on_click({
-                let name = saved.name.clone();
-                move |_, _, cx| {
-                    delete_store.update(cx, |store, cx| {
-                        store.update(cx, |s| s.saved_styles.retain(|s| s.name != name))
-                    });
-                    say(t!("prefs-styles-deleted", name = name.clone()), false, cx);
-                }
-            }),
-        )
-}
-
-/// The Styles group: saving the person's own style under a name, the
-/// saved styles, and sharing.
-pub(super) fn library(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
-    let theme = UiTheme::read(cx).clone();
-    let settings = store.read(cx).get().clone();
-    let Some((input, notice)) = cx
-        .try_global::<Library>()
-        .map(|l| (l.name.clone(), l.notice.clone()))
-    else {
-        return div();
-    };
-    let custom = settings.theme_source == ThemeSource::Custom;
-    let current = custom.then(|| (custom_or_seed(&settings), Fonts::of(&settings)));
-    let save_store = store.clone();
-    let input_to_clear = input.clone();
-    let save_row = div()
-        .flex()
-        .items_center()
-        .gap(theme.space(2.))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(Input::new(&input).aria_label(t!("prefs-styles-name"))),
-        )
-        .child(
-            small_button("preferences.styles.save", t!("prefs-styles-save")).on_click(
-                move |_, window, cx| {
-                    if save_current(&save_store, cx) {
-                        input_to_clear.update(cx, |input, cx| input.set_value("", window, cx));
-                    }
-                },
-            ),
-        );
-    let saved = (!settings.saved_styles.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .rounded(theme.radius.lg)
-            .border_1()
-            .border_color(theme.colors.border)
-            .children(settings.saved_styles.iter().enumerate().map(|(i, s)| {
-                saved_row(
-                    i,
-                    s,
-                    current.as_ref() == Some(&(s.style, s.fonts.clone())),
-                    store,
+            .trigger_style_with(move |button| {
+                crate::ui::button::style_button(
+                    button,
+                    false,
+                    crate::ui::button::ButtonVariant::Ghost,
+                    crate::ui::button::ButtonSize::IconSm,
                     &theme,
                 )
-                .when(i > 0, |row| {
-                    row.border_t_1().border_color(theme.colors.border)
-                })
-            }))
+            }),
+        )
     });
-    let (copy_store, file_store, paste_store, open_store, own_store) = (
-        store.clone(),
-        store.clone(),
-        store.clone(),
-        store.clone(),
-        store.clone(),
-    );
-    let mattermost = (settings.theme_source == ThemeSource::Mattermost)
-        .then(|| crate::mattermost_theme::shown(&settings, cx))
-        .flatten();
-    let actions = div()
-        .flex()
-        .flex_wrap()
-        .gap(theme.space(2.))
-        .child(
-            small_button("preferences.styles.paste", t!("prefs-styles-paste"))
-                .on_click(move |_, _, cx| paste_style(&paste_store, cx)),
-        )
-        .child(
-            small_button("preferences.styles.open", t!("prefs-styles-open"))
-                .on_click(move |_, _, cx| open_file(&open_store, cx)),
-        )
-        .child(
-            small_button("preferences.styles.copy", t!("prefs-styles-copy"))
-                .on_click(move |_, _, cx| copy_style(&copy_store, cx)),
-        )
-        .child(
-            small_button("preferences.styles.export", t!("prefs-styles-export"))
-                .on_click(move |_, _, cx| save_file(&file_store, cx)),
-        )
-        .when_some(mattermost, |row, theme_now| {
-            row.child(
-                small_button("preferences.styles.make-own", t!("prefs-styles-make-own")).on_click(
-                    move |_, _, cx| {
-                        let name = theme_now.name();
-                        use_style(&own_store, share::from_mattermost(&theme_now), None, cx);
-                        if cx.has_global::<Library>() {
-                            let library = cx.global_mut::<Library>();
-                            library.imported_name = Some(name.clone());
-                        }
-                        say(
-                            t!("prefs-styles-imported-mattermost-named", name = name),
-                            false,
-                            cx,
-                        );
-                    },
-                ),
-            )
-        });
-    let muted = |text: SharedString, color| {
-        div()
-            .type_style(style::META, &theme)
-            .text_color(color)
-            .child(text)
-    };
     div()
-        .flex()
-        .flex_col()
-        .gap(theme.space(3.))
-        .when(custom, |group| group.child(save_row))
-        .when_some(saved, |group, saved| group.child(saved))
-        .child(actions)
-        .child(muted(
-            t!("prefs-styles-hint"),
-            theme.colors.muted_foreground,
-        ))
-        .when_some(notice, |group, notice| {
-            group.child(
-                div()
-                    .id("preferences.styles.notice")
-                    .debug_selector(|| "preferences.styles.notice".into())
-                    .child(muted(
-                        notice.text,
-                        if notice.error {
-                            theme.colors.destructive
-                        } else {
-                            theme.colors.foreground
-                        },
-                    )),
-            )
-        })
+        .flex_1()
+        .min_w_0()
+        .relative()
+        .child(
+            div()
+                .id(gpui_kit::ElementId::Name(card.id.clone()))
+                .debug_selector({
+                    let id = card.id.clone();
+                    move || id.to_string()
+                })
+                .role(gpui_kit::Role::RadioButton)
+                .aria_label(label)
+                .tab_stop(true)
+                .cursor_pointer()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(theme.space(2.))
+                .p(theme.space(1.5))
+                .rounded(theme.radius.lg)
+                .border_2()
+                .border_color(if selected {
+                    theme.colors.primary
+                } else {
+                    gpui_kit::transparent_black().into()
+                })
+                .hover(|style| style.bg(theme.colors.accent))
+                .on_click(move |_, _, cx| pick(&store, &choice, cx))
+                .child(card.preview.render(theme))
+                .child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(theme.space(1.))
+                        .px(theme.space(0.5))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .type_style(style::UI_STRONG, theme)
+                                        .text_color(theme.colors.foreground)
+                                        .truncate()
+                                        .child(card.name.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .type_style(style::META, theme)
+                                        .text_color(theme.colors.muted_foreground)
+                                        .truncate()
+                                        .child(card.subtitle.clone()),
+                                ),
+                        ),
+                ),
+        )
+        .children(menu.map(|menu| {
+            div()
+                .absolute()
+                .bottom(theme.space(1.))
+                .right(theme.space(1.))
+                .child(menu)
+        }))
+        .children(check)
+        .into_any_element()
+}
+
+/// The Share ▾ menu's items: Copy style and Save to file….
+pub(super) fn share_items(store: &Entity<SettingsStore>) -> Vec<MenuItem> {
+    let (copy, file) = (store.clone(), store.clone());
+    vec![
+        MenuItem::new("preferences.style.share.copy", t!("prefs-styles-copy"))
+            .icon(LucideIcon::Copy)
+            .on_click(move |_, _, cx| copy_style(&copy, cx)),
+        MenuItem::new("preferences.style.share.file", t!("prefs-styles-export"))
+            .icon(LucideIcon::Download)
+            .on_click(move |_, _, cx| save_file(&file, cx)),
+    ]
 }
 
 #[cfg(test)]
@@ -517,7 +629,7 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn a_pasted_mattermost_theme_becomes_your_own(cx: &mut gpui_kit::TestAppContext) {
+    fn a_pasted_mattermost_theme_is_saved_as_a_style(cx: &mut gpui_kit::TestAppContext) {
         let store = setup(cx);
         cx.update(|cx| {
             let onyx = crate::mattermost_theme::BUILT_IN[4].1;
@@ -527,6 +639,8 @@ mod tests {
             assert_eq!(settings.theme_source, ThemeSource::Custom);
             let theme = crate::mattermost_theme::Theme::built_in("Onyx").unwrap();
             assert_eq!(settings.custom_style, Some(share::from_mattermost(&theme)));
+            assert_eq!(settings.selected_style.as_deref(), Some("Onyx"));
+            assert_eq!(chosen(settings), Choice::Saved("Onyx".into()));
         });
     }
 
@@ -534,10 +648,10 @@ mod tests {
     fn copying_and_pasting_a_style_brings_it_back(cx: &mut gpui_kit::TestAppContext) {
         let store = setup(cx);
         cx.update(|cx| {
-            let style = Preset::Porcelain.style().with_accent(0.6, 0.15, 30.);
-            use_style(&store, style, None, cx);
+            pick(&store, &Choice::Porcelain, cx);
+            edit_style(&store, |style| style.with_accent(0.6, 0.15, 30.), cx);
             copy_style(&store, cx);
-            use_style(&store, Preset::Graphite.style(), None, cx);
+            pick(&store, &Choice::Graphite, cx);
             paste_style(&store, cx);
             let back = store.read(cx).get().custom_style.unwrap();
             assert!((back.colors.accent_hue - 30.).abs() < 0.01);
@@ -550,24 +664,49 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn saved_styles_take_the_imported_name(cx: &mut gpui_kit::TestAppContext) {
+    fn editing_a_preset_saves_a_copy_and_then_edits_it(cx: &mut gpui_kit::TestAppContext) {
         let store = setup(cx);
-        let window = cx.add_empty_window();
-        window.update(|window, cx| prepare(&store, window, cx));
         cx.update(|cx| {
-            let denim = crate::mattermost_theme::BUILT_IN[0].1;
-            import_text(&store, Some(denim.into()), cx);
-            assert!(save_current(&store, cx));
-            // Nothing typed and nothing imported: a fresh "My style".
-            assert!(save_current(&store, cx));
-            let names: Vec<_> = store
-                .read(cx)
-                .get()
-                .saved_styles
-                .iter()
-                .map(|s| s.name.clone())
-                .collect();
-            assert_eq!(names, ["Denim", "My style"]);
+            pick(&store, &Choice::Graphite, cx);
+            edit_style(&store, |style| style.with_accent(0.5, 0.1, 100.), cx);
+            let names = |cx: &App| -> Vec<String> {
+                store
+                    .read(cx)
+                    .get()
+                    .saved_styles
+                    .iter()
+                    .map(|s| s.name.clone())
+                    .collect()
+            };
+            assert_eq!(names(cx), ["Graphite copy"]);
+            assert_eq!(
+                chosen(store.read(cx).get()),
+                Choice::Saved("Graphite copy".into())
+            );
+            // The copy changes in place now.
+            edit_style(&store, |style| style.with_accent(0.5, 0.1, 200.), cx);
+            assert_eq!(names(cx), ["Graphite copy"]);
+            let saved = store.read(cx).get().saved_styles[0].style;
+            assert!((saved.colors.accent_hue - 200.).abs() < 0.01);
+            // Graphite itself did not change.
+            pick(&store, &Choice::Graphite, cx);
+            edit_style(&store, |style| style, cx);
+            assert_eq!(names(cx), ["Graphite copy", "Graphite copy 2"]);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn renaming_and_deleting_follow_the_style_in_use(cx: &mut gpui_kit::TestAppContext) {
+        let store = setup(cx);
+        cx.update(|cx| {
+            new_style(&store, cx);
+            let name = store.read(cx).get().selected_style.clone().unwrap();
+            rename(&store, &name, "Dusk", cx);
+            assert_eq!(store.read(cx).get().selected_style.as_deref(), Some("Dusk"));
+            delete(&store, "Dusk", cx);
+            let settings = store.read(cx).get();
+            assert!(settings.saved_styles.is_empty());
+            assert_eq!(chosen(settings), Choice::Graphite);
         });
     }
 

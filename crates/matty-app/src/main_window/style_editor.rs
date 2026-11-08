@@ -1,10 +1,10 @@
-//! Preferences' Colors group (#705): a gallery of styles, each shown as a
-//! tiny window in its own colors, and the editor for the person's own style
-//! (accent, greys and corners) under it.
+//! Settings' Customise group (#705, #733): each style's tiny window in its
+//! own colors, for the gallery, and the controls that change the style on
+//! screen (accent, greys and corners).
 
 use gpui_kit::{
-    App, AppContext as _, Div, Entity, Global, ParentElement as _, Rgba, SharedString, Styled as _,
-    div, prelude::FluentBuilder as _, relative,
+    App, AppContext as _, Div, Entity, Global, ParentElement as _, Rgba, Styled as _, div,
+    prelude::FluentBuilder as _, relative,
 };
 
 use crate::settings::{Settings, SettingsStore, ThemeSource};
@@ -13,7 +13,7 @@ use crate::t;
 use crate::ui::{
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState, ColorSwatch, Oklch},
     theme::{ThemeMode, UiTheme},
-    toggle_group::{ToggleGroup, ToggleGroupItem},
+    toggle_group::ToggleGroup,
 };
 
 /// The accents offered as swatches: (name key, lightness, chroma, hue).
@@ -48,19 +48,22 @@ fn accent_picker(store: &Entity<SettingsStore>, cx: &mut App) -> Entity<ColorPic
     if let Some(picker) = cx.try_global::<AccentPicker>() {
         return picker.0.clone();
     }
-    let (lightness, chroma, hue) = custom_or_seed(store.read(cx).get()).accent();
+    let (lightness, chroma, hue) = super::style_library::shown(store.read(cx).get(), cx)
+        .0
+        .accent();
     let picker = cx.new(|cx| ColorPickerState::new(Oklch::new(lightness, chroma, hue), cx));
     let store = store.clone();
     cx.subscribe(&picker, move |_, event, cx| {
         let ColorPickerEvent::Change(color) = *event;
-        store.update(cx, |store, cx| {
-            store.update(cx, |s| {
-                let spec = custom_or_seed(s).with_accent(color.lightness, color.chroma, color.hue);
-                if s.custom_style != Some(spec) {
-                    s.custom_style = Some(spec);
-                }
-            })
-        });
+        let (now, _) = super::style_library::shown(store.read(cx).get(), cx);
+        if now.accent() == (color.lightness, color.chroma, color.hue) {
+            return;
+        }
+        super::style_library::edit_style(
+            &store,
+            |spec| spec.with_accent(color.lightness, color.chroma, color.hue),
+            cx,
+        );
     })
     .detach();
     cx.set_global(AccentPicker(picker.clone()));
@@ -76,201 +79,118 @@ pub(super) fn reset_accent_picker(cx: &mut App) {
     }
 }
 
-/// The colors a style shows in its gallery card.
-struct Swatch {
+/// The colors a style shows in its gallery card, and its corners.
+#[derive(Clone, Copy)]
+pub(super) struct StyleCard {
     sidebar: Rgba,
     page: Rgba,
     text: Rgba,
     accent: Rgba,
     border: Rgba,
+    radius: Radius,
 }
 
-fn swatch_of(style: &StyleSpec, mode: ThemeMode) -> Swatch {
-    let tokens = palette::tokens(&style.colors, mode);
-    let get = |name| tokens.get(name).unwrap_or_default();
-    Swatch {
-        sidebar: get("sidebar"),
-        page: get("background"),
-        text: get("muted-foreground"),
-        accent: get("primary"),
-        border: get("border"),
+impl StyleCard {
+    /// `style` as it shows in `mode`.
+    pub(super) fn of(style: &StyleSpec, mode: ThemeMode) -> Self {
+        let tokens = palette::tokens(&style.colors, mode);
+        let get = |name| tokens.get(name).unwrap_or_default();
+        Self {
+            sidebar: get("sidebar"),
+            page: get("background"),
+            text: get("muted-foreground"),
+            accent: get("primary"),
+            border: get("border"),
+            radius: style.radius,
+        }
     }
-}
 
-/// A tiny window in `swatch`'s colors: a sidebar and two lines of text,
-/// one with an accent dot.
-fn card(swatch: Swatch, radius: Radius, theme: &UiTheme) -> Div {
-    let corner = gpui_kit::px(radius.px() * 0.75);
-    let line = |width: f32, color: Rgba| {
-        div()
-            .h(theme.space(1.))
-            .w(relative(width))
-            .rounded_full()
-            .bg(color)
-    };
-    div()
-        .w_full()
-        .h(theme.space(12.))
-        .flex()
-        .overflow_hidden()
-        .rounded(corner)
-        .border_1()
-        .border_color(swatch.border)
-        .bg(swatch.page)
-        .child(
-            div()
-                .w(relative(0.3))
-                .h_full()
-                .bg(swatch.sidebar)
-                .p(theme.space(1.5))
-                .flex()
-                .flex_col()
-                .gap(theme.space(1.))
-                .child(line(0.8, swatch.text))
-                .child(line(0.6, swatch.text)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .p(theme.space(2.))
-                .flex()
-                .flex_col()
-                .gap(theme.space(1.5))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(theme.space(1.))
-                        .child(div().size(theme.space(2.)).rounded_full().bg(swatch.accent))
-                        .child(line(0.6, swatch.text)),
-                )
-                .child(line(0.8, swatch.text)),
-        )
-}
-
-/// The style gallery: Graphite, Porcelain, the person's own and their
-/// Mattermost theme, each a card in its own colors for the mode on screen.
-pub(super) fn gallery(store: &Entity<SettingsStore>, cx: &mut App) -> ToggleGroup {
-    let theme = UiTheme::read(cx).clone();
-    let settings = store.read(cx).get().clone();
-    let mode = theme.mode;
-    let value = match settings.theme_source {
-        ThemeSource::Matty => "matty",
-        ThemeSource::Porcelain => "porcelain",
-        ThemeSource::Custom => "custom",
-        ThemeSource::Mattermost => "mattermost",
-    };
-    let custom = custom_or_seed(&settings);
-    let mattermost = {
-        let imported = crate::mattermost_theme::shown(&settings, cx)
-            .unwrap_or_else(crate::mattermost_theme::Theme::denim);
-        let (ui, _) = imported.ui();
+    /// A Mattermost theme, in its own light or dark.
+    pub(super) fn mattermost(theme: &crate::mattermost_theme::Theme) -> Self {
+        let (ui, _) = theme.ui();
         let c = ui.colors;
-        Swatch {
+        Self {
             sidebar: c.sidebar,
             page: c.background,
             text: c.muted_foreground,
             accent: c.primary,
             border: c.border,
+            radius: Radius::Soft,
         }
-    };
-    let options: [(&'static str, SharedString, Swatch, Radius); 4] = [
-        (
-            "matty",
-            t!("prefs-colors-graphite"),
-            swatch_of(&Preset::Graphite.style(), mode),
-            Radius::Soft,
-        ),
-        (
-            "porcelain",
-            t!("prefs-colors-porcelain"),
-            swatch_of(&Preset::Porcelain.style(), mode),
-            Radius::Soft,
-        ),
-        (
-            "custom",
-            t!("prefs-colors-own"),
-            swatch_of(&custom, mode),
-            custom.radius,
-        ),
-        (
-            "mattermost",
-            t!("prefs-colors-mattermost"),
-            mattermost,
-            Radius::Soft,
-        ),
-    ];
-    let mut group = ToggleGroup::new("preferences.colors")
-        .aria_label(t!("prefs-colors"))
-        .w_full()
-        .value([SharedString::from(value)]);
-    for (option, name, swatch, radius) in options {
-        group = group.item(
-            ToggleGroupItem::new(
-                gpui_kit::ElementId::Name(format!("preferences.colors.{option}").into()),
-                option,
-            )
-            .aria_label(name.clone())
-            .flex_1()
-            .min_w_0()
-            .h_auto()
-            .p(theme.space(1.5))
+    }
+
+    /// A tiny window, 64px tall: a sidebar and lines of text, one with an
+    /// accent dot.
+    pub(super) fn render(self, theme: &UiTheme) -> Div {
+        let corner = gpui_kit::px(self.radius.px() * 0.75);
+        let line = |width: f32, color: Rgba| {
+            div()
+                .h(theme.space(1.))
+                .w(relative(width))
+                .rounded_full()
+                .bg(color)
+        };
+        div()
+            .w_full()
+            .h(theme.space(16.))
+            .flex()
+            .overflow_hidden()
+            .rounded(corner)
+            .border_1()
+            .border_color(self.border)
+            .bg(self.page)
             .child(
                 div()
-                    .w_full()
+                    .w(relative(0.3))
+                    .h_full()
+                    .bg(self.sidebar)
+                    .p(theme.space(1.5))
                     .flex()
                     .flex_col()
                     .gap(theme.space(1.5))
-                    .child(card(swatch, radius, &theme))
+                    .child(line(0.8, self.text))
+                    .child(line(0.6, self.text))
+                    .child(line(0.7, self.text)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .p(theme.space(2.))
+                    .flex()
+                    .flex_col()
+                    .gap(theme.space(2.))
                     .child(
                         div()
-                            .type_style(style::META, &theme)
-                            .text_center()
-                            .truncate()
-                            .child(name),
-                    ),
-            ),
-        );
+                            .flex()
+                            .items_center()
+                            .gap(theme.space(1.))
+                            .child(div().size(theme.space(2.)).rounded_full().bg(self.accent))
+                            .child(line(0.6, self.text)),
+                    )
+                    .child(line(0.8, self.text))
+                    .child(line(0.5, self.text)),
+            )
     }
-    let store = store.clone();
-    group.on_change(move |next, window, cx| {
-        let Some(value) = next.first() else { return };
-        let source = match value.as_ref() {
-            "porcelain" => ThemeSource::Porcelain,
-            "custom" => ThemeSource::Custom,
-            "mattermost" => ThemeSource::Mattermost,
-            _ => ThemeSource::Matty,
-        };
-        store.update(cx, |store, cx| {
-            store.update(cx, |s| {
-                if source == ThemeSource::Custom && s.custom_style.is_none() {
-                    s.custom_style = Some(custom_or_seed(s));
-                }
-                s.theme_source = source;
-            })
-        });
-        if source == ThemeSource::Custom {
-            let (lightness, chroma, hue) = custom_or_seed(store.read(cx).get()).accent();
-            let picker = accent_picker(&store, cx);
-            picker.update(cx, |picker, cx| {
-                picker.set_value(Oklch::new(lightness, chroma, hue), window, cx)
-            });
-        }
-    })
 }
 
-/// Writes `change` into the custom style.
+/// Changes the style on screen, saving a copy first when it is a preset
+/// or the Mattermost theme.
 fn edit(store: &Entity<SettingsStore>, change: impl FnOnce(StyleSpec) -> StyleSpec, cx: &mut App) {
-    store.update(cx, |store, cx| {
-        store.update(cx, |s| s.custom_style = Some(change(custom_or_seed(s))))
-    });
+    super::style_library::edit_style(store, change, cx);
 }
 
-/// The editor for the person's own style: accent, greys and corners, and a
-/// line when the contrast guard had to adjust a color.
-pub(super) fn editor(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
+/// The Customise group's controls for the style on screen: the accent
+/// picker (with a line when the contrast guard adjusted a color), the
+/// greys and the corners.
+pub(super) struct Editor {
+    pub(super) accent: Div,
+    pub(super) greys: ToggleGroup,
+    pub(super) corners: ToggleGroup,
+}
+
+pub(super) fn editor(store: &Entity<SettingsStore>, cx: &mut App) -> Editor {
     let theme = UiTheme::read(cx).clone();
-    let spec = custom_or_seed(store.read(cx).get());
+    let spec = super::style_library::shown(store.read(cx).get(), cx).0;
     let picker = accent_picker(store, cx);
     let swatches = SWATCHES.map(|(key, lightness, chroma, hue)| {
         ColorSwatch::new(
@@ -278,12 +198,6 @@ pub(super) fn editor(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
             Oklch::new(lightness, chroma, hue),
         )
     });
-    let label = |text: SharedString| {
-        div()
-            .type_style(style::UI, &theme)
-            .text_color(theme.colors.foreground)
-            .child(text)
-    };
     let greys_value = match spec.greys() {
         Greys::Neutral => "neutral",
         Greys::Cool => "cool",
@@ -337,44 +251,23 @@ pub(super) fn editor(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
     let adjusted = [ThemeMode::Light, ThemeMode::Dark]
         .into_iter()
         .any(|mode| !palette::tokens(&spec.colors, mode).adjusted.is_empty());
-    div()
+    let accent = div()
+        .w_full()
         .flex()
         .flex_col()
-        .gap(theme.space(4.))
-        .p(theme.space(4.))
-        .rounded(theme.radius.lg)
-        .border_1()
-        .border_color(theme.colors.border)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(theme.space(2.))
-                .child(label(t!("prefs-accent")))
-                .child(ColorPicker::new(&picker).swatches(swatches))
-                .when(adjusted, |accent| {
-                    accent.child(
-                        div()
-                            .type_style(style::META, &theme)
-                            .text_color(theme.colors.muted_foreground)
-                            .child(t!("prefs-accent-adjusted")),
-                    )
-                }),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(theme.space(2.))
-                .child(label(t!("prefs-greys")))
-                .child(greys),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(theme.space(2.))
-                .child(label(t!("prefs-corners")))
-                .child(corners),
-        )
+        .gap(theme.space(2.))
+        .child(ColorPicker::new(&picker).swatches(swatches))
+        .when(adjusted, |accent| {
+            accent.child(
+                div()
+                    .type_style(style::META, &theme)
+                    .text_color(theme.colors.muted_foreground)
+                    .child(t!("prefs-accent-adjusted")),
+            )
+        });
+    Editor {
+        accent,
+        greys,
+        corners,
+    }
 }
