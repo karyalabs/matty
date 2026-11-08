@@ -9,6 +9,13 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.13] - 2026-11-08
+
+### Fixed
+
+- Link previews show their image when it redirects to another site or
+  comes without an image type, as Figma's does (#756).
+
 ## [0.1.0-beta.12] - 2026-11-08
 
 Fixes for the paper-cuts found in beta.11 (#748).
@@ -188,7 +195,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.12...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.13...HEAD
+[0.1.0-beta.13]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.10
