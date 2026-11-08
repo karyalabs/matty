@@ -332,7 +332,7 @@ impl Render for SettingsView {
             .h_full()
             .flex()
             .flex_col()
-            .bg(theme.colors.sidebar)
+            .bg(theme.colors.muted)
             .border_r_1()
             .border_color(theme.colors.border)
             .child(

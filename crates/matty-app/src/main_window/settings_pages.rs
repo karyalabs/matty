@@ -149,7 +149,9 @@ pub(crate) fn section_list(
 ) -> Sidebar {
     let theme = UiTheme::read(cx);
     let on_select = std::rc::Rc::new(on_select);
-    let mut list = Sidebar::new("preferences.sections", t!("prefs-sections")).roving_focus(true);
+    let mut list = Sidebar::new("preferences.sections", t!("prefs-sections"))
+        .roving_focus(true)
+        .surface(true);
     for section in Section::ALL {
         let on_select = on_select.clone();
         let current = section == selected && !dimmed;
@@ -165,6 +167,7 @@ pub(crate) fn section_list(
                         .size(scaled(theme, metrics::ICON))
                         .text_color(color),
                 )
+                .surface(true)
                 .selected(current)
                 .when(current, |item| {
                     item.bg(theme.colors.primary.opacity(0.1))
