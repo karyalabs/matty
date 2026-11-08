@@ -1,20 +1,39 @@
-## Preferences (main_window/preferences.rs)
+## Settings (main_window/settings_pages.rs, settings_view.rs)
 
-prefs-title = Preferences
-prefs-description = Changes apply right away and are saved for next time.
+prefs-title = Settings
 prefs-done = Done
-prefs-sections = Preferences sections
+prefs-sections = Settings sections
 prefs-synced = Synced with your Mattermost account
 
 prefs-section-general = General
 prefs-section-appearance = Appearance
 prefs-section-messages = Messages
 prefs-section-notifications = Notifications
+prefs-section-servers = Servers
+prefs-section-keyboard = Keyboard
 prefs-section-advanced = Advanced
+
+prefs-summary-general = How Matty starts, where files go and how it updates.
+prefs-summary-appearance = How Matty looks on this computer.
+prefs-summary-messages = How messages read and how you write them.
+prefs-summary-notifications = What notifies you, and how.
+prefs-summary-servers = The servers you're signed in to, and your teams.
+prefs-summary-keyboard = Every shortcut. Cmd is Ctrl on Linux and Windows.
+prefs-summary-advanced = Logs, the cache, and starting over.
+prefs-this-computer = This computer only
+prefs-cancel = Cancel
+
+settings-search = Search settings
+settings-search-results = Search results
+settings-search-none = No settings match “{ $query }”
+settings-search-none-detail = Try another word, or press Esc to go back.
+settings-signed-in-as = Signed in as { $name } on { $host }
+settings-version = Matty { $version }
+settings-version-beta = Matty { $version } (Beta)
 
 ## General
 
-prefs-window = Window
+prefs-window = Startup and window
 prefs-close-to-tray = Keep running when closed
 prefs-close-to-tray-detail = Closing the window leaves Matty in the tray.
 prefs-launch-at-login = Open at login
@@ -32,7 +51,11 @@ prefs-theme = Theme
 prefs-theme-system = System
 prefs-theme-light = Light
 prefs-theme-dark = Dark
-prefs-theme-from-mattermost = Your Mattermost theme decides light or dark.
+prefs-theme-from-mattermost = Your Mattermost theme decides this itself.
+prefs-theme-detail = System follows your computer's setting.
+prefs-light-dark = Light or dark
+prefs-colors-label = Colors and corners
+prefs-text = Text
 prefs-colors = Colors
 prefs-colors-graphite = Graphite
 prefs-colors-porcelain = Porcelain
@@ -139,6 +162,14 @@ prefs-remote-images-ask = Ask first
 prefs-remote-images-always-hint = Images from other sites show in messages and previews, through your server's image proxy when it has one.
 prefs-remote-images-ask-hint = Images from other sites wait until you click them.
 prefs-threads = Threads
+prefs-reading = Reading
+prefs-writing = Writing
+prefs-privacy = Privacy
+prefs-format-bar = Formatting bar
+prefs-format-bar-detail = Strikethrough, link, heading, quote and list buttons above the message box.
+prefs-skin-tone = Emoji skin tone
+prefs-skin-tone-detail = For hands and people in the emoji picker.
+prefs-skin-tone-option = Skin tone { $tone }
 prefs-collapsed-threads = Collapsed reply threads
 prefs-collapsed-threads-detail = Replies stay in their thread instead of the channel.
 
@@ -159,11 +190,11 @@ prefs-sound-detail = Play a sound with each notification.
 prefs-notification-sound = Notification sound
 prefs-notification-sound-detail = Choosing one plays it.
 prefs-mentions = Mentions
-prefs-first-name = First name
+prefs-first-name = My first name
 prefs-first-name-detail = Your first name counts as a mention.
-prefs-first-name-named = “{ $name }” counts as a mention.
-prefs-channel-wide = @channel, @all and @here
-prefs-channel-wide-detail = Messages to the whole channel count as mentions.
+prefs-first-name-named = My first name, “{ $name }”
+prefs-channel-wide = Channel-wide mentions
+prefs-channel-wide-detail = @channel, @all and @here
 prefs-keywords = Keywords
 prefs-keyword-placeholder = Add a keyword
 prefs-keywords-detail = Words that count as mentioning you and notify. Press Enter to add; commas add several. @username always counts.
@@ -180,7 +211,17 @@ prefs-update-beta = Beta
 prefs-update-stable-hint = Releases only.
 prefs-update-beta-hint = Betas and alphas too, before they're released.
 prefs-check-updates = Check for updates
-prefs-check-updates-detail = You're on Matty { $version }.
+prefs-version = Matty { $version }
+prefs-update-status-unsupported = This copy of Matty is updated by your package manager.
+prefs-update-status-not-checked = Matty checks for updates every few hours.
+prefs-update-status-checking = Checking for updates…
+prefs-update-status-up-to-date = { $minutes ->
+        [0] Up to date. Checked just now.
+        [one] Up to date. Checked a minute ago.
+       *[other] Up to date. Checked { $minutes } minutes ago.
+    }
+prefs-update-status-failed = The last check didn't get through. Try again.
+prefs-update-status-ready = Update ready: { $version }. Restart Matty to use it.
 prefs-check-updates-button = Check now
 prefs-logs = Logs
 prefs-log-detail = Log detail
@@ -188,10 +229,42 @@ prefs-log-detail-hint = How much goes into the logs.
 prefs-logs-detail = Attach them when you report a problem.
 prefs-open-logs = Open folder
 prefs-open-logs-label = Open logs folder
-prefs-account = Account
-prefs-sign-out = Sign out
-prefs-sign-out-detail = Removes Matty's copy of your messages and files from this computer.
-prefs-sign-out-button = Sign out…
+prefs-storage = Storage
+prefs-cache-size = Cache size limit
+prefs-cache-size-detail = Images, files and older messages go first, least used first.
+prefs-cache-mb = { $size } MB
+prefs-cache-gb = { $size } GB
+prefs-clear-cache = Clear cached images and files
+prefs-clear-cache-detail = Your messages stay; images download again as you scroll.
+prefs-clear-cache-button = Clear…
+prefs-clear-cache-confirm-title = Clear cached images and files?
+prefs-clear-cache-confirm-detail = Matty downloads them again when you see them. Your messages and drafts stay.
+prefs-clear-cache-confirm = Clear
+prefs-reset = Reset
+prefs-reset-appearance = Reset appearance to defaults
+prefs-reset-appearance-detail = The style, fonts and text size. Your saved styles stay.
+prefs-reset-button = Reset
+prefs-reset-all = Reset all local settings
+prefs-reset-all-detail = Everything on this computer except your servers, saved styles and window places.
+prefs-reset-all-button = Reset…
+prefs-reset-all-confirm-title = Reset all local settings?
+prefs-reset-all-confirm-detail = Settings kept by your Mattermost account stay as they are.
+prefs-reset-all-confirm = Reset
+
+## Keyboard
+
+prefs-keys-navigation = Navigation
+prefs-keys-messages = Messages
+prefs-keys-teams = Teams and servers
+prefs-keys-window = Window
+prefs-keys-teams-by-number = Team 1 to 9
+
+## Servers
+
+prefs-servers = Saved servers
+prefs-server-detail = { $host } · Signed in as @{ $username }
+prefs-server-switch = Switch to
+prefs-add-server = Add server…
 
 ## Fonts (#706)
 prefs-fonts = Fonts

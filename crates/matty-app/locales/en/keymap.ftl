@@ -40,7 +40,7 @@ keymap-close-right-pane = Close right pane
 keymap-zoom-in = Zoom in
 keymap-zoom-out = Zoom out
 keymap-reset-zoom = Reset zoom
-keymap-preferences = Preferences
+keymap-settings = Settings
 keymap-keyboard-shortcuts = Keyboard shortcuts
 keymap-open-in-new-window = Open in new window
 keymap-close-window = Close window
@@ -63,11 +63,7 @@ message-key-copy-text = Copy text
 message-key-copy-link = Copy link
 message-key-view-images = View images
 
-shortcuts-title = Keyboard shortcuts
-shortcuts-description = Every shortcut works anywhere in the window unless it names a view.
 shortcuts-servers = Switch to server 1–9
-shortcuts-message-keys = On a selected message (Shift+Tab from the composer, then Up and Down)
-shortcuts-close = Close
 
 # App menu titles and items without a shortcut row (macOS menu bar).
 menu-file = File

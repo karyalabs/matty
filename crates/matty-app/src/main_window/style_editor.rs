@@ -291,7 +291,7 @@ pub(super) fn editor(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
         Greys::Tinted => "tinted",
     };
     let greys_store = store.clone();
-    let greys = super::preferences::choices(
+    let greys = super::settings_pages::choices(
         "preferences.greys",
         t!("prefs-greys"),
         greys_value,
@@ -312,7 +312,7 @@ pub(super) fn editor(store: &Entity<SettingsStore>, cx: &mut App) -> Div {
         },
     );
     let corners_store = store.clone();
-    let corners = super::preferences::choices(
+    let corners = super::settings_pages::choices(
         "preferences.corners",
         t!("prefs-corners"),
         match spec.radius {

@@ -38,3 +38,21 @@ impl UpdatePrompt {
 
 /// Nothing waits on composers on the web.
 pub(crate) fn watch_composer(_composer: &Entity<ComposerState>, _cx: &mut App) {}
+
+/// What Settings says about updates (the desktop's `UpdateStatus`).
+#[allow(dead_code)]
+pub(crate) enum UpdateStatus {
+    Unsupported,
+    NotChecked,
+    Checking,
+    UpToDate { minutes: u64 },
+    Failed,
+    Ready(String),
+}
+
+impl UpdatePrompt {
+    /// The page never updates itself.
+    pub(crate) fn status(&self) -> UpdateStatus {
+        UpdateStatus::Unsupported
+    }
+}

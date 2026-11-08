@@ -176,14 +176,16 @@ fn the_new_surfaces_have_no_unnamed_controls(cx: &mut gpui_kit::TestAppContext) 
         ),
         ("Recent mentions", "Jump", Box::new(actions::RecentMentions)),
         ("Saved messages", "Jump", Box::new(actions::SavedMessages)),
+        // Settings is a window of its own (#732); the audit reads every
+        // window, and the shortcuts open its Keyboard page.
         (
-            "Preferences",
-            "Appearance",
-            Box::new(actions::OpenPreferences),
+            "Settings",
+            "Search settings",
+            Box::new(actions::OpenSettings),
         ),
         (
-            "Keyboard shortcuts",
-            "Close",
+            "Settings > Keyboard",
+            "Keyboard, current destination",
             Box::new(actions::ShowShortcuts),
         ),
     ];

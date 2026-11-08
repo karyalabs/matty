@@ -252,6 +252,15 @@ impl MediaCache {
         Ok(entries)
     }
 
+    /// Drops every entry and its file; returns how many went.
+    pub fn clear(&self, conn: &Connection) -> Result<usize> {
+        let entries = self.least_recent(conn)?;
+        for (key, _) in &entries {
+            self.remove(conn, key)?;
+        }
+        Ok(entries.len())
+    }
+
     /// Bytes indexed in the cache.
     pub fn total_size(&self, conn: &Connection) -> Result<i64> {
         Ok(conn

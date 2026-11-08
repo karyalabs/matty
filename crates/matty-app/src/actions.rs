@@ -90,8 +90,8 @@ gpui_kit::actions!(
         ZoomOut,
         /// Reset the zoom level. (Matty)
         ResetZoom,
-        /// Open preferences. (Matty)
-        OpenPreferences,
+        /// Open Settings. (Matty)
+        OpenSettings,
         /// Show the keyboard shortcut sheet. (MM)
         ShowShortcuts,
         /// Open the current channel, or the thread in the right pane, in a
@@ -269,6 +269,55 @@ pub struct Binding {
     pub other: &'static str,
 }
 
+/// Where Settings > Keyboard lists a binding (#732).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyGroup {
+    Navigation,
+    Messages,
+    TeamsAndServers,
+    Window,
+}
+
+impl Binding {
+    /// The Keyboard page's group for this binding.
+    pub fn group(&self) -> KeyGroup {
+        match self.label {
+            "Quick switcher"
+            | "Direct messages"
+            | "Browse channels"
+            | "Create channel"
+            | "Search"
+            | "Focus search"
+            | "Previous channel"
+            | "Next channel"
+            | "Previous unread channel"
+            | "Next unread channel"
+            | "Back"
+            | "Forward"
+            | "Unreads filter"
+            | "Channel info"
+            | "Recent mentions"
+            | "All unreads"
+            | "Saved messages" => KeyGroup::Navigation,
+            "Previous team" | "Next team" => KeyGroup::TeamsAndServers,
+            "Upload files"
+            | "Bold"
+            | "Preview message"
+            | "Italic"
+            | "Link"
+            | "Strikethrough"
+            | "Inline code"
+            | "Edit last message"
+            | "Reply to last message"
+            | "React to last message"
+            | "Focus composer"
+            | "Mark channel read"
+            | "Mark all read" => KeyGroup::Messages,
+            _ => KeyGroup::Window,
+        }
+    }
+}
+
 /// The Fluent id of a keymap or message-key label: `prefix`, then the
 /// English label in kebab case, such as `keymap-quick-switcher`.
 fn label_id(prefix: &str, label: &str) -> String {
@@ -370,6 +419,8 @@ pub const COMPOSER_EMPTY: &str = "Composer && empty";
 pub const POP_OUT: &str = "PopOut";
 /// Split view's second pane, in the main window (#222).
 pub const SPLIT_PANE: &str = "SplitPane";
+/// The Settings window, or the overlay on the web (#732).
+pub const SETTINGS: &str = "Settings";
 
 macro_rules! row {
     ($label:literal, $action:ident, $context:expr, $mac:literal, $other:literal) => {
@@ -589,7 +640,7 @@ pub fn bindings() -> Vec<Binding> {
         row!("Zoom in", ZoomIn, main, "cmd-=", "ctrl-="),
         row!("Zoom out", ZoomOut, main, "cmd--", "ctrl--"),
         row!("Reset zoom", ResetZoom, main, "cmd-0", "ctrl-0"),
-        row!("Preferences", OpenPreferences, main, "cmd-,", "ctrl-,"),
+        row!("Settings", OpenSettings, None, "cmd-,", "ctrl-,"),
         row!("Keyboard shortcuts", ShowShortcuts, main, "cmd-/", "ctrl-/"),
         row!(
             "Open in new window",
@@ -642,6 +693,13 @@ pub fn bind(cx: &mut App) {
     } else {
         ("ctrl-alt-up", "ctrl-alt-down")
     };
+    // Cmd/Ctrl+F finds a setting.
+    let find = if platform == Platform::MacOs {
+        "cmd-f"
+    } else {
+        "ctrl-f"
+    };
+    cx.bind_keys([KeyBinding::new(find, FocusSearch, Some(SETTINGS))]);
     cx.bind_keys([
         KeyBinding::new(previous_team, PreviousTeam, Some("Composer > Input")),
         KeyBinding::new(next_team, NextTeam, Some("Composer > Input")),
