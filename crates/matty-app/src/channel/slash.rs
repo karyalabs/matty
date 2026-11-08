@@ -3,7 +3,7 @@
 use gpui_kit::{Context, SharedString, Window};
 
 use super::{ChannelEvent, ChannelView};
-use crate::actions::{OpenPreferences, ShowShortcuts};
+use crate::actions::{OpenSettings, ShowShortcuts};
 use crate::channel_settings::ChannelField;
 use crate::slash::{Change, Line, Local, Place, Request};
 
@@ -112,7 +112,7 @@ impl ChannelView {
         self.clear_command(window, cx);
         match local {
             Local::Shortcuts => window.dispatch_action(Box::new(ShowShortcuts), cx),
-            Local::Settings => window.dispatch_action(Box::new(OpenPreferences), cx),
+            Local::Settings => window.dispatch_action(Box::new(OpenSettings), cx),
             Local::Leave => self.leave.open(window, cx),
             Local::Header => self.edit_channel(ChannelField::Header, window, cx),
             Local::Purpose => self.edit_channel(ChannelField::Purpose, window, cx),

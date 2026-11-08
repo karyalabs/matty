@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use gpui_kit::{Context, Window};
 
-use super::{MainWindow, preferences::collapse_previews_preference};
+use super::{MainWindow, settings_pages::collapse_previews_preference};
 use crate::slash::Request;
 
 impl MainWindow {

@@ -98,7 +98,7 @@ pub fn menus() -> Vec<Menu> {
     let dialog = |action: &dyn Action| keymap_item(&keymap, action, true);
     vec![
         Menu::new(APP_NAME).items([
-            dialog(&actions::OpenPreferences),
+            dialog(&actions::OpenSettings),
             MenuItem::action(t!("menu-check-updates"), CheckForUpdates),
             MenuItem::separator(),
             MenuItem::action(t!("menu-add-server"), actions::AddServer),
@@ -257,7 +257,7 @@ mod tests {
         );
         let actions: HashSet<_> = items().into_iter().map(|(_, action)| action).collect();
         for expected in [
-            actions::OpenPreferences.name(),
+            actions::OpenSettings.name(),
             CheckForUpdates.name(),
             SignOut.name(),
             Quit.name(),

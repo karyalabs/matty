@@ -3,7 +3,7 @@
 use gpui_kit::{Context, SharedString, Window};
 
 use super::{RightPaneContent, RightPaneEvent, RightPaneView};
-use crate::actions::{OpenPreferences, ShowShortcuts};
+use crate::actions::{OpenSettings, ShowShortcuts};
 use crate::slash::{Change, Line, Local, Place, Request};
 
 impl RightPaneView {
@@ -81,7 +81,7 @@ impl RightPaneView {
                         return true;
                     }
                     Local::Settings => {
-                        window.dispatch_action(Box::new(OpenPreferences), cx);
+                        window.dispatch_action(Box::new(OpenSettings), cx);
                         return true;
                     }
                     Local::Search(terms) => Request::Search(terms),

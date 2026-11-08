@@ -415,6 +415,16 @@ pub enum Command {
         /// On.
         on: bool,
     },
+    /// Keeps the cache, media and history together, under `bytes`
+    /// (Settings > Advanced > Cache size limit). Eviction runs now and
+    /// then at most once a minute after writes.
+    SetCacheLimit {
+        /// The cap in bytes.
+        bytes: i64,
+    },
+    /// Drops every cached image and file, keeping messages (Settings >
+    /// Advanced > Clear cached images and files).
+    ClearMedia,
     /// Saves account preferences Preferences mirrors, such as
     /// `display_settings/message_display` (#156) or
     /// `advanced_settings/send_on_ctrl_enter` (#157), as the user's.
@@ -771,6 +781,11 @@ impl std::fmt::Debug for Command {
             Self::App(command) => f.debug_tuple("App").field(command).finish(),
             Self::SignOut => f.write_str("SignOut"),
             Self::Event(event) => f.debug_tuple("Event").field(event).finish(),
+            Self::SetCacheLimit { bytes } => f
+                .debug_struct("SetCacheLimit")
+                .field("bytes", bytes)
+                .finish(),
+            Self::ClearMedia => f.write_str("ClearMedia"),
             Self::SetCollapsedThreads { on } => f
                 .debug_struct("SetCollapsedThreads")
                 .field("on", on)
@@ -1256,6 +1271,9 @@ pub(crate) struct Engine {
     me: Option<String>,
     capabilities: Option<ServerCapabilities>,
     open_channels: BTreeSet<String>,
+    /// The cache cap Settings asked for, and when eviction last ran.
+    cache_cap: Option<i64>,
+    evicted_at: Option<Instant>,
     open_threads: BTreeSet<String>,
     open_thread_lists: BTreeSet<String>,
     subscribers: Vec<async_channel::Sender<ChangeSet>>,
@@ -1309,6 +1327,8 @@ impl Engine {
             me,
             capabilities: None,
             open_channels: BTreeSet::new(),
+            cache_cap: None,
+            evicted_at: None,
             open_threads: BTreeSet::new(),
             open_thread_lists: BTreeSet::new(),
             subscribers: Vec::new(),
@@ -1371,6 +1391,36 @@ impl Engine {
         }
     }
 
+    /// Keeps the cache under the cap Settings set: now when `now`, else at
+    /// most once a minute. The open channels keep their history.
+    fn evict(&mut self, now: bool) {
+        let (Some(cap), Some(media)) = (self.cache_cap, &self.media) else {
+            return;
+        };
+        let due = self
+            .evicted_at
+            .is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(60));
+        if !now && !due {
+            return;
+        }
+        self.evicted_at = Some(Instant::now());
+        let open: Vec<&str> = self.open_channels.iter().map(String::as_str).collect();
+        let keep = matty_store::evict::Keep {
+            channels: &open,
+            ..Default::default()
+        };
+        match matty_store::evict::evict_to(self.store.conn(), media, cap, &keep) {
+            Ok(evicted) if evicted.media + evicted.posts > 0 => tracing::info!(
+                media = evicted.media,
+                posts = evicted.posts,
+                bytes = evicted.bytes_after,
+                "kept the cache under its limit"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::warn!(%error, "could not keep the cache under its limit"),
+        }
+    }
+
     fn apply(
         &mut self,
         messages: impl Iterator<Item = Message>,
@@ -1390,6 +1440,8 @@ impl Engine {
         let mut fetches = Vec::new();
         let mut sends = Vec::new();
         let mut writes = Vec::new();
+        let mut clear_media = false;
+        let mut evict_now = false;
         let tx = self.store.conn_mut().transaction()?;
         for message in messages {
             match message {
@@ -1828,6 +1880,11 @@ impl Engine {
                 Message::Command(Command::DeleteEmoji { emoji_id }) => {
                     writes.push(Write::DeleteEmoji { emoji_id })
                 }
+                Message::Command(Command::SetCacheLimit { bytes }) => {
+                    self.cache_cap = Some(bytes);
+                    evict_now = true;
+                }
+                Message::Command(Command::ClearMedia) => clear_media = true,
                 Message::Command(Command::SetCollapsedThreads { on }) => {
                     if let Some(me) = &self.me {
                         let preference = Preference {
@@ -2300,6 +2357,13 @@ impl Engine {
             }
         }
         tx.commit()?;
+        if clear_media && let Some(media) = &self.media {
+            match media.clear(self.store.conn()) {
+                Ok(count) => tracing::info!(count, "cleared cached media"),
+                Err(error) => tracing::warn!(%error, "could not clear cached media"),
+            }
+        }
+        self.evict(evict_now);
         for channel_id in to_fetch {
             self.fetch_channel(&channel_id);
         }

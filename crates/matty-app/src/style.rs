@@ -309,6 +309,19 @@ pub const TITLE: TypeStyle = TypeStyle {
     line: 24.,
     weight: FontWeight::SEMIBOLD,
 };
+/// A Settings page's title: one step above `TITLE`, since the page has no
+/// other heading (#732).
+pub const PAGE_TITLE: TypeStyle = TypeStyle {
+    size: 20.,
+    line: 28.,
+    weight: FontWeight::SEMIBOLD,
+};
+/// A Settings group's label, in sentence case.
+pub const GROUP_LABEL: TypeStyle = TypeStyle {
+    size: 13.,
+    line: 18.,
+    weight: FontWeight::SEMIBOLD,
+};
 /// Post text and the composer, set for reading.
 pub const BODY: TypeStyle = TypeStyle {
     size: 14.5,

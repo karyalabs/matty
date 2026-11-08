@@ -262,6 +262,8 @@ pub const RECENT_SERVERS: usize = 3;
 #[serde(default)]
 pub struct Settings {
     pub window: Option<WindowGeometry>,
+    /// Where the Settings window was (#732).
+    pub settings_window: Option<WindowGeometry>,
     pub sidebar_width: f32,
     pub right_pane_width: f32,
     pub theme: ThemeChoice,
@@ -339,6 +341,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             window: None,
+            settings_window: None,
             sidebar_width: SIDEBAR_DEFAULT,
             right_pane_width: RIGHT_PANE_DEFAULT,
             theme: ThemeChoice::System,

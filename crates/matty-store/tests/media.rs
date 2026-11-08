@@ -153,3 +153,19 @@ fn a_cache_in_the_database_round_trips_and_forgets() {
         .unwrap();
     assert_eq!(rows, 0);
 }
+
+#[test]
+fn clear_drops_every_entry_and_its_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let conn = store.conn();
+    let cache = MediaCache::new(dir.path());
+    let thumb = media::file_key("a", FileVariant::Thumb);
+    let avatar = media::avatar_key("u", 1);
+    cache.put(conn, &thumb, b"x", "image/png").unwrap();
+    cache.put(conn, &avatar, b"y", "image/png").unwrap();
+    assert_eq!(cache.clear(conn).unwrap(), 2);
+    assert!(!cache.contains(conn, &thumb).unwrap());
+    assert!(!cache.contains(conn, &avatar).unwrap());
+    assert_eq!(cache.total_size(conn).unwrap(), 0);
+}

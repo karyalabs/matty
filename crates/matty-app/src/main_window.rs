@@ -16,7 +16,7 @@ use crate::account::{Account, AccountEvent, AccountView};
 use crate::actions::{
     self, AllUnreads, BrowseChannels, ChannelInfo, CreateChannel, DirectMessagesMenu,
     FocusComposer, FocusSearch, HistoryBack, HistoryForward, MarkAllRead, MarkChannelRead,
-    NextChannel, NextUnreadChannel, OpenInNewWindow, OpenPreferences, Platform, PreviousChannel,
+    NextChannel, NextUnreadChannel, OpenInNewWindow, OpenSettings, Platform, PreviousChannel,
     PreviousUnreadChannel, QuickSwitcher, RecentMentions, ResetZoom, SavedMessages, Search,
     ShowShortcuts, ToggleRightPane, ToggleSidebar, UnreadsFilter, UploadFiles, ZoomIn, ZoomOut,
 };
@@ -37,16 +37,13 @@ use crate::switcher::{Switcher, SwitcherEvent};
 use crate::threads::{ThreadsEvent, ThreadsModel, ThreadsView};
 use crate::ui::{
     button::{Button, ButtonSize, ButtonVariant},
-    dialog::{
-        DialogHandle, dialog, dialog_close, dialog_description, dialog_popup, dialog_title,
-        dialog_with,
-    },
+    dialog::{DialogHandle, dialog, dialog_popup},
     drawer::{Drawer, DrawerContent, DrawerHandle, DrawerSide},
     input::{InputEvent, InputState},
     kbd::Kbd,
     markdown::selection_root,
     resizable::{PaneLimits, Resizable},
-    select::{SelectEvent, SelectItem, SelectState},
+    select::SelectState,
     theme::{UiTheme, transition_value},
     title_bar::TitleBar,
     toast::{Notice, ToastState},
@@ -184,10 +181,11 @@ mod drafts;
 mod font_menus;
 mod other_servers;
 mod popouts;
-mod preferences;
 mod priority;
 mod quick_switch;
 mod servers;
+mod settings_pages;
+mod settings_view;
 mod slash;
 mod sounds;
 mod split;
@@ -212,10 +210,12 @@ pub struct MainWindow {
     selected_channel: Option<gpui_kit::SharedString>,
     /// Cmd+Shift+D hides the sidebar for this session.
     sidebar_visible: bool,
-    shortcuts: DialogHandle,
-    preferences: DialogHandle,
-    /// The section Preferences shows (#155).
-    preferences_section: preferences::Section,
+    /// Settings, while open (#732).
+    settings_host: settings_view::SettingsHost,
+    /// This window, for what Settings' pages do in it.
+    window_handle: gpui_kit::AnyWindowHandle,
+    /// The cache limit last sent to sync.
+    cache_limit_sent: Option<u32>,
     /// Preferences' field for a new mention keyword, added on Enter or
     /// when the field loses focus (#192).
     keywords: Entity<InputState>,
@@ -223,10 +223,6 @@ pub struct MainWindow {
     highlight_keywords: Entity<InputState>,
     /// The server takes `highlight_keys`: it is licensed (#192).
     highlight_keys: bool,
-    /// Preferences' log detail picker (#160).
-    log_level: Entity<SelectState>,
-    /// Preferences' notification sound picker (#142).
-    sound: Entity<SelectState>,
     /// Preferences' interface and code font menus (#706).
     ui_font: Entity<SelectState>,
     code_font: Entity<SelectState>,
@@ -351,6 +347,7 @@ impl MainWindow {
             window,
             |this, store, _: &SettingsChanged, window, cx| {
                 crate::apply_theme(window, cx);
+                this.send_cache_limit(cx);
                 this.refresh_server_rail(cx);
                 let names = store.read(cx).get().name_format;
                 let ask_images = store.read(cx).get().load_remote_images == RemoteImages::Ask;
@@ -371,6 +368,15 @@ impl MainWindow {
         .detach();
         cx.observe_window_bounds(window, |this, window, cx| this.remember_bounds(window, cx))
             .detach();
+        // Settings goes with the window it sets.
+        cx.on_release(|this: &mut Self, cx| {
+            if let Some(handle) = this.settings_host.window.take() {
+                handle
+                    .update(cx, |_, window, _| window.remove_window())
+                    .ok();
+            }
+        })
+        .detach();
         // Coming back to the window views the open channel if its newest
         // posts are on screen (#145).
         cx.observe_window_activation(window, |this, window, cx| {
@@ -1118,34 +1124,6 @@ impl MainWindow {
             };
         let keywords = keyword_input(matty_notify::KeywordList::Mention, window, cx);
         let highlight_keywords = keyword_input(matty_notify::KeywordList::Highlight, window, cx);
-        let level = settings.read(cx).get().log_level;
-        let log_level = cx.new(|cx| {
-            let mut state = SelectState::new(
-                LOG_LEVELS
-                    .iter()
-                    .map(|(_, value, label)| SelectItem::new(*value, *label)),
-                window,
-                cx,
-            );
-            let value = LOG_LEVELS
-                .iter()
-                .find(|(l, _, _)| *l == level)
-                .map(|(_, value, _)| SharedString::from(*value));
-            state.set_value(value, window, cx);
-            state
-        });
-        cx.subscribe(&log_level, |this, _, event: &SelectEvent, cx| {
-            let SelectEvent::Change(Some(value)) = event else {
-                return;
-            };
-            if let Some((level, _, _)) = LOG_LEVELS.iter().find(|(_, v, _)| *v == value.as_ref()) {
-                let level = *level;
-                this.settings
-                    .update(cx, |store, cx| store.update(cx, |s| s.log_level = level));
-            }
-        })
-        .detach();
-        let sound = sounds::picker(preview_props.as_ref(), window, cx);
         let (ui_font, code_font) = font_menus::menus(window, cx);
         let history: Vec<SharedString> = selected_channel.iter().cloned().collect();
         // A click on a notification opens its channel at its post (#139).
@@ -1172,14 +1150,12 @@ impl MainWindow {
             focus,
             selected_channel,
             sidebar_visible: true,
-            shortcuts: DialogHandle::new(false),
-            preferences: DialogHandle::new(false),
-            preferences_section: preferences::Section::default(),
+            settings_host: Default::default(),
+            window_handle: window.window_handle(),
+            cache_limit_sent: None,
             keywords,
             highlight_keywords,
             highlight_keys: crate::preview::enabled(),
-            log_level,
-            sound,
             ui_font,
             code_font,
             font_error: None,
@@ -1360,6 +1336,8 @@ impl MainWindow {
             self.settings.read(cx).get().load_remote_images == RemoteImages::Ask,
         );
         self.live = Some(live);
+        self.cache_limit_sent = None;
+        self.send_cache_limit(cx);
         self.account.update(cx, |view, cx| {
             view.set_account(
                 Account {
@@ -2119,7 +2097,6 @@ impl MainWindow {
         }
         if let Some(props) = update.notify_props {
             self.notify_props = Some(props);
-            self.show_sound(window, cx);
             cx.notify();
         }
         if let Some(on) = update.highlight_keys {
@@ -3806,6 +3783,38 @@ impl MainWindow {
         }
     }
 
+    /// Tells sync the cache limit Settings holds, when it changed.
+    fn send_cache_limit(&mut self, cx: &mut Context<Self>) {
+        let mb = self.settings.read(cx).get().cache_size_mb;
+        if self.cache_limit_sent == Some(mb) {
+            return;
+        }
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::SetCacheLimit {
+                bytes: i64::from(mb) * 1024 * 1024,
+            });
+            self.cache_limit_sent = Some(mb);
+        }
+    }
+
+    /// Runs `f` with this window, for what Settings' pages do from their
+    /// own window: switching server, focusing the composer.
+    pub(super) fn in_main_window(
+        &self,
+        cx: &mut Context<Self>,
+        f: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let handle = self.window_handle;
+        let view = cx.entity();
+        cx.defer(move |cx| {
+            handle
+                .update(cx, |_, window, cx| {
+                    view.update(cx, |this, cx| f(this, window, cx))
+                })
+                .ok();
+        });
+    }
+
     /// Sign out returns to the sign-in card at once; sync ends the session
     /// on the server and then stops, and the account's cache is deleted
     /// (#160). Offline, the server is told nothing but the cache still goes.
@@ -3853,6 +3862,8 @@ impl MainWindow {
             window.focus(&self.focus, cx);
             return cx.notify();
         }
+        // Signed out of the last server: nothing is left to set.
+        self.close_settings(cx);
         self.selected_channel = None;
         self.sidebar.update(cx, |sidebar, cx| {
             sidebar.set_model(SidebarModel::loading(), cx)
@@ -4029,68 +4040,6 @@ impl MainWindow {
                 .flex_col()
                 .justify_end()
                 .child(row),
-        )
-    }
-
-    fn shortcut_sheet(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The sheet formats every binding, so it is built only while open
-        // (matty#673, gpuicn#164).
-        dialog_with(
-            "shortcuts",
-            &self.shortcuts,
-            |_, cx| {
-                let theme = UiTheme::read(cx).clone();
-                let platform = Platform::current();
-                let sheet_row = |label: SharedString, keys: Kbd| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(theme.space(6.))
-                        .h(scaled(&theme, metrics::ROW_HEIGHT))
-                        .type_style(style::UI, &theme)
-                        .child(label)
-                        .child(keys)
-                };
-                let rows = actions::bindings().into_iter().flat_map(|row| {
-                    // Cmd/Ctrl+1…9 stay out of the keymap's rows; one line lists them.
-                    let servers = (row.label == "Forward").then(|| {
-                        let first = actions::format_keys("cmd-1", "ctrl-1");
-                        sheet_row(
-                            crate::t!("shortcuts-servers"),
-                            Kbd::new(format!("{first}–9")),
-                        )
-                    });
-                    std::iter::once(sheet_row(row.name(), Kbd::shortcut(row.keys(platform))))
-                        .chain(servers)
-                });
-                dialog_popup("shortcuts.popup", crate::t!("shortcuts-title"), cx)
-                    .child(dialog_title("shortcuts.title", cx).child(crate::t!("shortcuts-title")))
-                    .child(
-                        dialog_description("shortcuts.description", cx)
-                            .child(crate::t!("shortcuts-description")),
-                    )
-                    .child(div().flex().flex_col().children(rows))
-                    .child(
-                        div()
-                            .pt(theme.space(3.))
-                            .pb(theme.space(1.))
-                            .type_style(style::META, &theme)
-                            .text_color(theme.colors.muted_foreground)
-                            .child(crate::t!("shortcuts-message-keys")),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .children(actions::MESSAGE_KEYS.into_iter().map(|(key, label)| {
-                                sheet_row(actions::message_key_name(label), Kbd::new(key))
-                            })),
-                    )
-                    .child(dialog_close("shortcuts.close", cx).label(crate::t!("shortcuts-close")))
-            },
-            window,
-            cx,
         )
     }
 
@@ -4678,8 +4627,6 @@ impl Render for MainWindow {
         } else {
             content
         };
-        let shortcuts = self.shortcuts.clone();
-        let preferences = self.preferences.clone();
         let switcher_element = self.switcher.update(cx, |switcher, cx| {
             switcher.element(window, cx).into_any_element()
         });
@@ -4700,7 +4647,9 @@ impl Render for MainWindow {
             .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.zoom(Some(ZOOM_STEP), cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom(Some(-ZOOM_STEP), cx)))
             .on_action(cx.listener(|this, _: &ResetZoom, _, cx| this.zoom(None, cx)))
-            .on_action(move |_: &ShowShortcuts, window, cx| shortcuts.open(window, cx))
+            .on_action(cx.listener(|this, _: &ShowShortcuts, window, cx| {
+                this.open_settings(settings_pages::Section::Keyboard, window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &HistoryBack, window, cx| this.go_history(-1, window, cx)),
             )
@@ -4736,7 +4685,9 @@ impl Render for MainWindow {
                 }
             }))
             .on_action(cx.listener(|this, _: &MarkAllRead, _, cx| this.mark_all_read(cx)))
-            .on_action(move |_: &OpenPreferences, window, cx| preferences.open(window, cx))
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
+                this.open_settings(settings_pages::Section::General, window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &crate::menu::SignOut, window, cx| this.sign_out(window, cx)),
             )
@@ -4827,8 +4778,7 @@ impl Render for MainWindow {
             })
             .child(self.right_drawer(window, cx))
             .child(self.sidebar_drawer(window, cx))
-            .child(self.shortcut_sheet(window, cx))
-            .child(self.preferences(window, cx))
+            .children(self.settings_overlay())
             .child(self.browse(window, cx))
             .child(self.directory_dialogs(window, cx))
             .child(self.link_join_dialog(window, cx))

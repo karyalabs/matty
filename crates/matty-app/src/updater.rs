@@ -108,6 +108,23 @@ enum Outcome {
     Failed(String),
 }
 
+/// Where updates stand, for Settings > General.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum UpdateStatus {
+    /// This build does not update itself.
+    Unsupported,
+    /// No check has ended yet.
+    NotChecked,
+    /// A check is running.
+    Checking,
+    /// The last check found nothing newer, this many minutes ago.
+    UpToDate { minutes: u64 },
+    /// The last check failed.
+    Failed,
+    /// An update is downloaded and waiting.
+    Ready(String),
+}
+
 /// Owns the checks and the prompt for one window.
 pub(crate) struct UpdatePrompt {
     toasts: Entity<ToastState>,
@@ -124,6 +141,8 @@ pub(crate) struct UpdatePrompt {
     checking: bool,
     /// The person asked for the running check, so its outcome is shown.
     report: bool,
+    /// When the last check ended, and whether it failed, for Settings.
+    last: Option<(Instant, bool)>,
     _checks: Option<Task<()>>,
     _poll: Option<Task<()>>,
 }
@@ -140,6 +159,7 @@ impl UpdatePrompt {
             channel: SettingsStore::global(cx).read(cx).get().update_channel,
             checking: false,
             report: false,
+            last: None,
             _checks: None,
             _poll: None,
         }
@@ -194,6 +214,26 @@ impl UpdatePrompt {
             .detach();
             this
         })
+    }
+
+    /// What Settings > General says about updates.
+    pub(crate) fn status(&self) -> UpdateStatus {
+        if let Some(ready) = &self.ready {
+            return UpdateStatus::Ready(ready.version.to_string());
+        }
+        if self.updater.is_none() {
+            return UpdateStatus::Unsupported;
+        }
+        if self.checking {
+            return UpdateStatus::Checking;
+        }
+        match self.last {
+            None => UpdateStatus::NotChecked,
+            Some((_, true)) => UpdateStatus::Failed,
+            Some((at, false)) => UpdateStatus::UpToDate {
+                minutes: at.elapsed().as_secs() / 60,
+            },
+        }
     }
 
     /// "Check for updates": checks now and says what it found. A ready
@@ -321,6 +361,8 @@ impl UpdatePrompt {
     /// Acts on what a check found, and answers the person if they asked.
     fn finish_check(&mut self, outcome: Outcome, window: &mut Window, cx: &mut Context<Self>) {
         self.checking = false;
+        self.last = Some((Instant::now(), matches!(outcome, Outcome::Failed(_))));
+        cx.notify();
         let report = std::mem::take(&mut self.report);
         match outcome {
             Outcome::UpToDate => {

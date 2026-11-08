@@ -8,7 +8,7 @@ use gpui_kit::{
     prelude::FluentBuilder as _, px,
 };
 
-use crate::actions::{AddServer, OpenPreferences};
+use crate::actions::{AddServer, OpenSettings};
 use crate::custom_status::{self, Duration, StatusLine};
 use crate::dnd::{self, DURATIONS, DndDuration};
 use crate::settings::ClockFormat;
@@ -419,7 +419,7 @@ impl AccountView {
         items.push(
             MenuItem::new("account.preferences", t!("account-preferences")).on_click(
                 |_, window, cx| {
-                    window.dispatch_action(Box::new(OpenPreferences), cx);
+                    window.dispatch_action(Box::new(OpenSettings), cx);
                 },
             ),
         );
