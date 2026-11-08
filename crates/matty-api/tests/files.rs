@@ -326,6 +326,44 @@ async fn an_outside_image_goes_without_the_session_token() {
             .all(|r| !r.headers.contains_key("authorization"))
     );
 
+    // An S3 object stored without a type, like Figma's previews (#756),
+    // comes back for the app to sniff.
+    Mock::given(method("GET"))
+        .and(path("/thumbnail"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "binary/octet-stream")
+                .set_body_bytes(b"\x89PNG".to_vec()),
+        )
+        .mount(&outside)
+        .await;
+    let untyped = client
+        .outside_image(&format!("{}/thumbnail", outside.uri()))
+        .await;
+    assert!(
+        matches!(&untyped, Ok(Fetched::Fresh { bytes, .. }) if bytes.starts_with(b"\x89PNG")),
+        "{untyped:?}"
+    );
+
+    // A preview that redirects to another host (Figma's to S3, #756) is
+    // followed there.
+    let elsewhere = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/file/k/thumbnail"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", format!("{}/thumbnail", outside.uri())),
+        )
+        .mount(&elsewhere)
+        .await;
+    let redirected = client
+        .outside_image(&format!("{}/file/k/thumbnail", elsewhere.uri()))
+        .await;
+    assert!(
+        matches!(&redirected, Ok(Fetched::Fresh { bytes, .. }) if bytes.starts_with(b"\x89PNG")),
+        "{redirected:?}"
+    );
+
     let page = client
         .outside_image(&format!("{}/page", outside.uri()))
         .await;
