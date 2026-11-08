@@ -9,6 +9,30 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.11] - 2026-11-08
+
+A new Settings window, and a team switcher in place of the team rail.
+
+### Added
+
+- Settings opens in its own window (Cmd/Ctrl+,) with a search field and
+  seven sections: General, Appearance, Messages, Notifications, Servers,
+  Keyboard and Advanced. Keyboard lists every shortcut; Advanced can cap and
+  clear the image and file cache (#740).
+- Settings › Servers lists your servers and teams: switch to one, reorder
+  servers, sign out or remove one, or join another team (#741).
+- Appearance shows your styles as a gallery of cards. Changing a preset or
+  your Mattermost theme saves your own copy; rename, delete and share saved
+  styles from the gallery (#742).
+
+### Changed
+
+- The team rail is gone. Click the team name at the top of the sidebar to
+  switch teams and servers; a badge there counts what waits in the others,
+  and Cmd/Ctrl+Alt+1–9 and Cmd/Ctrl+1–9 still jump to a team or server (#741).
+- Preferences is now Settings, and the keyboard shortcuts dialog is its
+  Keyboard page (#740).
+
 ## [0.1.0-beta.10] - 2026-11-08
 
 Matty now looks like your other Mattermost apps.
@@ -140,6 +164,7 @@ The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
 [Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.9...HEAD
+[0.1.0-beta.11]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.8
