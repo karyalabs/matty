@@ -14,7 +14,7 @@ impl MainWindow {
     pub(super) fn current_team(&self, cx: &gpui_kit::App) -> Option<SharedString> {
         match &self.live {
             Some(live) => live.team().map(SharedString::from),
-            None => self.rail.read(cx).current().cloned(),
+            None => self.teams_model.read(cx).current().cloned(),
         }
     }
 
@@ -35,7 +35,7 @@ impl MainWindow {
     /// The `n`th team on the rail, from Cmd/Ctrl+Alt+1…9.
     fn switch_team_at(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let team = self
-            .rail
+            .teams_model
             .read(cx)
             .teams()
             .get(index)
@@ -49,7 +49,7 @@ impl MainWindow {
     /// around as Mattermost does.
     fn step_team(&mut self, down: bool, window: &mut Window, cx: &mut Context<Self>) {
         let teams: Vec<SharedString> = self
-            .rail
+            .teams_model
             .read(cx)
             .teams()
             .iter()
@@ -124,22 +124,27 @@ impl MainWindow {
                 return false;
             };
             if let Some((teams, current)) = update.teams.take() {
-                self.rail
+                self.teams_model
                     .update(cx, |rail, cx| rail.set_teams(teams, current, cx));
             }
             self.apply_update(update, window, cx);
         } else if crate::preview::enabled()
-            && self.rail.read(cx).teams().iter().any(|t| t.id == team)
+            && self
+                .teams_model
+                .read(cx)
+                .teams()
+                .iter()
+                .any(|t| t.id == team)
         {
             let name = self
-                .rail
+                .teams_model
                 .read(cx)
                 .teams()
                 .iter()
                 .find(|t| t.id == team)
                 .map(|t| t.name.clone())
                 .unwrap_or_default();
-            self.rail
+            self.teams_model
                 .update(cx, |rail, cx| rail.set_current(Some(team.clone()), cx));
             self.browse
                 .update(cx, |browse, cx| browse.set_team_name(name.clone(), cx));
@@ -208,7 +213,7 @@ impl MainWindow {
             return;
         }
         let place = self
-            .rail
+            .teams_model
             .read(cx)
             .current()
             .and_then(|team| self.team_places.get(team).cloned());
@@ -220,16 +225,16 @@ impl MainWindow {
     /// team sync shows instead.
     pub(super) fn show_rail_teams(
         &mut self,
-        teams: Vec<crate::rail::Team>,
+        teams: Vec<crate::teams::Team>,
         current: Option<SharedString>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let before = self.rail.read(cx).current().cloned();
+        let before = self.teams_model.read(cx).current().cloned();
         let gone = before
             .as_ref()
             .is_some_and(|before| !teams.iter().any(|team| &team.id == before));
-        self.rail
+        self.teams_model
             .update(cx, |rail, cx| rail.set_teams(teams, current.clone(), cx));
         let somewhere = self.selected_channel.is_some() || self.threads_open || self.drafts_open;
         if gone && somewhere && current.is_some() && current != before {

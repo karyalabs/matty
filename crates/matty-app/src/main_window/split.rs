@@ -16,7 +16,7 @@ use gpui_kit::{
     Styled as _, Subscription, Window, div, px,
 };
 
-use super::{CONTENT_MIN, MainWindow, SPLIT_HANDLE, Seen, metrics, scaled};
+use super::{CONTENT_MIN, MainWindow, SPLIT_HANDLE, Seen};
 use crate::actions::{ClosePane, FocusOtherPane, OpenInSplitView, SwapPanes};
 use crate::live::Live;
 use crate::popout::{Ask, PaneEvent, PopOutView};
@@ -636,7 +636,6 @@ impl MainWindow {
         let Some(second) = self.shown_split().cloned() else {
             return super::cached_pane(&self.channel);
         };
-        let theme = UiTheme::read(cx).clone();
         let settings = self.settings.read(cx).get().clone();
         let server = self.split_server();
         let ratio = settings
@@ -644,11 +643,6 @@ impl MainWindow {
             .iter()
             .find(|place| place.server == server)
             .map_or(0.5, |place| place.ratio);
-        let rail = if self.rail.read(cx).is_multi() {
-            f32::from(scaled(&theme, metrics::RAIL_WIDTH))
-        } else {
-            0.
-        };
         let sidebar = if self.sidebar_visible && !Self::narrow_sidebar(window) {
             settings.sidebar_width + SPLIT_HANDLE
         } else {
@@ -659,9 +653,8 @@ impl MainWindow {
         } else {
             0.
         };
-        let extent =
-            (f32::from(window.viewport_size().width) - rail - sidebar - right - SPLIT_HANDLE)
-                .max(2. * CONTENT_MIN);
+        let extent = (f32::from(window.viewport_size().width) - sidebar - right - SPLIT_HANDLE)
+            .max(2. * CONTENT_MIN);
         let main_name = self
             .channel
             .read(cx)

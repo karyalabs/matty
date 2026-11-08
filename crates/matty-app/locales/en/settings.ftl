@@ -265,6 +265,22 @@ prefs-servers = Saved servers
 prefs-server-detail = { $host } · Signed in as @{ $username }
 prefs-server-switch = Switch to
 prefs-add-server = Add server…
+prefs-server-options = { $server } options
+prefs-server-move-up = Move up
+prefs-server-move-down = Move down
+prefs-server-sign-out = Sign out…
+prefs-server-remove = Remove…
+prefs-remove-title = Remove { $server }?
+prefs-remove-detail = This signs you out of the server and removes Matty's copy of its messages, files and drafts from this computer.
+prefs-remove = Remove
+prefs-sign-out-title = Sign out of { $server }?
+prefs-sign-out-detail = This removes Matty's copy of your messages, files and drafts from this computer. You'll sign in again next time.
+prefs-sign-out = Sign out
+prefs-teams = Teams on { $server }
+prefs-teams-detail = Your teams on this server, in the order the team menu lists them.
+prefs-team-current = Current team
+prefs-team-switch = Switch to
+prefs-join-team = Join another team…
 
 ## Fonts (#706)
 prefs-fonts = Fonts

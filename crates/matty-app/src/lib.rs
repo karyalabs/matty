@@ -50,7 +50,6 @@ pub mod preview;
 pub mod priority;
 pub mod profile;
 pub mod profile_editor;
-pub mod rail;
 pub mod remote_images;
 pub mod right_pane;
 pub mod scheduled;
@@ -64,6 +63,7 @@ pub mod slash;
 mod spelling;
 pub mod style;
 pub mod switcher;
+pub mod teams;
 pub mod threads;
 pub mod transcript;
 #[cfg(any(target_os = "linux", target_os = "windows"))]

@@ -110,12 +110,12 @@ impl Live {
 
     /// The user's teams as the rail shows them, in their order, with the
     /// shown one.
-    pub(super) fn rail_teams(&self) -> (Vec<crate::rail::Team>, Option<SharedString>) {
+    pub(super) fn rail_teams(&self) -> (Vec<crate::teams::Team>, Option<SharedString>) {
         let teams = self
             .teams
             .iter()
             .map(|team| {
-                let rail = crate::rail::Team::new(team.id.clone(), team.display_name.clone())
+                let rail = crate::teams::Team::new(team.id.clone(), team.display_name.clone())
                     .icon(team.icon)
                     .mentions(usize::try_from(team.mentions).unwrap_or_default());
                 if team.has_unreads {

@@ -30,7 +30,7 @@ impl MainWindow {
         let (teams, servers) = match &self.live {
             Some(live) => (live.other_teams(), self.other_server_channels(cx)),
             None if crate::preview::enabled() => {
-                let rail = self.rail.read(cx);
+                let rail = self.teams_model.read(cx);
                 let current = rail.current();
                 let teams = rail
                     .teams()
@@ -134,7 +134,7 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) {
         let index = self
-            .rail
+            .teams_model
             .read(cx)
             .servers()
             .iter()
@@ -144,7 +144,7 @@ impl MainWindow {
         };
         self.switch_server(index, window, cx);
         if crate::preview::enabled() {
-            if self.rail.read(cx).current_server() == Some(index) {
+            if self.teams_model.read(cx).current_server() == Some(index) {
                 self.open_channel(channel, window, cx);
             }
             return;

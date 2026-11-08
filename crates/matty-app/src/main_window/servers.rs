@@ -7,9 +7,9 @@ use gpui_kit::{AppContext as _, Context, Entity, Window};
 
 use super::{ConnectionState, MainWindow};
 use crate::login::{LoginEvent, LoginModel, LoginView};
-use crate::rail::{RailEvent, Server};
 use crate::settings::SavedAccount;
 use crate::sidebar::SidebarModel;
+use crate::teams::{Server, TeamsEvent};
 
 impl MainWindow {
     /// Opens `account` at launch or after a switch: its cache alone with
@@ -139,9 +139,9 @@ impl MainWindow {
             return;
         }
         if crate::preview::enabled() {
-            let servers = self.rail.read(cx).servers().len();
+            let servers = self.teams_model.read(cx).servers().len();
             if index < servers {
-                self.rail.update(cx, |rail, cx| {
+                self.teams_model.update(cx, |rail, cx| {
                     rail.set_servers(crate::preview::servers(), Some(index), cx)
                 });
             }
@@ -212,7 +212,7 @@ impl MainWindow {
 
     /// Saves the rail's new order after a drag; the preview's rail keeps
     /// its own.
-    fn move_server(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+    pub(super) fn move_server(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
         if crate::preview::enabled() {
             return;
         }
@@ -231,7 +231,7 @@ impl MainWindow {
     }
 
     /// The rail follows the saved servers, each of which stays connected.
-    pub(super) fn refresh_server_rail(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn refresh_servers(&mut self, cx: &mut Context<Self>) {
         self.watch_servers(cx);
         self.show_servers(cx);
     }
@@ -240,7 +240,7 @@ impl MainWindow {
     pub(super) fn show_servers(&mut self, cx: &mut Context<Self>) {
         let (servers, current) = if crate::preview::enabled() {
             let servers = crate::preview::servers();
-            let current = self.rail.read(cx).current_server().or(Some(0));
+            let current = self.teams_model.read(cx).current_server().or(Some(0));
             (servers, current)
         } else {
             let settings = self.settings.read(cx).get();
@@ -250,7 +250,9 @@ impl MainWindow {
                 .iter()
                 .enumerate()
                 .map(|(index, server)| {
-                    let rail = Server::new(server.label().to_owned()).key(server.data_key());
+                    let rail = Server::new(server.label().to_owned())
+                        .key(server.data_key())
+                        .host(crate::live::url_host(&server.server).to_owned());
                     match self.watches.unreads(&server.data_key()) {
                         Some((mentions, unread)) if current != Some(index) => {
                             rail.unread(unread).mentions(mentions)
@@ -261,25 +263,38 @@ impl MainWindow {
                 .collect();
             (servers, current)
         };
-        self.rail
+        self.teams_model
             .update(cx, |rail, cx| rail.set_servers(servers, current, cx));
     }
 
-    pub(super) fn on_rail_event(
+    pub(super) fn on_teams_event(
         &mut self,
-        _: &Entity<crate::rail::RailView>,
-        event: &RailEvent,
+        _: &Entity<crate::teams::TeamsModel>,
+        event: &TeamsEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
-            RailEvent::SelectServer(index) => self.switch_server(*index, window, cx),
-            RailEvent::AddServer => self.add_server(None, window, cx),
-            RailEvent::RemoveServer(index) => self.remove_server(*index, window, cx),
-            RailEvent::MoveServer { from, to } => self.move_server(*from, *to, cx),
-            RailEvent::Select(team) => self.switch_team(team.clone(), window, cx),
-            // Joining a team is sync's (PLAN §3 M2).
-            RailEvent::Join => cx.notify(),
+            TeamsEvent::SelectServer(index) => self.switch_server(*index, window, cx),
+            TeamsEvent::AddServer => self.add_server(None, window, cx),
+            TeamsEvent::Select(team) => self.switch_team(team.clone(), window, cx),
+            TeamsEvent::Join => self.join_team(cx),
+            TeamsEvent::ManageServers => {
+                self.open_settings(super::settings_pages::Section::Servers, window, cx)
+            }
+        }
+    }
+
+    /// Join another team: Mattermost's team picker on the shown server, in
+    /// the browser; the joined team arrives through sync.
+    pub(super) fn join_team(&mut self, cx: &mut Context<Self>) {
+        let settings = self.settings.read(cx).get();
+        if let Some(account) = settings
+            .current_server()
+            .and_then(|index| settings.servers.get(index))
+        {
+            let url = format!("{}/select_team", account.server.trim_end_matches('/'));
+            cx.open_url(&url);
         }
     }
 

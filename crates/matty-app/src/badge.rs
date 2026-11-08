@@ -4,8 +4,8 @@
 use gpui_kit::SharedString;
 use matty_notify::Badge;
 
-use crate::rail::Team;
 use crate::sidebar::SidebarModel;
+use crate::teams::Team;
 
 /// The badge for what the sidebar shows of the current team, plus the
 /// other teams on the rail (the current one is in the sidebar already).
@@ -39,7 +39,7 @@ pub fn dock_badge(sidebar: &SidebarModel, teams: &[Team], current: Option<&Share
 /// (#206); the shown server, `current`, is in `badge` already.
 pub fn with_servers(
     badge: Badge,
-    servers: &[crate::rail::Server],
+    servers: &[crate::teams::Server],
     current: Option<usize>,
 ) -> Badge {
     let (mut mentions, mut unread) = match badge {
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn other_servers_add_to_the_badge() {
-        use crate::rail::Server;
+        use crate::teams::Server;
         let servers = [
             Server::new("Acme").mentions(2),
             Server::new("Quiet").unread(true),

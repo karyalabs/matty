@@ -195,17 +195,18 @@ pub fn queued() -> usize {
     usize::from(connection() != crate::main_window::ConnectionState::Online)
 }
 
-/// The teams in the rail: name and whether it is the current one.
-/// `MATTY_PREVIEW=servers` puts three saved servers on the rail, the
+/// The saved servers: `MATTY_PREVIEW=servers` has three, the
 /// first current (#206); the other previews have the one.
-pub fn servers() -> Vec<crate::rail::Server> {
+pub fn servers() -> Vec<crate::teams::Server> {
     if value().as_deref() != Some("servers") {
         return Vec::new();
     }
     vec![
-        crate::rail::Server::new("Matty Community"),
-        crate::rail::Server::new("Acme Corp").mentions(4),
-        crate::rail::Server::new("chat.example.org").unread(true),
+        crate::teams::Server::new("Matty Community").host("community.matty.example"),
+        crate::teams::Server::new("Acme Corp")
+            .host("chat.acme.example")
+            .mentions(4),
+        crate::teams::Server::new("chat.example.org").unread(true),
     ]
 }
 
@@ -397,8 +398,8 @@ use crate::channel::{
 use crate::directory::DirectoryChannel;
 use crate::drafts::{Draft, DraftsModel};
 use crate::profile::UserProfile;
-use crate::rail::Team;
 use crate::right_pane::{ListedPost, ThreadModel};
+use crate::teams::Team;
 use crate::threads::{ThreadRow, ThreadsModel};
 use gpui_kit::SharedString;
 

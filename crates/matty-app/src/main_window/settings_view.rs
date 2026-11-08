@@ -27,6 +27,7 @@ use crate::ui::{
     dialog::DialogHandle,
     input::{Input, InputEvent, InputState},
     input_group::{InputGroup, InputGroupAddon},
+    menu::MenuState,
     scroll_area::ScrollArea,
     select::{SelectEvent, SelectItem, SelectState},
     theme::UiTheme,
@@ -81,12 +82,23 @@ pub(super) struct PageSelect {
     _subscription: Subscription,
 }
 
+/// A saved server's place when its menu was built: index, count, shown.
+pub(super) type MenuPlace = (usize, usize, bool);
+
 /// What the pages keep while Settings is open: the selects drawn, by id,
 /// and the confirmations Advanced opens.
 pub(super) struct PageSelects {
     selects: HashMap<&'static str, PageSelect>,
     pub(super) clear_cache: DialogHandle,
     pub(super) reset_all: DialogHandle,
+    /// "Remove {server}?" and "Sign out of {server}?", for the saved
+    /// server in `server_action`.
+    pub(super) remove_server: DialogHandle,
+    pub(super) sign_out: DialogHandle,
+    pub(super) server_action: Rc<std::cell::Cell<Option<usize>>>,
+    /// Each saved server's ⋯ menu, by its key, with what its items were
+    /// built for.
+    pub(super) server_menus: HashMap<SharedString, (Entity<MenuState>, MenuPlace)>,
 }
 
 impl Default for PageSelects {
@@ -95,6 +107,10 @@ impl Default for PageSelects {
             selects: HashMap::new(),
             clear_cache: DialogHandle::new(false),
             reset_all: DialogHandle::new(false),
+            remove_server: DialogHandle::new(false),
+            sign_out: DialogHandle::new(false),
+            server_action: Rc::default(),
+            server_menus: HashMap::new(),
         }
     }
 }
@@ -332,7 +348,7 @@ impl Render for SettingsView {
             .h_full()
             .flex()
             .flex_col()
-            .bg(theme.colors.sidebar)
+            .bg(theme.colors.muted)
             .border_r_1()
             .border_color(theme.colors.border)
             .child(
