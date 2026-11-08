@@ -1,3 +1,5 @@
 /target
 /docker/seed-output.json
 __pycache__/
+/bench/out/
+/bench/.venv/

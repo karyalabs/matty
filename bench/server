@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Run the benchmark's Mattermost server (bench/compose.yml) and load the corpus.
+
+    bench/server up                 start, wait for /api/v4/system/ping
+    bench/server import [ZIP]       load bench/out/corpus/corpus.zip (bench/corpus.py makes it)
+    bench/server status             what is loaded
+    bench/server down               stop, keeping data
+    bench/server reset              delete all data and start fresh
+    bench/server mmctl …            mmctl --local inside the server
+
+http://localhost:8075 by default; MATTY_BENCH_PORT changes it. The server is a
+separate Compose project from scripts/dev-server, so both can run at once.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PORT = os.environ.get("MATTY_BENCH_PORT", "8075")
+URL = f"http://localhost:{PORT}"
+COMPOSE = ["docker", "compose", "-f", str(HERE / "compose.yml")]
+
+
+def sh(args: list[str], **kw) -> subprocess.CompletedProcess:
+    return subprocess.run(args, check=True, **kw)
+
+
+def mmctl(*args: str, capture: bool = False) -> str:
+    out = subprocess.run([*COMPOSE, "exec", "-T", "mattermost", "mmctl", "--local", *args],
+                         check=True, text=True, capture_output=capture)
+    return out.stdout if capture else ""
+
+
+def wait_ping(limit: float = 240) -> None:
+    deadline = time.time() + limit
+    print(f"waiting for {URL} ", end="", flush=True)
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"{URL}/api/v4/system/ping", timeout=3) as resp:
+                if resp.status == 200:
+                    print(" ok")
+                    return
+        except Exception:
+            pass
+        print(".", end="", flush=True)
+        time.sleep(2)
+    sys.exit("\nthe server did not answer; see `docker compose -f bench/compose.yml logs mattermost`")
+
+
+def import_zip(path: Path) -> None:
+    if not path.exists():
+        sys.exit(f"{path} is missing; run bench/corpus.py first")
+    remote = f"/tmp/{path.name}"
+    print(f"copying {path} ({path.stat().st_size / 1e6:.0f} MB) into the server…")
+    sh([*COMPOSE, "cp", str(path), f"mattermost:{remote}"])
+    mmctl("import", "upload", remote)
+    sh([*COMPOSE, "exec", "-T", "-u", "root", "mattermost", "rm", "-f", remote])
+    available = mmctl("import", "list", "available", "--json", capture=True)
+    names = [line.strip().strip('"') for line in available.replace("[", "\n").replace("]", "\n").replace(",", "\n").splitlines()]
+    names = [n for n in names if n.endswith(path.name)]
+    if not names:
+        sys.exit(f"upload did not show up in `import list available`:\n{available}")
+    job = json.loads(mmctl("import", "process", names[-1], "--extract-content=false", "--json", capture=True))
+    job_id = job["id"] if isinstance(job, dict) else job[0]["id"]
+    print(f"import job {job_id} started; this takes a while for the full corpus")
+    t0 = time.time()
+    while True:
+        time.sleep(5)
+        info = json.loads(mmctl("import", "job", "show", job_id, "--json", capture=True))
+        info = info[0] if isinstance(info, list) else info
+        status = info.get("status")
+        line = info.get("data", {}).get("line_number", "")
+        print(f"  {status} line {line} ({time.time() - t0:.0f}s)", flush=True)
+        if status == "success":
+            break
+        if status in ("error", "canceled", "cancel_requested"):
+            sys.exit(f"import failed: {json.dumps(info.get('data'), indent=2)}")
+    manifest = path.with_name("manifest.json")
+    if manifest.exists():
+        m = json.loads(manifest.read_text())
+        post_import(m)
+
+
+def api(method: str, path: str, body=None, token: str | None = None, want_headers=False):
+    req = urllib.request.Request(f"{URL}/api/v4{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json",
+                                          **({"Authorization": f"Bearer {token}"} if token else {})})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = resp.read()
+        value = json.loads(data) if data else None
+        return (value, resp.headers) if want_headers else value
+
+
+def post_import(m: dict) -> None:
+    """Things bulk import cannot set: an admin token for the live-traffic scenario."""
+    _, hdrs = api("POST", "/users/login", {"login_id": m["admin_user"], "password": m["password"]}, want_headers=True)
+    token = hdrs["Token"]
+    me = api("GET", "/users/me", token=token)
+    pat = api("POST", f"/users/{me['id']}/tokens", {"description": "matty bench live traffic"}, token=token)
+    state = HERE / "out" / "server.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"url": URL, "admin_token": pat["token"], "manifest": m}, indent=2))
+    print(f"wrote {state}")
+
+
+def status() -> None:
+    _, hdrs = api("POST", "/users/login", {"login_id": "bench", "password": "Password1!"}, want_headers=True)
+    token = hdrs["Token"]
+    teams = api("GET", "/users/me/teams", token=token)
+    for team in teams:
+        chans = api("GET", f"/users/me/teams/{team['id']}/channels", token=token)
+        total = sum(c.get("total_msg_count", 0) for c in chans)
+        print(f"team {team['name']}: {len(chans)} channels, {total:,} posts")
+
+
+def main() -> None:
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "up":
+        sh([*COMPOSE, "up", "-d"])
+        wait_ping()
+    elif cmd == "down":
+        sh([*COMPOSE, "down"])
+    elif cmd == "reset":
+        sh([*COMPOSE, "down", "--volumes"])
+        sh([*COMPOSE, "up", "-d"])
+        wait_ping()
+    elif cmd == "import":
+        import_zip(Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "out" / "corpus" / "corpus.zip")
+    elif cmd == "status":
+        status()
+    elif cmd == "mmctl":
+        mmctl(*sys.argv[2:])
+    else:
+        print(__doc__)
+        sys.exit(2 if cmd else 0)
+
+
+if __name__ == "__main__":
+    main()

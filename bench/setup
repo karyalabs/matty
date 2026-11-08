@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# One-time setup for the benchmark tools: checks the tools it needs and
+# creates bench/.venv with numpy for bench/analyze.py.
+#
+#   bench/setup
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+
+missing=()
+for tool in docker ffmpeg ffprobe python3; do
+    command -v "$tool" >/dev/null || missing+=("$tool")
+done
+if [[ "$(uname)" == Darwin ]]; then
+    command -v swiftc >/dev/null || missing+=("swiftc (xcode-select --install)")
+    [[ -d /Applications/Mattermost.app ]] || echo "note: /Applications/Mattermost.app is missing (brew install --cask mattermost)"
+    [[ -d /Applications/Matty.app ]] || echo "note: /Applications/Matty.app is missing (brew install --cask karyalabs/matty/matty), or pass --app matty=PATH"
+else
+    for tool in xdotool Xvfb; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+fi
+if ((${#missing[@]})); then
+    echo "missing: ${missing[*]}" >&2
+    [[ "$(uname)" == Darwin ]] && echo "brew install ffmpeg; Docker Desktop or OrbStack for docker" >&2
+    exit 1
+fi
+
+if [[ ! -x "$here/.venv/bin/python" ]]; then
+    python3 -m venv "$here/.venv"
+fi
+"$here/.venv/bin/pip" install --quiet --upgrade pip
+"$here/.venv/bin/pip" install --quiet numpy pillow
+[[ "$(uname)" == Darwin ]] || "$here/.venv/bin/pip" install --quiet python-xlib
+echo "ready: run bench/.venv/bin/python bench/run.py check"
