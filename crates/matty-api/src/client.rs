@@ -396,28 +396,46 @@ impl Client {
     }
 
     /// `GET url` on an outside host, for an image the server does not
-    /// proxy: no session token, only `http` and `https`, an `image/*`
-    /// answer of at most [`MAX_OUTSIDE_IMAGE`] bytes.
+    /// proxy: no session token, only `http` and `https`, an `image/*`,
+    /// untyped or octet-stream answer of at most [`MAX_OUTSIDE_IMAGE`]
+    /// bytes. Redirects to other hosts are followed, as a browser would
+    /// (Figma's preview images redirect to S3, #756): no token goes with
+    /// these requests.
     pub async fn outside_image(&self, url: &str) -> Result<Fetched, ApiError> {
-        let parsed = Url::parse(url).map_err(|e| ApiError::InvalidUrl(e.to_string()))?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(ApiError::InvalidUrl(format!("not a web link: {url}")));
-        }
-        let response = self
-            .http
-            .get(parsed)
-            .send()
-            .await
-            .map_err(ApiError::from_transport)?;
-        let response = Self::checked(response).await?;
+        let mut parsed = Url::parse(url).map_err(|e| ApiError::InvalidUrl(e.to_string()))?;
+        let mut hops = 0;
+        let response = loop {
+            if !matches!(parsed.scheme(), "http" | "https") {
+                return Err(ApiError::InvalidUrl(format!("not a web link: {parsed}")));
+            }
+            let response = self
+                .http
+                .get(parsed.clone())
+                .send()
+                .await
+                .map_err(ApiError::from_transport)?;
+            match Self::checked(response).await {
+                Err(ApiError::Redirected { location }) if hops < MAX_REDIRECTS => {
+                    parsed = parsed
+                        .join(&location)
+                        .map_err(|e| ApiError::InvalidUrl(e.to_string()))?;
+                    hops += 1;
+                }
+                checked => break checked?,
+            }
+        };
         let content_type = response
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
+        // Some hosts serve images untyped or as `binary/octet-stream`, as
+        // the S3 bucket behind Figma's previews does (#756); a browser
+        // sniffs those, and so does the app. Anything else typed, such as
+        // a page, is refused.
         if !content_type
             .as_deref()
-            .is_some_and(|kind| kind.starts_with("image/"))
+            .is_none_or(|kind| kind.starts_with("image/") || kind.contains("octet-stream"))
         {
             return Err(ApiError::Decode(format!(
                 "not an image: {}",
