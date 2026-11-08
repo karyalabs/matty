@@ -204,6 +204,10 @@ pub fn from_post(post: &Post) -> Vec<Embed> {
         .collect()
 }
 
+/// The size Open Graph recommends for a page's image, for one whose size
+/// nobody gave.
+const OPEN_GRAPH_SIZE: (i64, i64) = (1200, 630);
+
 fn open_graph(
     embed: &matty_api::models::PostEmbed,
     images: &HashMap<String, PostImage>,
@@ -220,7 +224,11 @@ fn open_graph(
         } else {
             &image.secure_url
         };
+        // A page may name its image without a size, and the server may
+        // not have measured it (Figma's do neither, #756): size it as Open
+        // Graph images are meant to be, 1200×630, rather than drop it.
         EmbedImage::new(url, images, (image.width, image.height))
+            .or_else(|| EmbedImage::new(url, &HashMap::new(), OPEN_GRAPH_SIZE))
     });
     Some(Embed::Link(LinkCard {
         url: embed.url.clone().into(),

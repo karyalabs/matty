@@ -1015,6 +1015,7 @@ impl MainWindow {
                     }
                     SidebarEvent::Leave(id) => return this.leave_channel(id.clone(), window, cx),
                     SidebarEvent::PopOut(id) => return this.pop_out_channel(id.clone(), cx),
+                    SidebarEvent::CopyLink(id) => return this.copy_channel_link(id, cx),
                     SidebarEvent::OpenInSplit(id) => {
                         return this.open_in_split(id.clone(), window, cx);
                     }
@@ -1749,7 +1750,26 @@ impl MainWindow {
 
     /// Puts a post's permalink on the clipboard and says so (#133).
     fn copy_link(&mut self, post_id: &str, cx: &mut Context<Self>) {
-        let Some(link) = self.permalink(post_id) else {
+        let link = self.permalink(post_id);
+        self.copy_to_clipboard(link, cx);
+    }
+
+    /// Puts a channel's link on the clipboard and says so (#754).
+    fn copy_channel_link(&mut self, channel_id: &str, cx: &mut Context<Self>) {
+        let link = self
+            .live
+            .as_ref()
+            .and_then(|live| live.channel_link(channel_id))
+            .or_else(|| {
+                crate::preview::enabled()
+                    .then(|| format!("{PREVIEW_SERVER}/matty/channels/{channel_id}"))
+            });
+        self.copy_to_clipboard(link, cx);
+    }
+
+    /// Copies `link` and says "Link copied", or says it couldn't.
+    fn copy_to_clipboard(&mut self, link: Option<String>, cx: &mut Context<Self>) {
+        let Some(link) = link else {
             self.push_error_with(
                 "Couldn't copy the link. Try again once you're connected.",
                 None,
@@ -2946,6 +2966,21 @@ impl MainWindow {
             pane.set_profiles(profiles, cx);
             pane.set_typing(Vec::new(), cx);
         });
+        // The thread is already on screen (its root clicked again, #750):
+        // keep it. Sync would not publish it again, so clearing the pane
+        // would leave it empty.
+        let showing = matches!(
+            self.right_pane.read(cx).content(),
+            Some(RightPaneContent::Thread(thread)) if thread.root.id == post_id
+        ) && self
+            .live
+            .as_ref()
+            .is_none_or(|live| live.open_thread_root() == Some(post_id.as_ref()));
+        if showing {
+            self.right_pane_open = true;
+            cx.notify();
+            return;
+        }
         if let Some(live) = &mut self.live {
             // Sync publishes the thread from the cache at once and again as
             // replies arrive; until then the pane is empty.

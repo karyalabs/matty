@@ -2839,6 +2839,19 @@ impl Engine {
                     content_type: Some(content_type),
                     ..
                 }) if content_type.starts_with("image/") => Some((bytes, content_type)),
+                // Some hosts (S3 buckets behind Figma's previews, #756)
+                // serve images untyped; the app reads the format from the
+                // bytes and drops what isn't one.
+                Ok(matty_api::Fetched::Fresh {
+                    bytes,
+                    content_type: None,
+                    ..
+                }) => Some((bytes, "application/octet-stream".into())),
+                Ok(matty_api::Fetched::Fresh {
+                    bytes,
+                    content_type: Some(content_type),
+                    ..
+                }) if content_type.contains("octet-stream") => Some((bytes, content_type)),
                 Ok(_) => None,
                 Err(error) => {
                     tracing::debug!(%error, proxy, "no outside image");

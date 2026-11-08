@@ -283,6 +283,7 @@ impl ChannelView {
                     &text,
                     &[],
                     |url, _, cx| cx.open_url(url),
+                    None,
                     cx,
                 )),
         )

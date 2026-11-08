@@ -126,14 +126,20 @@ pub fn message_body(
     body: &str,
     image_sizes: &[(SharedString, u32, u32)],
     on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
+    on_link_menu: Option<LinkMenu>,
     cx: &App,
 ) -> ShowMore {
     let id = id.into();
     ShowMore::new(
         (id.clone(), "more"),
-        markdown_body(id, body, image_sizes, on_link, cx),
+        markdown_body(id, body, image_sizes, on_link, on_link_menu, cx),
     )
 }
+
+/// Opens a menu for a link right-clicked in a message, at the pointer.
+pub type LinkMenu = std::sync::Arc<
+    dyn Fn(&SharedString, gpui_kit::Point<gpui_kit::Pixels>, &mut Window, &mut App) + Send + Sync,
+>;
 
 /// The Markdown view of [`message_body`], without the Show more clip.
 pub fn markdown_body(
@@ -141,6 +147,7 @@ pub fn markdown_body(
     body: &str,
     image_sizes: &[(SharedString, u32, u32)],
     on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
+    on_link_menu: Option<LinkMenu>,
     cx: &App,
 ) -> MarkdownView {
     let custom = cx.try_global::<crate::emoji::CustomEmoji>().cloned();
@@ -170,7 +177,23 @@ pub fn markdown_body(
                 chip(&format!("matty:{target}").into(), window, cx)
             }),
         )
-        .on_link_click(move |url, _, window, cx| on_link(url, window, cx))
+        // A right-click on a link opens its menu, never the link (#757);
+        // a left or middle click, Enter or a tap opens it.
+        .on_link_click(move |url, event, window, cx| match event {
+            gpui_kit::ClickEvent::Mouse(click)
+                if click.up.button == gpui_kit::MouseButton::Right =>
+            {
+                if let Some(menu) = &on_link_menu {
+                    menu(url, click.up.position, window, cx);
+                }
+            }
+            gpui_kit::ClickEvent::Mouse(click)
+                if !matches!(
+                    click.up.button,
+                    gpui_kit::MouseButton::Left | gpui_kit::MouseButton::Middle
+                ) => {}
+            _ => on_link(url, window, cx),
+        })
 }
 
 /// `body` with its entities as links. Other clients send emoji as `:name:`
@@ -443,6 +466,7 @@ mod tests {
                 "![chart](https://cdn.example.com/chart.png)",
                 &[("https://cdn.example.com/chart.png".into(), 1200, 600)],
                 |_, _, _| {},
+                None,
                 cx,
             ))
         }

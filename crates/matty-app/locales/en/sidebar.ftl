@@ -16,6 +16,7 @@ sidebar-mute-conversation = Mute conversation
 sidebar-mute-channel = Mute channel
 sidebar-open-split = Open in split view
 sidebar-open-window = Open in new window
+sidebar-copy-link = Copy link
 sidebar-close-conversation = Close conversation
 sidebar-leave-channel = Leave channel
 sidebar-move-up = Move up

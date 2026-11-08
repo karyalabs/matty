@@ -1400,6 +1400,24 @@ impl PostHost for ChannelView {
         cx.emit(ChannelEvent::OpenLink(url));
     }
 
+    fn open_link_menu(
+        &mut self,
+        id: SharedString,
+        url: SharedString,
+        at: gpui_kit::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(post) = self.shown_post(&id).cloned() else {
+            return;
+        };
+        self.select_post(&id, window, cx);
+        let delete_others = self.model.as_ref().is_some_and(|model| model.delete_others);
+        let mut items = post_row::link_items(&cx.entity().downgrade(), &url);
+        items.extend(Self::context_items_for(&post, self.away, delete_others, cx));
+        self.open_menu(items, at, window, cx);
+    }
+
     fn open_post_file(&mut self, file: SharedString, cx: &mut Context<Self>) {
         cx.emit(ChannelEvent::OpenFile(file));
     }
@@ -4371,12 +4389,14 @@ impl ChannelView {
             row = row.child(Self::reply_footer(&id, summary, cx));
         }
         // Right-click selects the row and opens the same actions as the
-        // toolbar's "More" button, plus reply and react (PLAN §4.2).
+        // toolbar's "More" button, plus reply and react (PLAN §4.2). It
+        // opens on release, after a link under the pointer has had the
+        // chance to open its own menu instead (#757).
         div()
             .id(gpui_kit::ElementId::Name(format!("post.{id}.row").into()))
-            .on_mouse_down(
+            .on_mouse_up(
                 gpui_kit::MouseButton::Right,
-                cx.listener(move |this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                cx.listener(move |this, event: &gpui_kit::MouseUpEvent, window, cx| {
                     this.select_post(&id, window, cx);
                     this.open_post_menu(&id, PostMenu::Context, event.position, window, cx);
                 }),

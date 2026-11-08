@@ -19,6 +19,7 @@ use crate::channel::{
 use crate::interactive::{ActionChoice, Menus};
 use crate::style;
 use crate::t;
+use crate::ui::menu::MenuItem;
 use crate::ui::{
     button::{Button, ButtonSize, ButtonVariant},
     composer::ComposerState,
@@ -54,6 +55,16 @@ pub(crate) trait PostHost: Sized + 'static {
     );
     /// Opens a link in a post's text.
     fn open_post_link(&mut self, url: SharedString, cx: &mut Context<Self>);
+    /// Opens the right-click menu of post `id` for a link `url` in its
+    /// text: [`link_items`] first, then the post's own menu (#757).
+    fn open_link_menu(
+        &mut self,
+        id: SharedString,
+        url: SharedString,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    );
     /// Opens or downloads one of a post's files.
     fn open_post_file(&mut self, file: SharedString, cx: &mut Context<Self>);
     /// Opens a post the client can't draw in the browser.
@@ -270,6 +281,13 @@ fn body<H: PostHost>(
         return unsupported_card(view, id, cx).into_any_element();
     }
     let link_view = view.clone();
+    let (menu_view, menu_id) = (view.clone(), id.clone());
+    let link_menu: crate::links::LinkMenu = std::sync::Arc::new(move |url, at, window, cx| {
+        let url = url.clone();
+        with(&menu_view, cx, |this, cx| {
+            this.open_link_menu(menu_id.clone(), url, at, window, cx)
+        })
+    });
     crate::links::message_body(
         element_id::<H>(id, "body"),
         &post.body,
@@ -278,6 +296,7 @@ fn body<H: PostHost>(
             let url = url.clone();
             with(&link_view, cx, |this, cx| this.open_post_link(url, cx))
         },
+        Some(link_menu),
         cx,
     )
     .into_any_element()
@@ -476,4 +495,36 @@ pub(crate) fn extra_action<H: PostHost>(
             .on_click(move |_, window, cx| with(&view, cx, |this, cx| on_click(this, window, cx))),
     )
     .into_any_element()
+}
+
+/// A link's own menu items (#757): open it, copy it, then a separator
+/// before the post's menu. `matty:` links (mentions, channels, hashtags)
+/// only open.
+pub(crate) fn link_items<H: PostHost>(view: &WeakEntity<H>, url: &SharedString) -> Vec<MenuItem> {
+    let open = {
+        let (view, url) = (view.clone(), url.clone());
+        MenuItem::new(
+            gpui_kit::ElementId::Name(format!("{}.link.open", H::PREFIX).into()),
+            t!("chan-open-link"),
+        )
+        .on_click(move |_, _, cx| {
+            let url = url.clone();
+            with(&view, cx, |this, cx| this.open_post_link(url, cx))
+        })
+    };
+    let mut items = vec![open];
+    if !url.starts_with("matty:") {
+        let url = url.clone();
+        items.push(
+            MenuItem::new(
+                gpui_kit::ElementId::Name(format!("{}.link.copy", H::PREFIX).into()),
+                t!("chan-copy-link-address"),
+            )
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(url.to_string()))
+            }),
+        );
+    }
+    items.push(MenuItem::separator());
+    items
 }

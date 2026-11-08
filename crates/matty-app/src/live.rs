@@ -477,16 +477,35 @@ pub fn notify_props(
     ])
 }
 
-/// The image a post's tile shows: the preview, or for a GIF the file
-/// itself, since the server's preview keeps only its first frame (#618).
-fn tile_size(name: &str) -> ImageSize {
-    let gif = std::path::Path::new(name)
+/// Whether only the file itself shows the image: a GIF, whose server
+/// preview keeps only its first frame (#618), or an SVG, which the server
+/// makes no preview or thumbnail of (#755).
+fn needs_original(name: &str) -> bool {
+    std::path::Path::new(name)
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"));
-    if gif {
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gif") || ext.eq_ignore_ascii_case("svg"))
+}
+
+/// The image a post's tile shows: the preview, or the file itself when
+/// only it will do.
+fn tile_size(name: &str) -> ImageSize {
+    if needs_original(name) {
         ImageSize::Original
     } else {
         ImageSize::Preview
+    }
+}
+
+/// The image a listing's small tile shows: the thumbnail, or the file
+/// itself for an SVG, which has none.
+fn thumbnail_size(name: &str) -> ImageSize {
+    let svg = std::path::Path::new(name)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"));
+    if svg {
+        ImageSize::Original
+    } else {
+        ImageSize::Thumbnail
     }
 }
 
@@ -514,8 +533,22 @@ pub(crate) fn image_format(bytes: &[u8], content_type: &str) -> Option<gpui_kit:
             ..,
         ] => Some(ImageFormat::Webp),
         [b'B', b'M', ..] => Some(ImageFormat::Bmp),
+        _ if is_svg(bytes) => Some(ImageFormat::Svg),
         _ => ImageFormat::from_mime_type(content_type),
     }
+}
+
+/// Whether `bytes` read as an SVG document: `<svg`, perhaps after an XML
+/// declaration, comments or a doctype (#755).
+fn is_svg(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(1024)];
+    let text = String::from_utf8_lossy(head);
+    let text = text.trim_start_matches('\u{feff}').trim_start();
+    (text.starts_with("<?xml")
+        || text.starts_with("<!--")
+        || text.starts_with("<!DOCTYPE")
+        || text.starts_with("<svg"))
+        && text.contains("<svg")
 }
 
 /// How to go from the posts on screen to `new` without a reset, or `None`
@@ -959,7 +992,7 @@ impl Live {
             {
                 self.sync.send(Command::LoadImage {
                     file_id: file.id.clone(),
-                    size: ImageSize::Thumbnail,
+                    size: thumbnail_size(&file.name),
                 });
             }
         }
@@ -976,9 +1009,14 @@ impl Live {
             match self.full_images.get(id.as_ref()) {
                 Some(image) => here.push((id.clone(), image.clone())),
                 None => {
+                    let original = self.file_name(id).is_some_and(|name| needs_original(&name));
                     self.sync.send(Command::LoadImage {
                         file_id: id.to_string(),
-                        size: ImageSize::Preview,
+                        size: if original {
+                            ImageSize::Original
+                        } else {
+                            ImageSize::Preview
+                        },
                     });
                 }
             }
@@ -1516,6 +1554,11 @@ impl Live {
 
     /// Shows the thread under `root_id` in the right pane; its posts come
     /// as [`Update::thread`] now and whenever they change.
+    /// The root of the thread sync keeps up to date, if any.
+    pub fn open_thread_root(&self) -> Option<&str> {
+        self.thread.as_ref().map(|(root, _)| root.as_str())
+    }
+
     pub fn open_thread(&mut self, root_id: &str) {
         if self
             .thread
@@ -2090,7 +2133,7 @@ impl Live {
                         {
                             self.sync.send(Command::LoadImage {
                                 file_id: file.id.clone(),
-                                size: ImageSize::Thumbnail,
+                                size: thumbnail_size(&file.name),
                             });
                         }
                     }
@@ -2770,6 +2813,36 @@ impl Live {
         ))
     }
 
+    /// The link to a channel, as the webapp's "Copy Link" gives it (#754):
+    /// `{server}/{team}/channels/{name}`, `{server}/{team}/messages/@{user}`
+    /// for a direct message and `{server}/{team}/messages/{name}` for a
+    /// group. Direct and group messages use the team on screen.
+    pub fn channel_link(&self, channel_id: &str) -> Option<String> {
+        let (team_id, channel) = self.sections.iter().find_map(|(team_id, sections)| {
+            sections
+                .iter()
+                .flat_map(|section| section.channels.iter())
+                .find(|channel| channel.id == channel_id)
+                .map(|channel| (team_id, channel))
+        })?;
+        let team_id = if matches!(channel.kind.as_str(), "D" | "G") {
+            self.team.as_ref().unwrap_or(team_id)
+        } else {
+            team_id
+        };
+        let team = self.teams.iter().find(|team| &team.id == team_id)?;
+        let path = match channel.kind.as_str() {
+            "D" => format!("messages/@{}", channel.display_name),
+            "G" => format!("messages/{}", channel.name),
+            _ => format!("channels/{}", channel.name),
+        };
+        Some(format!(
+            "{}/{}/{path}",
+            self.server.trim_end_matches('/'),
+            team.name
+        ))
+    }
+
     fn team_name(&self) -> Option<SharedString> {
         let team = self.team.as_ref()?;
         let team = self.teams.iter().find(|candidate| &candidate.id == team)?;
@@ -3178,6 +3251,26 @@ mod tests {
     use super::*;
     use matty_api::models::Status;
     use matty_sync::{SidebarChannel, Unreads};
+
+    /// #755: an SVG reads as one from its bytes, whatever the server says,
+    /// and only the file itself shows it.
+    #[test]
+    fn svg_files_are_images_from_the_file_itself() {
+        use gpui_kit::ImageFormat;
+        let svg = br#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>"#;
+        assert_eq!(
+            image_format(svg, "application/octet-stream"),
+            Some(ImageFormat::Svg)
+        );
+        assert_eq!(
+            image_format(b"<svg width='1'/>", ""),
+            Some(ImageFormat::Svg)
+        );
+        assert_eq!(image_format(b"<html><body/></html>", "text/html"), None);
+        assert_eq!(tile_size("logo.svg"), ImageSize::Original);
+        assert_eq!(thumbnail_size("logo.SVG"), ImageSize::Original);
+        assert_eq!(thumbnail_size("shot.png"), ImageSize::Thumbnail);
+    }
 
     pub(super) fn channel(id: &str, kind: &str, messages: i64, mentions: i64) -> SidebarChannel {
         SidebarChannel {
