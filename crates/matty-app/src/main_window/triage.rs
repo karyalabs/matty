@@ -85,7 +85,7 @@ impl MainWindow {
     /// The nearest other saved server on the rail, in `step`'s direction,
     /// with an unread channel or a mention.
     fn unread_server(&self, step: Step, cx: &gpui_kit::App) -> Option<usize> {
-        let rail = self.rail.read(cx);
+        let rail = self.teams_model.read(cx);
         let servers = rail.servers();
         let current = servers.get(rail.current_server()?)?.key.clone();
         let key = next_unread_team(
@@ -120,7 +120,7 @@ impl MainWindow {
     /// wrapping round, with an unread channel.
     fn unread_team(&self, step: Step, cx: &gpui_kit::App) -> Option<SharedString> {
         let current = self.current_team(cx);
-        let rail = self.rail.read(cx);
+        let rail = self.teams_model.read(cx);
         next_unread_team(
             rail.teams().iter().map(|team| (&team.id, team.unread)),
             current.as_ref(),

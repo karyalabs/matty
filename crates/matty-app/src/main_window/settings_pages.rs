@@ -11,8 +11,8 @@
 
 use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::{
-    AnyElement, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    AnyElement, App, AppContext as _, Context, Div, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
     prelude::FluentBuilder as _,
 };
 use matty_api::models::Preference;
@@ -31,11 +31,12 @@ use crate::style::{self, TypeStyleExt as _, metrics, scaled};
 use crate::t;
 use crate::ui::{
     alert_dialog::{alert_dialog, alert_dialog_action, alert_dialog_cancel},
-    button::{Button, ButtonSize, ButtonVariant},
+    button::{Button, ButtonSize, ButtonVariant, style_button},
     dialog::{dialog_description, dialog_popup, dialog_title},
     input::Input,
     item::{Item, ItemGroup, ItemSize},
     kbd::Kbd,
+    menu::{Menu, MenuItem, MenuState},
     select::Select,
     sidebar::{Sidebar, SidebarItem},
     switch::Switch,
@@ -191,9 +192,11 @@ pub(super) enum GroupTag {
 
 /// One row: a title, an optional description and its control.
 pub(super) struct Row {
-    pub(super) id: &'static str,
+    pub(super) id: SharedString,
     pub(super) title: SharedString,
     pub(super) description: Option<SharedString>,
+    /// An icon or avatar before the copy.
+    pub(super) media: Option<AnyElement>,
     pub(super) control: Option<AnyElement>,
     /// The control goes under the copy, full width.
     pub(super) stacked: bool,
@@ -202,10 +205,11 @@ pub(super) struct Row {
 }
 
 impl Row {
-    pub(super) fn new(id: &'static str, title: SharedString) -> Self {
+    pub(super) fn new(id: impl Into<SharedString>, title: SharedString) -> Self {
         Self {
-            id,
+            id: id.into(),
             title,
+            media: None,
             description: None,
             control: None,
             stacked: false,
@@ -220,6 +224,11 @@ impl Row {
 
     pub(super) fn description(mut self, text: impl Into<SharedString>) -> Self {
         self.description = Some(text.into());
+        self
+    }
+
+    pub(super) fn media(mut self, media: impl IntoElement) -> Self {
+        self.media = Some(media.into_any_element());
         self
     }
 
@@ -244,6 +253,7 @@ impl Row {
     fn render(self) -> Item {
         Item::new(self.id)
             .title(self.title)
+            .when_some(self.media, |item, media| item.media(media))
             .when_some(self.description, |item, d| item.description(d))
             .when_some(self.control, |item, control| item.actions(control))
             .stacked(self.stacked)
@@ -253,7 +263,7 @@ impl Row {
 
 /// A labelled card of rows, with anything that goes under the card.
 pub(super) struct Group {
-    pub(super) id: &'static str,
+    pub(super) id: SharedString,
     pub(super) label: SharedString,
     pub(super) tag: GroupTag,
     pub(super) rows: Vec<Row>,
@@ -262,9 +272,9 @@ pub(super) struct Group {
 }
 
 impl Group {
-    pub(super) fn new(id: &'static str, label: SharedString) -> Self {
+    pub(super) fn new(id: impl Into<SharedString>, label: SharedString) -> Self {
         Self {
-            id,
+            id: id.into(),
             label,
             tag: GroupTag::None,
             rows: Vec::new(),
@@ -717,7 +727,7 @@ impl MainWindow {
                 for row in group.rows {
                     if whole || group_hit || row.matches(&query) {
                         cards.push(render_group(
-                            Group::new(row.id, label.clone()).row(row),
+                            Group::new(row.id.clone(), label.clone()).row(row),
                             &theme,
                         ));
                     }
@@ -759,7 +769,7 @@ impl MainWindow {
             Section::Appearance => self.appearance(window, cx),
             Section::Messages => self.messages(selects, window, cx),
             Section::Notifications => self.notifications(selects, window, cx),
-            Section::Servers => self.servers_page(window, cx),
+            Section::Servers => self.servers_page(selects, window, cx),
             Section::Keyboard => keyboard(),
             Section::Advanced => self.advanced(selects, window, cx),
         }
@@ -1598,7 +1608,73 @@ impl MainWindow {
             .ok();
             true
         });
-        div().child(clear).child(reset).into_any_element()
+        let server = selects
+            .server_action
+            .get()
+            .and_then(|index| self.teams_model.read(cx).servers().get(index).cloned())
+            .map(|server| server.name.to_string())
+            .unwrap_or_default();
+        let remove_popup = confirm(
+            "preferences.remove-server.dialog",
+            t!("prefs-remove-title", server = server.clone()),
+            t!("prefs-remove-detail"),
+            t!("prefs-remove"),
+            cx,
+        );
+        let sign_out_popup = confirm(
+            "preferences.sign-out.dialog",
+            t!("prefs-sign-out-title", server = server),
+            t!("prefs-sign-out-detail"),
+            t!("prefs-sign-out"),
+            cx,
+        );
+        let chosen = selects.server_action.clone();
+        let remove = alert_dialog(
+            "preferences.remove-server.dialog",
+            &selects.remove_server,
+            remove_popup,
+            window,
+            cx,
+        )
+        .on_ok({
+            let main = cx.entity().downgrade();
+            let chosen = chosen.clone();
+            move |_, _, cx| {
+                if let Some(index) = chosen.take() {
+                    main.update(cx, |this, cx| {
+                        this.in_main_window(cx, move |this, window, cx| {
+                            this.remove_server(index, window, cx)
+                        })
+                    })
+                    .ok();
+                }
+                true
+            }
+        });
+        let sign_out = alert_dialog(
+            "preferences.sign-out.dialog",
+            &selects.sign_out,
+            sign_out_popup,
+            window,
+            cx,
+        )
+        .on_ok({
+            let main = cx.entity().downgrade();
+            move |_, _, cx| {
+                chosen.take();
+                main.update(cx, |this, cx| {
+                    this.in_main_window(cx, |this, window, cx| this.sign_out(window, cx))
+                })
+                .ok();
+                true
+            }
+        });
+        div()
+            .child(clear)
+            .child(reset)
+            .child(remove)
+            .child(sign_out)
+            .into_any_element()
     }
 }
 
@@ -1970,58 +2046,259 @@ impl MainWindow {
     }
 
     /// The Servers page: the saved servers, then Add server.
-    fn servers_page(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Vec<Group> {
+    /// Servers (spec §1.3): the saved servers, in the order the team menu
+    /// and Cmd/Ctrl+1–9 use, with Switch to and a ⋯ menu to move, sign out
+    /// or remove one; then the current server's teams.
+    fn servers_page(
+        &mut self,
+        selects: &mut PageSelects,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<Group> {
         let settings = self.settings.read(cx).get().clone();
-        let current = settings.current_server();
-        let rows = settings.servers.iter().enumerate().map(|(index, server)| {
-            let id: &'static str = match index {
-                0 => "preferences.server.0",
-                1 => "preferences.server.1",
-                2 => "preferences.server.2",
-                3 => "preferences.server.3",
-                4 => "preferences.server.4",
-                5 => "preferences.server.5",
-                6 => "preferences.server.6",
-                7 => "preferences.server.7",
-                _ => "preferences.server.more",
+        let model = self.teams_model.read(cx);
+        let unread: Vec<_> = model.servers().to_vec();
+        let teams: Vec<_> = model.teams().to_vec();
+        let current_team = model.current().cloned();
+        // The preview's servers are the model's; it saves none.
+        let (servers, current): (Vec<(SharedString, SharedString, SharedString)>, _) =
+            if crate::preview::enabled() {
+                let entries = unread
+                    .iter()
+                    .map(|server| {
+                        let detail = t!(
+                            "prefs-server-detail",
+                            host = server.host.to_string(),
+                            username = "arya",
+                        );
+                        (server.key.clone(), server.name.clone(), detail)
+                    })
+                    .collect();
+                (entries, model.current_server())
+            } else {
+                let entries = settings
+                    .servers
+                    .iter()
+                    .map(|server| {
+                        let detail = t!(
+                            "prefs-server-detail",
+                            host = crate::live::url_host(&server.server).to_owned(),
+                            username = server.username.clone(),
+                        );
+                        (
+                            SharedString::from(server.data_key()),
+                            SharedString::from(server.label().to_owned()),
+                            detail,
+                        )
+                    })
+                    .collect();
+                (entries, settings.current_server())
             };
-            let mut row =
-                Row::new(id, SharedString::from(server.label().to_owned())).description(t!(
-                    "prefs-server-detail",
-                    host = crate::live::url_host(&server.server).to_owned(),
-                    username = server.username.clone(),
-                ));
-            if Some(index) != current {
-                row = row.control(
-                    Button::new(gpui_kit::ElementId::Name(format!("{id}.switch").into()))
-                        .variant(ButtonVariant::Outline)
-                        .size(ButtonSize::Sm)
-                        .label(t!("prefs-server-switch"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.in_main_window(cx, move |this, window, cx| {
-                                this.switch_server(index, window, cx)
-                            })
-                        })),
-                );
-            }
-            row
-        });
-        vec![
+        let count = servers.len();
+        let rows: Vec<Row> = servers
+            .iter()
+            .enumerate()
+            .map(|(index, (key, name, detail))| {
+                let id = SharedString::from(format!("preferences.server.{key}"));
+                let shown = Some(index) == current;
+                let menu = self.server_menu(selects, index, count, shown, key, cx);
+                let badge = unread
+                    .get(index)
+                    .filter(|_| !shown)
+                    .and_then(|s| crate::teams::unread_badge(s.mentions, s.unread, cx));
+                let controls = div()
+                    .flex()
+                    .items_center()
+                    .gap(UiTheme::read(cx).space(2.))
+                    .children(badge)
+                    .when(!shown, |row| {
+                        row.child(
+                            Button::new(gpui_kit::ElementId::Name(format!("{id}.switch").into()))
+                                .variant(ButtonVariant::Outline)
+                                .size(ButtonSize::Sm)
+                                .label(t!("prefs-server-switch"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.in_main_window(cx, move |this, window, cx| {
+                                        this.switch_server(index, window, cx)
+                                    })
+                                })),
+                        )
+                    })
+                    .child(
+                        Menu::new(&menu, t!("prefs-server-options", server = name.to_string()))
+                            .trigger(
+                                lucide(LucideIcon::Ellipsis)
+                                    .size(scaled(UiTheme::read(cx), metrics::ICON))
+                                    .text_color(UiTheme::read(cx).colors.muted_foreground),
+                            )
+                            .trigger_style_with({
+                                let theme = UiTheme::read(cx).clone();
+                                move |button| {
+                                    style_button(
+                                        button,
+                                        false,
+                                        ButtonVariant::Ghost,
+                                        ButtonSize::IconSm,
+                                        &theme,
+                                    )
+                                }
+                            }),
+                    );
+                Row::new(id, name.clone())
+                    .media(crate::teams::server_icon(name, cx))
+                    .description(detail.clone())
+                    .control(controls)
+            })
+            .collect();
+        let mut groups = vec![
             Group::new("preferences.servers", t!("prefs-servers"))
                 .note(t!("prefs-this-computer"))
-                .rows(rows.collect::<Vec<_>>())
+                .rows(rows)
                 .after(
                     div().child(
                         Button::new("preferences.add-server")
                             .variant(ButtonVariant::Outline)
                             .size(ButtonSize::Sm)
                             .label(t!("prefs-add-server"))
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(actions::AddServer), cx)
-                            }),
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.in_main_window(cx, |this, window, cx| {
+                                    this.add_server(None, window, cx)
+                                })
+                            })),
                     ),
                 ),
-        ]
+        ];
+        let server_name = current
+            .and_then(|index| servers.get(index))
+            .map(|(_, name, _)| name.to_string())
+            .unwrap_or_else(|| "Matty".to_owned()); // i18n-ignore
+        let team_rows: Vec<Row> = teams
+            .iter()
+            .map(|team| {
+                let id = SharedString::from(format!("preferences.team.{}", team.id));
+                let shown = current_team.as_ref() == Some(&team.id);
+                let team_id = team.id.clone();
+                let badge = (!shown)
+                    .then(|| crate::teams::unread_badge(team.mentions, team.unread, cx))
+                    .flatten();
+                let mut row = Row::new(id.clone(), team.name.clone())
+                    .media(crate::teams::team_icon(team, cx));
+                if shown {
+                    row = row.description(t!("prefs-team-current"));
+                } else {
+                    row = row.control(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(UiTheme::read(cx).space(2.))
+                            .children(badge)
+                            .child(
+                                Button::new(gpui_kit::ElementId::Name(
+                                    format!("{id}.switch").into(),
+                                ))
+                                .variant(ButtonVariant::Outline)
+                                .size(ButtonSize::Sm)
+                                .label(t!("prefs-team-switch"))
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        let team = team_id.clone();
+                                        this.in_main_window(cx, move |this, window, cx| {
+                                            this.switch_team(team, window, cx)
+                                        })
+                                    },
+                                )),
+                            ),
+                    );
+                }
+                row
+            })
+            .collect();
+        groups.push(
+            Group::new("preferences.teams", t!("prefs-teams", server = server_name))
+                .rows(team_rows)
+                .after(
+                    div().child(
+                        Button::new("preferences.join-team")
+                            .variant(ButtonVariant::Outline)
+                            .size(ButtonSize::Sm)
+                            .label(t!("prefs-join-team"))
+                            .on_click(cx.listener(|this, _, _, cx| this.join_team(cx))),
+                    ),
+                ),
+        );
+        groups
+    }
+
+    /// A saved server's ⋯ menu: Move up and down, then Sign out… for the
+    /// shown server or Remove… for another. Built once per place.
+    fn server_menu(
+        &mut self,
+        selects: &mut PageSelects,
+        index: usize,
+        count: usize,
+        shown: bool,
+        key: &SharedString,
+        cx: &mut Context<Self>,
+    ) -> Entity<MenuState> {
+        let built = (index, count, shown);
+        if let Some((menu, at)) = selects.server_menus.get(key)
+            && *at == built
+        {
+            return menu.clone();
+        }
+        let main = cx.entity().downgrade();
+        let moved = move |to: usize| {
+            let main = main.clone();
+            move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
+                main.update(cx, |this, cx| this.move_server(index, to, cx))
+                    .ok();
+            }
+        };
+        let action = selects.server_action.clone();
+        let dialog = if shown {
+            selects.sign_out.clone()
+        } else {
+            selects.remove_server.clone()
+        };
+        let mut items = Vec::new();
+        if index > 0 {
+            items.push(
+                MenuItem::new("preferences.server.up", t!("prefs-server-move-up"))
+                    .icon(LucideIcon::ArrowUp)
+                    .on_click(moved(index - 1)),
+            );
+        }
+        if index + 1 < count {
+            items.push(
+                MenuItem::new("preferences.server.down", t!("prefs-server-move-down"))
+                    .icon(LucideIcon::ArrowDown)
+                    .on_click(moved(index + 1)),
+            );
+        }
+        if !items.is_empty() {
+            items.push(MenuItem::separator());
+        }
+        let (id, label) = if shown {
+            ("preferences.server.sign-out", t!("prefs-server-sign-out"))
+        } else {
+            ("preferences.server.remove", t!("prefs-server-remove"))
+        };
+        items.push(MenuItem::new(id, label).on_click(move |_, window, cx| {
+            action.set(Some(index));
+            dialog.open(window, cx);
+        }));
+        let menu = match selects.server_menus.get(key) {
+            Some((menu, _)) => {
+                let menu = menu.clone();
+                menu.update(cx, |menu, cx| menu.set_items(items, cx));
+                menu
+            }
+            None => cx.new(|cx| MenuState::new(items, cx)),
+        };
+        selects
+            .server_menus
+            .insert(key.clone(), (menu.clone(), built));
+        menu
     }
 }
 

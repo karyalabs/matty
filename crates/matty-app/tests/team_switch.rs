@@ -1,4 +1,5 @@
-//! Switching teams (#89) over the preview's three teams: the rail and
+//! Switching teams (#89) over the preview's three teams: the header's team
+//! switcher (#735) and
 //! Cmd/Ctrl+Alt+1…9 and Up/Down show the picked team's sidebar, open its
 //! town square the first time and where the user last was after that, and
 //! Back returns to the other team's channel.
@@ -32,13 +33,17 @@ fn labels(cx: &mut VisualTestContext) -> Vec<String> {
 }
 
 fn click(cx: &mut VisualTestContext, label: &str) {
+    click_where(cx, |l| l == label, label)
+}
+
+fn click_where(cx: &mut VisualTestContext, matches: impl Fn(&str) -> bool, label: &str) {
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let center = cx.update(|window, _| {
         use gpui_kit::test::TestQueryExt as _;
         window
             .elements()
             .into_iter()
-            .find(|element| element.label().is_some_and(|l| l == label))
+            .find(|element| element.label().is_some_and(&matches))
             .unwrap_or_else(|| panic!("nothing is labelled {label:?}"))
             .bounds()
             .center()
@@ -85,8 +90,13 @@ fn picking_a_team_shows_its_sidebar_and_remembers_where_you_were(
     assert_eq!(open_row(&mut cx), "general");
     assert!(has(&mut cx, "help-desk") && !has(&mut cx, "critique"));
 
-    // The rail: Design Guild's sidebar, at its town square.
-    click(&mut cx, "Design Guild, 3 mentions");
+    // The switcher: Design Guild's sidebar, at its town square.
+    click_where(
+        &mut cx,
+        |label| label.ends_with("in other teams or servers"),
+        "the team switcher",
+    );
+    click(&mut cx, "Design Guild");
     assert!(has(&mut cx, "critique"), "Design Guild's channels show");
     assert!(!has(&mut cx, "help-desk"), "Matty's channels are gone");
     assert!(has(&mut cx, "Lena Fischer"), "direct messages stay");

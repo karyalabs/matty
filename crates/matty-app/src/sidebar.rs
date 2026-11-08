@@ -502,6 +502,8 @@ pub enum SidebarEvent {
 pub struct SidebarView {
     model: SidebarModel,
     team_name: SharedString,
+    /// The teams and servers the header's team name switches between.
+    switcher: Option<Entity<crate::teams::TeamsModel>>,
     /// The plus menu: new message, browse, create.
     menu: Entity<MenuState>,
     /// The per-row options menu, refilled for the row it opens on.
@@ -558,6 +560,7 @@ impl SidebarView {
         Self {
             model,
             team_name: team_name.into(),
+            switcher: None,
             menu,
             row_menu,
             unreads_only: false,
@@ -862,6 +865,17 @@ impl SidebarView {
         &self.model
     }
 
+    /// Makes the header's team name the team and server switcher.
+    pub fn set_switcher(
+        &mut self,
+        model: Entity<crate::teams::TeamsModel>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.observe(&model, |_, _, cx| cx.notify()).detach();
+        self.switcher = Some(model);
+        cx.notify();
+    }
+
     /// The team name in the header.
     pub fn set_team_name(&mut self, name: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.team_name = name.into();
@@ -942,9 +956,10 @@ impl SidebarView {
         }
     }
 
-    fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let theme = UiTheme::read(cx).clone();
-        let team = Button::new("sidebar.team")
+    /// The team name without a switcher, as in a test's sidebar.
+    fn plain_team_button(&self, theme: &UiTheme) -> Button {
+        let theme = theme.clone();
+        Button::new("sidebar.team")
             .variant(ButtonVariant::Ghost)
             .size(ButtonSize::Sm)
             .aria_label(t!("sidebar-team-menu"))
@@ -956,7 +971,17 @@ impl SidebarView {
                 lucide(LucideIcon::ChevronDown)
                     .size(scaled(&theme, metrics::ICON_SMALL))
                     .text_color(theme.colors.sidebar_muted_foreground()),
-            );
+            )
+    }
+
+    fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let team = match &self.switcher {
+            Some(switcher) => switcher
+                .read(cx)
+                .header_button(self.team_name.clone(), false, cx),
+            None => self.plain_team_button(&theme).into_any_element(),
+        };
         let loading = self.model.loading;
         let button_theme = theme.clone();
         let compose = Menu::new(&self.menu, t!("sidebar-new"))

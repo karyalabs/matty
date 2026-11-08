@@ -25,7 +25,6 @@ use crate::directory::{BrowseView, CreateChannelView, DirectoryEvent, NewMessage
 use crate::drafts::{DraftsEvent, DraftsModel, DraftsView};
 use crate::live::{ChannelUpdate, Live};
 use crate::login::{LoginEvent, LoginModel, LoginStep, LoginView, SignInMethods, SsoProvider};
-use crate::rail::RailView;
 use crate::right_pane::{RightPaneContent, RightPaneEvent, RightPaneView, SearchModel};
 use crate::settings::{
     LogLevel, RIGHT_PANE_MAX, RIGHT_PANE_MIN, RemoteImages, SIDEBAR_MAX, SIDEBAR_MIN,
@@ -34,6 +33,7 @@ use crate::settings::{
 use crate::sidebar::{SidebarEvent, SidebarModel, SidebarView, Step};
 use crate::style::{self, TypeStyleExt as _, metrics, scaled};
 use crate::switcher::{Switcher, SwitcherEvent};
+use crate::teams::TeamsModel;
 use crate::threads::{ThreadsEvent, ThreadsModel, ThreadsView};
 use crate::ui::{
     button::{Button, ButtonSize, ButtonVariant},
@@ -249,8 +249,8 @@ pub struct MainWindow {
     /// Channels joined from Browse while in preview, so they open with an
     /// empty transcript until sync owns joining.
     joined: Vec<crate::channel::ChannelModel>,
-    /// The team rail, shown when the user belongs to more than one team.
-    rail: Entity<RailView>,
+    /// The teams and saved servers, behind the sidebar header's switcher.
+    teams_model: Entity<TeamsModel>,
     /// Where the user last was in each team they left, by its sidebar id,
     /// to go back there when they switch back (#89).
     team_places: std::collections::HashMap<SharedString, SharedString>,
@@ -348,7 +348,7 @@ impl MainWindow {
             |this, store, _: &SettingsChanged, window, cx| {
                 crate::apply_theme(window, cx);
                 this.send_cache_limit(cx);
-                this.refresh_server_rail(cx);
+                this.refresh_servers(cx);
                 let names = store.read(cx).get().name_format;
                 let ask_images = store.read(cx).get().load_remote_images == RemoteImages::Ask;
                 if let Some(live) = this.live.as_mut() {
@@ -511,7 +511,7 @@ impl MainWindow {
             },
         )
         .detach();
-        let rail = cx.new(|cx| {
+        let teams_model = cx.new(|cx| {
             // Sync fills the teams once it has them (#89).
             let teams = if crate::preview::enabled() {
                 crate::preview::teams()
@@ -519,9 +519,13 @@ impl MainWindow {
                 Vec::new()
             };
             let current = teams.first().map(|team| team.id.clone());
-            RailView::new(teams, current, cx)
+            TeamsModel::new(teams, current, cx)
         });
-        cx.subscribe_in(&rail, window, Self::on_rail_event).detach();
+        cx.subscribe_in(&teams_model, window, Self::on_teams_event)
+            .detach();
+        sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_switcher(teams_model.clone(), cx)
+        });
         cx.subscribe_in(&browse, window, Self::on_directory_event)
             .detach();
         cx.subscribe_in(&new_message, window, Self::on_directory_event)
@@ -1176,7 +1180,7 @@ impl MainWindow {
             profile_editor,
             emoji_manager,
             joined: Vec::new(),
-            rail,
+            teams_model,
             team_places: Default::default(),
             right_pane_open: false,
             right_drawer: DrawerHandle::new(false),
@@ -1228,7 +1232,7 @@ impl MainWindow {
         .detach();
         cx.observe(&this.sidebar, |this, _, cx| this.update_badge(cx))
             .detach();
-        cx.observe(&this.rail, |this, _, cx| this.update_badge(cx))
+        cx.observe(&this.teams_model, |this, _, cx| this.update_badge(cx))
             .detach();
         this.restore_split(window, cx);
         // `matty --offline` opens the last account's cache without a session;
@@ -1246,7 +1250,7 @@ impl MainWindow {
         {
             this.open_server(&account, window, cx);
         }
-        this.refresh_server_rail(cx);
+        this.refresh_servers(cx);
         if let Some(root) = crate::preview::start_thread() {
             this.open_thread(root, cx);
         }
@@ -3478,18 +3482,12 @@ impl MainWindow {
             return self.channel_area(window, cx);
         }
         let settings = self.settings.read(cx).get().clone();
-        let theme = UiTheme::read(cx);
-        let rail = if self.rail.read(cx).is_multi() {
-            f32::from(scaled(theme, metrics::RAIL_WIDTH))
-        } else {
-            0.
-        };
         let sidebar = if self.sidebar_visible {
             settings.sidebar_width + SPLIT_HANDLE
         } else {
             0.
         };
-        let extent = f32::from(window.viewport_size().width) - rail - sidebar - SPLIT_HANDLE;
+        let extent = f32::from(window.viewport_size().width) - sidebar - SPLIT_HANDLE;
         let channel_width = (extent - settings.right_pane_width).max(CONTENT_MIN);
         let store = self.settings.clone();
         Resizable::new("main.right-split", "Resize right pane", px(channel_width))
@@ -3773,7 +3771,7 @@ impl MainWindow {
     /// Puts the unread and mention totals on the dock icon (#141); signed
     /// out, the sidebar is loading and the badge clears.
     fn update_badge(&mut self, cx: &mut Context<Self>) {
-        let rail = self.rail.read(cx);
+        let rail = self.teams_model.read(cx);
         let badge =
             crate::badge::dock_badge(self.sidebar.read(cx).model(), rail.teams(), rail.current());
         let badge = crate::badge::with_servers(badge, rail.servers(), rail.current_server());
@@ -4752,7 +4750,7 @@ impl Render for MainWindow {
                     .w_full()
                     .child(login.clone())
                     .into_any_element(),
-                // One selection root over the rail, sidebar, channel and
+                // One selection root over the sidebar, channel and
                 // right pane, so a drag can select text across messages and
                 // Cmd/Ctrl+C copies it in reading order (PLAN §4.2).
                 None => div()
@@ -4762,16 +4760,6 @@ impl Render for MainWindow {
                     .child(
                         selection_root("window.selection")
                             .flex()
-                            .when(self.rail.read(cx).is_multi(), |row| {
-                                row.child(
-                                    self.rail.clone().cached(
-                                        gpui_kit::StyleRefinement::default()
-                                            .w(scaled(&theme, metrics::RAIL_WIDTH))
-                                            .h_full()
-                                            .flex_shrink_0(),
-                                    ),
-                                )
-                            })
                             .child(div().flex_1().min_w_0().h_full().child(frame)),
                     )
                     .into_any_element(),

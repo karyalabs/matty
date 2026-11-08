@@ -219,7 +219,7 @@ pub struct Update {
     pub team_name: Option<SharedString>,
     /// The user's teams with their badges, for the rail, and the one on
     /// screen (#89).
-    pub teams: Option<(Vec<crate::rail::Team>, Option<SharedString>)>,
+    pub teams: Option<(Vec<crate::teams::Team>, Option<SharedString>)>,
     pub connection: Option<ConnectionState>,
     /// What changed in the open channel's view.
     pub channel: Option<ChannelUpdate>,

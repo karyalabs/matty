@@ -374,8 +374,6 @@ impl<T: Styled> TypeStyleExt for T {}
 /// Layout metrics from DESIGN.md §4, in px at zoom 1. Callers multiply by
 /// the theme's spacing unit through [`scaled`] so zoom applies.
 pub mod metrics {
-    /// The team rail's width.
-    pub const RAIL_WIDTH: f32 = 56.;
     /// Sidebar, channel and right-pane headers.
     pub const HEADER_HEIGHT: f32 = 48.;
     /// A sidebar row.
