@@ -32,6 +32,7 @@ use crate::ui::{
     select::{SelectEvent, SelectItem, SelectState},
     theme::UiTheme,
     title_bar::TitleBar,
+    toast::ToastState,
 };
 
 /// The window's size the first time it opens, in logical px.
@@ -99,6 +100,18 @@ pub(super) struct PageSelects {
     /// Each saved server's ⋯ menu, by its key, with what its items were
     /// built for.
     pub(super) server_menus: HashMap<SharedString, (Entity<MenuState>, MenuPlace)>,
+    /// The saved style a ⋯ menu acts on, "Rename…" with its name field,
+    /// and "Delete…".
+    pub(super) style_target: Rc<std::cell::RefCell<Option<String>>>,
+    pub(super) rename_style: DialogHandle,
+    pub(super) delete_style: DialogHandle,
+    pub(super) rename_input: Option<(Entity<InputState>, Subscription)>,
+    /// The style the name field was filled for, while Rename is open.
+    pub(super) rename_for: Option<String>,
+    /// Each saved style's ⋯ menu, by name.
+    pub(super) style_menus: HashMap<String, Entity<MenuState>>,
+    /// Appearance's Share ▾ menu.
+    pub(super) share_menu: Option<Entity<MenuState>>,
 }
 
 impl Default for PageSelects {
@@ -111,6 +124,13 @@ impl Default for PageSelects {
             sign_out: DialogHandle::new(false),
             server_action: Rc::default(),
             server_menus: HashMap::new(),
+            style_target: Rc::default(),
+            rename_style: DialogHandle::new(false),
+            delete_style: DialogHandle::new(false),
+            rename_input: None,
+            rename_for: None,
+            style_menus: HashMap::new(),
+            share_menu: None,
         }
     }
 }
@@ -168,6 +188,8 @@ pub(crate) struct SettingsView {
     search: Entity<InputState>,
     focus: FocusHandle,
     pub(super) selects: PageSelects,
+    /// What the style actions did, as toasts (spec §1.3).
+    toasts: Entity<ToastState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -204,6 +226,8 @@ impl SettingsView {
                 cx.observe_window_bounds(window, |_, window, cx| remember_bounds(window, cx)),
             );
         }
+        let toasts = cx.new(ToastState::new);
+        cx.set_global(super::style_library::StyleToasts(toasts.downgrade()));
         Self {
             main: main.downgrade(),
             host,
@@ -211,6 +235,7 @@ impl SettingsView {
             search,
             focus: cx.focus_handle(),
             selects: PageSelects::default(),
+            toasts,
             _subscriptions: subscriptions,
         }
     }
@@ -415,6 +440,7 @@ impl Render for SettingsView {
                         ),
                 )
                 .child(div().flex_1().min_h_0().flex().child(sidebar).child(body))
+                .child(self.toasts.clone())
                 .into_any_element(),
             // The title bar stays above the overlay.
             Host::Overlay => root
@@ -424,6 +450,7 @@ impl Render for SettingsView {
                 .bottom_0()
                 .top(px(metrics::TITLE_BAR_HEIGHT))
                 .child(div().flex_1().min_h_0().flex().child(sidebar).child(body))
+                .child(self.toasts.clone())
                 .into_any_element(),
         }
     }

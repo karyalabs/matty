@@ -32,8 +32,8 @@ use crate::t;
 use crate::ui::{
     alert_dialog::{alert_dialog, alert_dialog_action, alert_dialog_cancel},
     button::{Button, ButtonSize, ButtonVariant, style_button},
-    dialog::{dialog_description, dialog_popup, dialog_title},
-    input::Input,
+    dialog::{DialogHandle, dialog_description, dialog_popup, dialog_title},
+    input::{Input, InputEvent, InputState},
     item::{Item, ItemGroup, ItemSize},
     kbd::Kbd,
     menu::{Menu, MenuItem, MenuState},
@@ -769,7 +769,7 @@ impl MainWindow {
     ) -> Vec<Group> {
         match section {
             Section::General => self.general(selects, window, cx),
-            Section::Appearance => self.appearance(window, cx),
+            Section::Appearance => self.appearance(selects, window, cx),
             Section::Messages => self.messages(selects, window, cx),
             Section::Notifications => self.notifications(selects, window, cx),
             Section::Servers => self.servers_page(selects, window, cx),
@@ -1672,11 +1672,121 @@ impl MainWindow {
                 true
             }
         });
+        let style_name = selects.style_target.borrow().clone().unwrap_or_default();
+        let delete_popup = confirm(
+            "preferences.delete-style.dialog",
+            t!("prefs-style-delete-title", name = style_name.clone()),
+            t!("prefs-style-delete-detail"),
+            t!("prefs-style-delete-confirm"),
+            cx,
+        );
+        let store = self.settings.clone();
+        let target = selects.style_target.clone();
+        let delete_style = alert_dialog(
+            "preferences.delete-style.dialog",
+            &selects.delete_style,
+            delete_popup,
+            window,
+            cx,
+        )
+        .on_ok({
+            let store = store.clone();
+            let target = target.clone();
+            move |_, _, cx| {
+                if let Some(name) = target.borrow_mut().take() {
+                    super::style_library::delete(&store, &name, cx);
+                }
+                true
+            }
+        });
+        if selects.rename_input.is_none() {
+            let input = cx.new(|cx| InputState::new(window, cx));
+            let (store, target, dialog) = (
+                self.settings.clone(),
+                selects.style_target.clone(),
+                selects.rename_style.clone(),
+            );
+            // Enter renames, as the Rename button does.
+            let subscription = cx.subscribe_in(
+                &input,
+                window,
+                move |_, input: &Entity<InputState>, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        let to = input.read(cx).value().to_string();
+                        if let Some(from) = target.borrow_mut().take() {
+                            super::style_library::rename(&store, &from, &to, cx);
+                        }
+                        dialog.close(window, cx);
+                    }
+                },
+            );
+            selects.rename_input = Some((input, subscription));
+        }
+        let input = selects
+            .rename_input
+            .as_ref()
+            .map(|(input, _)| input.clone())
+            .expect("made above"); // i18n-ignore
+        let theme = UiTheme::read(cx).clone();
+        let rename_popup = dialog_popup(
+            "preferences.rename-style.popup",
+            t!("prefs-style-rename-title"),
+            cx,
+        )
+        .child(
+            dialog_title("preferences.rename-style.title", cx)
+                .child(t!("prefs-style-rename-title")),
+        )
+        .child(Input::new(&input).aria_label(t!("prefs-styles-name")))
+        .child(
+            div()
+                .flex()
+                .justify_end()
+                .gap(theme.space(2.))
+                .pt(theme.space(2.))
+                .child(
+                    alert_dialog_cancel("preferences.rename-style.cancel")
+                        .variant(ButtonVariant::Outline)
+                        .label(t!("prefs-cancel")),
+                )
+                .child(
+                    alert_dialog_action("preferences.rename-style.confirm")
+                        .label(t!("prefs-style-rename-confirm")),
+                ),
+        );
+        // The field starts with the name, once per opening.
+        if !selects.rename_style.is_open() {
+            selects.rename_for = None;
+        } else if selects.rename_for.as_deref() != Some(style_name.as_str()) {
+            selects.rename_for = Some(style_name.clone());
+            input.update(cx, |input, cx| {
+                input.set_value(style_name.clone(), window, cx)
+            });
+            // Once the dialog has drawn and taken focus for itself.
+            let focus = gpui_kit::Focusable::focus_handle(input.read(cx), cx);
+            window.on_next_frame(move |window, cx| window.focus(&focus, cx));
+        }
+        let rename_style = alert_dialog(
+            "preferences.rename-style.dialog",
+            &selects.rename_style,
+            rename_popup,
+            window,
+            cx,
+        )
+        .on_ok(move |_, _, cx| {
+            let to = input.read(cx).value().to_string();
+            if let Some(from) = target.borrow_mut().take() {
+                super::style_library::rename(&store, &from, &to, cx);
+            }
+            true
+        });
         div()
             .child(clear)
             .child(reset)
             .child(remove)
             .child(sign_out)
+            .child(delete_style)
+            .child(rename_style)
             .into_any_element()
     }
 }
@@ -1704,6 +1814,7 @@ fn cache_label(mb: u32) -> SharedString {
 pub(super) fn reset_appearance(settings: &mut Settings) {
     let defaults = Settings::default();
     settings.custom_style = None;
+    settings.selected_style = None;
     settings.ui_font = None;
     settings.code_font = None;
     settings.text_scale = defaults.text_scale;
@@ -1885,11 +1996,15 @@ fn keyword_editor(
 }
 
 impl MainWindow {
-    fn appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<Group> {
+    fn appearance(
+        &mut self,
+        selects: &mut PageSelects,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<Group> {
         let theme = UiTheme::read(cx).clone();
         let settings = self.settings.read(cx).get().clone();
         let store = self.settings.clone();
-        super::style_library::prepare(&self.settings, window, cx);
         let theme_value: SharedString = match settings.theme {
             ThemeChoice::System => "system",
             ThemeChoice::Light => "light",
@@ -1952,43 +2067,108 @@ impl MainWindow {
                 .control(mode),
         );
         let imported = crate::mattermost_theme::shown(&settings, cx);
-        let custom = settings.theme_source == ThemeSource::Custom;
-        let colors_hint: SharedString = match (&imported, use_imported) {
-            (_, false) if custom => t!("prefs-colors-own-hint"),
-            (_, false) => t!("prefs-colors-matty-hint"),
-            (Some(imported), true) => {
-                t!("prefs-colors-imported-hint", name = imported.name())
-            }
-            (None, true) => t!("prefs-colors-waiting-hint"),
-        };
         let failing = imported
+            .as_ref()
             .filter(|_| use_imported)
             .map(|imported| imported.warnings())
             .unwrap_or_default();
+        // The gallery: 4 cards a row at the default width, 3 at the least.
+        let columns = if f32::from(window.viewport_size().width) >= 840. {
+            4
+        } else {
+            3
+        };
+        let mut cards = super::style_library::cards(&settings, cx);
+        for card in &mut cards {
+            if let super::style_library::Choice::Saved(name) = &card.choice {
+                card.menu = Some(self.style_menu(selects, name, cx));
+            }
+        }
+        let share = selects
+            .share_menu
+            .get_or_insert_with(|| {
+                cx.new(|cx| MenuState::new(super::style_library::share_items(&store), cx))
+            })
+            .clone();
+        let (_, shown_name) = super::style_library::shown(&settings, cx);
+        let button = |id: &'static str, label: SharedString| {
+            Button::new(id)
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm)
+                .label(label)
+        };
+        let (new_store, paste_store, open_store) = (store.clone(), store.clone(), store.clone());
+        let share_theme = theme.clone();
+        let actions = div()
+            .w_full()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(theme.space(2.))
+            .child(
+                button(
+                    "preferences.style.new",
+                    t!("prefs-style-new", name = shown_name.clone()),
+                )
+                .on_click(move |_, _, cx| super::style_library::new_style(&new_store, cx)),
+            )
+            .child(
+                button("preferences.style.paste", t!("prefs-styles-paste"))
+                    .on_click(move |_, _, cx| super::style_library::paste_style(&paste_store, cx)),
+            )
+            .when(!cfg!(target_family = "wasm"), |row| {
+                row.child(
+                    button("preferences.style.open", t!("prefs-styles-open"))
+                        .on_click(move |_, _, cx| super::style_library::open_file(&open_store, cx)),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                Menu::new(&share, t!("prefs-style-share"))
+                    .trigger(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(theme.space(1.))
+                            .child(t!("prefs-style-share"))
+                            .child(
+                                lucide(LucideIcon::ChevronDown)
+                                    .size(scaled(&theme, metrics::ICON_SMALL))
+                                    .text_color(theme.colors.muted_foreground),
+                            ),
+                    )
+                    .trigger_style_with(move |button| {
+                        style_button(
+                            button,
+                            false,
+                            ButtonVariant::Outline,
+                            ButtonSize::Sm,
+                            &share_theme,
+                        )
+                    }),
+            );
         let gallery = div()
             .w_full()
             .flex()
             .flex_col()
-            .gap(theme.space(3.))
-            .child(super::style_editor::gallery(&store, cx))
-            .when(!failing.is_empty(), |colors| {
-                colors.child(contrast_warning(&failing, &theme))
-            })
-            .when(custom, |colors| {
-                colors.child(super::style_editor::editor(&store, cx))
+            .gap(theme.space(4.))
+            .child(super::style_library::gallery(&store, cards, columns, cx))
+            .child(actions)
+            .when(!failing.is_empty(), |gallery| {
+                gallery.child(contrast_warning(&failing, &theme))
             });
-        let style = Group::new("preferences.style", t!("prefs-colors"))
-            .row(
-                Row::new("preferences.colors", t!("prefs-colors-label"))
-                    .description(colors_hint)
-                    .stacked()
-                    .control(gallery),
-            )
-            .row(
-                Row::new("preferences.styles", t!("prefs-styles"))
-                    .stacked()
-                    .control(super::style_library::library(&store, cx)),
-            );
+        let mut style = Group::new("preferences.style", t!("prefs-style")).after(gallery);
+        if use_imported {
+            let name = imported
+                .as_ref()
+                .map(|theme| theme.name())
+                .unwrap_or_else(|| shown_name.clone());
+            style = style.note(t!("prefs-style-from-mattermost", name = name));
+        } else {
+            style = style.note(t!("prefs-this-computer"));
+        }
+        let editor = super::style_editor::editor(&store, cx);
+        let (ui_font, code_font, fonts_under) = self.font_controls(window, cx);
         let size_value: SharedString = TEXT_SIZES
             .iter()
             .min_by(|a, b| {
@@ -2023,24 +2203,78 @@ impl MainWindow {
                 .unwrap_or(1.);
             size_store.update(cx, |store, cx| store.update(cx, |s| s.text_scale = scale));
         });
-        let text = Group::new("preferences.text", t!("prefs-text"))
-            .row(Row::new("preferences.text-size", t!("prefs-text-size")).control(size_group))
-            .row(
-                Row::new("preferences.fonts", t!("prefs-fonts"))
-                    .stacked()
-                    .control(self.font_controls(window, cx)),
-            );
-        let motion = Group::new("preferences.motion", t!("prefs-motion")).row(
-            Row::new("preferences.reduce-motion", t!("prefs-reduce-motion"))
-                .description(t!("prefs-reduce-motion-detail"))
-                .control(self.local_switch(
-                    "preferences.reduce-motion.switch",
-                    t!("prefs-reduce-motion"),
-                    settings.reduce_motion,
-                    |s, v| s.reduce_motion = v,
-                )),
+        let forks = !matches!(
+            super::style_library::chosen(&settings),
+            super::style_library::Choice::Saved(_)
         );
-        vec![light_dark, style, text, motion]
+        let customise = Group::new(
+            "preferences.customise",
+            t!("prefs-customise", name = shown_name.clone()),
+        )
+        .note(if forks {
+            t!("prefs-customise-forks", name = shown_name.clone())
+        } else {
+            t!("prefs-this-computer")
+        })
+        .row(
+            Row::new("preferences.accent", t!("prefs-accent"))
+                .stacked()
+                .control(editor.accent),
+        )
+        .row(Row::new("preferences.greys", t!("prefs-greys")).control(editor.greys))
+        .row(Row::new("preferences.corners", t!("prefs-corners")).control(editor.corners))
+        .row(Row::new("preferences.font-interface", t!("prefs-font-interface")).control(ui_font))
+        .row(Row::new("preferences.font-code", t!("prefs-font-code")).control(code_font))
+        .row(Row::new("preferences.text-size", t!("prefs-text-size")).control(size_group))
+        .after(fonts_under);
+        let motion = Group::new("preferences.motion", t!("prefs-motion"))
+            .note(t!("prefs-this-computer"))
+            .row(
+                Row::new("preferences.reduce-motion", t!("prefs-reduce-motion"))
+                    .description(t!("prefs-reduce-motion-detail"))
+                    .control(self.local_switch(
+                        "preferences.reduce-motion.switch",
+                        t!("prefs-reduce-motion"),
+                        settings.reduce_motion,
+                        |s, v| s.reduce_motion = v,
+                    )),
+            );
+        vec![light_dark, style, customise, motion]
+    }
+
+    /// A saved style's ⋯ menu: Rename… and Delete….
+    fn style_menu(
+        &mut self,
+        selects: &mut PageSelects,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> Entity<MenuState> {
+        if let Some(menu) = selects.style_menus.get(name) {
+            return menu.clone();
+        }
+        let item = |id: &'static str, label: SharedString, dialog: DialogHandle| {
+            let target = selects.style_target.clone();
+            let name = name.to_owned();
+            MenuItem::new(id, label).on_click(move |_, window, cx| {
+                *target.borrow_mut() = Some(name.clone());
+                dialog.open(window, cx);
+            })
+        };
+        let items = [
+            item(
+                "preferences.style.rename",
+                t!("prefs-style-rename"),
+                selects.rename_style.clone(),
+            ),
+            item(
+                "preferences.style.delete",
+                t!("prefs-style-delete"),
+                selects.delete_style.clone(),
+            ),
+        ];
+        let menu = cx.new(|cx| MenuState::new(items, cx));
+        selects.style_menus.insert(name.to_owned(), menu.clone());
+        menu
     }
 
     /// Appearance's extras beside its groups: none yet.
