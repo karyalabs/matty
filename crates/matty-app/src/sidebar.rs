@@ -982,7 +982,7 @@ impl SidebarView {
             .aria_label(t!("sidebar-unreads-filter"))
             .on_change({
                 let view = cx.weak_entity();
-                move |on, _, _, cx| {
+                move |&on, _, cx| {
                     view.update(cx, |this, cx| this.set_unreads_only(on, cx))
                         .ok();
                 }

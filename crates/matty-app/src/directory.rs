@@ -793,7 +793,7 @@ impl AddMembersView {
                 ))
                 .checked(checked)
                 .aria_label(profile.display_name.clone())
-                .on_change(move |_, _, _, cx| {
+                .on_change(move |_, _, cx| {
                     box_view
                         .update(cx, |this, cx| this.toggle(box_id.clone(), cx))
                         .ok();

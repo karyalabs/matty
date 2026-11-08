@@ -328,7 +328,7 @@ impl NotificationsView {
             )
             .child(group.on_change(move |next, _, cx| {
                 view.update(cx, |this, cx| {
-                    write(&mut this.prefs, NotifyLevel::from_id(&next));
+                    write(&mut this.prefs, NotifyLevel::from_id(next));
                     cx.notify();
                 })
                 .ok();
@@ -375,7 +375,7 @@ impl NotificationsView {
                 Switch::new(id)
                     .checked(checked)
                     .aria_label(title)
-                    .on_change(move |next, _, _, cx| {
+                    .on_change(move |&next, _, cx| {
                         view.update(cx, |this, cx| {
                             write(this, next);
                             cx.notify();

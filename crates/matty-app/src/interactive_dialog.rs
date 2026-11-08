@@ -646,7 +646,7 @@ impl InteractiveDialogView {
                 let name = element.name.clone();
                 let view = cx.weak_entity();
                 let checkbox = Checkbox::new(id("checkbox")).checked(*checked).on_change(
-                    move |next, _, _, cx| {
+                    move |&next, _, cx| {
                         let name = name.clone();
                         view.update(cx, |this, cx| this.set_bool(&name, next, cx))
                             .ok();
@@ -692,7 +692,7 @@ impl InteractiveDialogView {
                 }
                 let group = group.on_change(move |next, _, cx| {
                     let name = name.clone();
-                    view.update(cx, |this, cx| this.set_choice(&name, next, cx))
+                    view.update(cx, |this, cx| this.set_choice(&name, next.clone(), cx))
                         .ok();
                 });
                 let field = Field::from_control(id("radio-field"), group)
