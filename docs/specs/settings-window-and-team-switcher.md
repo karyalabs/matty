@@ -295,9 +295,8 @@ jump). Cmd+Alt+1–9 and Cmd+1–9 keep working from anywhere.
 
 ## 3. gpuicn additions (ship first, release 0.10.x, then bump Matty's pin)
 
-Matty pins gpuicn `=0.9.13`; gpuicn is at 0.10.0 (one-value handlers take `&value`).
-The first Matty PR of this work bumps to the release that carries §3.1 and §3.2 and
-fixes the handler signatures.
+Matty pins gpuicn `=0.10.0` (matty#730). The first Matty PR of this work bumps to the
+release that carries §3.1 and §3.2.
 
 ### 3.1 Rich `MenuItem`
 
