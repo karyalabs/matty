@@ -439,6 +439,8 @@ pub enum SidebarEvent {
     OpenDrafts,
     /// The user activated a channel row.
     Select(SharedString),
+    /// "Copy link" from a row's menu (#754).
+    CopyLink(SharedString),
     /// "New message" from the sidebar's plus menu.
     NewMessage,
     /// "Browse channels" from the sidebar's plus menu.
@@ -658,6 +660,11 @@ impl SidebarView {
             },
         ));
         items.push(self.move_to(row, cx));
+        items.push(emit(
+            "sidebar.row.copy-link",
+            t!("sidebar-copy-link"),
+            SidebarEvent::CopyLink(row.id.clone()),
+        ));
         items.push(emit(
             "sidebar.row.split",
             t!("sidebar-open-split"),
@@ -1174,19 +1181,35 @@ impl SidebarView {
         // covers it, and its tooltip reads the status (#681).
         if let Some(status) = &row.status {
             let mut tooltip = status.label();
-            if let Some(until) = status.until_label(
+            let until = status.until_label(
                 &jiff::Zoned::now(),
                 crate::settings::ClockFormat::current(cx),
-            ) {
+            );
+            if let Some(until) = &until {
                 tooltip = format!("{tooltip} · {until}");
             }
+            // The tooltip is a card like a reaction's (#753): the emoji
+            // large, the status under it, when it clears muted.
+            let name = status.emoji.clone();
+            let text: SharedString = if status.text.is_empty() {
+                status.label().into()
+            } else {
+                status.text.clone()
+            };
+            let hint: Option<SharedString> = until;
             item = item
                 .label_suffix(crate::custom_status::emoji(
                     &status.emoji,
                     scaled(&theme, metrics::ICON_SMALL),
                     cx,
                 ))
-                .label_suffix_tooltip(tooltip);
+                .label_suffix_tooltip(tooltip)
+                .label_suffix_tooltip_view(move |_, cx| {
+                    let glyph =
+                        crate::emoji::glyph(&name).unwrap_or_else(|| format!(":{name}:").into());
+                    let image = crate::emoji::custom_source(&name, cx);
+                    crate::ui::message::emoji_tooltip(glyph, image, text.clone(), hint.clone(), cx)
+                });
         }
         let mut trailing: Vec<gpui_kit::AnyElement> = Vec::new();
         if row.mentions > 0 {

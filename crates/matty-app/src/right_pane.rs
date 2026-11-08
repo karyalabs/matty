@@ -600,6 +600,28 @@ impl PostHost for RightPaneView {
         cx.emit(RightPaneEvent::OpenLink(url));
     }
 
+    fn open_link_menu(
+        &mut self,
+        id: SharedString,
+        url: SharedString,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(post) = self.thread_post(&id).cloned() else {
+            return;
+        };
+        let reply = match self.content.as_ref() {
+            Some(RightPaneContent::Thread(thread)) => thread.root.id != post.id,
+            _ => false,
+        };
+        let view = cx.entity().downgrade();
+        let mut items = crate::post_row::link_items(&view, &url);
+        items.extend(Self::thread_items_for(&view, &post, self.away, reply));
+        self.select_post(&id, window, cx);
+        self.open_menu(items, at, window, cx);
+    }
+
     fn open_post_file(&mut self, file: SharedString, cx: &mut Context<Self>) {
         cx.emit(RightPaneEvent::OpenFile(file));
     }
@@ -2669,9 +2691,11 @@ impl RightPaneView {
         let selector = format!("thread.{id}");
         div()
             .debug_selector(move || selector.clone())
-            .on_mouse_down(
+            // On release, after a link under the pointer has had the
+            // chance to open its own menu instead (#757).
+            .on_mouse_up(
                 gpui_kit::MouseButton::Right,
-                move |event: &gpui_kit::MouseDownEvent, window, cx| {
+                move |event: &gpui_kit::MouseUpEvent, window, cx| {
                     let items = Self::thread_items_for(&menu_view, &menu_post, away, !root);
                     menu_view
                         .update(cx, |this, cx| {
