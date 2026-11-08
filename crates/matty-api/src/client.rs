@@ -25,8 +25,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long an upload may take in all; the usual timeout is for requests
 /// that send little.
 pub(crate) const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-/// Redirects followed within the server's own host, at most.
-#[cfg(not(target_family = "wasm"))]
+/// Redirects followed within the server's own host, and for an outside
+/// image, at most. On the web the browser follows them instead.
 const MAX_REDIRECTS: usize = 5;
 
 /// Waits between retries. Swapped for a fake in tests.
