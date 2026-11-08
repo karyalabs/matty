@@ -635,7 +635,7 @@ class Session:
         self.do("key k cmd")
         self.wait(0.7)
         self.do(f"type 15 {display}")
-        self.wait(0.9)
+        self.wait(1.2)  # let the switcher's list catch up, or Enter searches instead
         if mark:
             self.mark("nav", "key return", target=display)
         else:
@@ -711,9 +711,9 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
                 s.do("key k cmd")
                 s.wait(0.6)
                 s.do(f"type 15 {t}")
-                s.wait(0.8)
+                s.wait(1.2)
                 s.mark("nav", "key return", target=t, round=rnd)
-                s.wait(2.2)
+                s.wait(2.0)
         s.end()
 
     if "sidebar" in scen:
@@ -755,7 +755,7 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
         s.do("key k cmd")
         s.wait(0.6)
         s.do("type 15 Gallery")
-        s.wait(0.8)
+        s.wait(1.2)
         s.mark("nav", "key return", target="Gallery")
         s.wait(5)
         s.do(f"move {s.cx(0.6)} {s.cy(0.45)}")

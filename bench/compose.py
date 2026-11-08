@@ -160,7 +160,7 @@ def segment(tmp: Path, idx: int, run: Path, keys: list[str], labels: dict, resul
         filters.append(f"{chain}[v{i}]overlay=x={x}:y={top}:eof_action=repeat[o{i}]")
         chain = f"[o{i}]"
     filters.append(f"{chain}[0:v]overlay=0:0[card]")
-    filters.append(f"[card][{n}:v]overlay=x=0:y={top - 56}:eof_action=repeat[clk]")
+    filters.append(f"[card][{n}:v]overlay=x=0:y={label_y - 6}:eof_action=repeat[clk]")
     sp = speed if name == "live" else 1.0
     filters.append(f"[clk]{'setpts=PTS/' + str(sp) + ',' if sp != 1 else ''}trim=duration={dur / sp:.3f},fps=60,format=yuv420p[out]")
     cmd = ["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[out]",
