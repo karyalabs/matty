@@ -161,7 +161,9 @@ pub(super) fn gallery(store: &Entity<SettingsStore>, cx: &mut App) -> ToggleGrou
         ThemeSource::Mattermost => "mattermost",
     };
     let custom = custom_or_seed(&settings);
-    let mattermost = crate::mattermost_theme::shown(&settings, cx).map(|imported| {
+    let mattermost = {
+        let imported = crate::mattermost_theme::shown(&settings, cx)
+            .unwrap_or_else(crate::mattermost_theme::Theme::denim);
         let (ui, _) = imported.ui();
         let c = ui.colors;
         Swatch {
@@ -171,7 +173,7 @@ pub(super) fn gallery(store: &Entity<SettingsStore>, cx: &mut App) -> ToggleGrou
             accent: c.primary,
             border: c.border,
         }
-    });
+    };
     let options: [(&'static str, SharedString, Swatch, Radius); 4] = [
         (
             "matty",
@@ -194,7 +196,7 @@ pub(super) fn gallery(store: &Entity<SettingsStore>, cx: &mut App) -> ToggleGrou
         (
             "mattermost",
             t!("prefs-colors-mattermost"),
-            mattermost.unwrap_or_else(|| swatch_of(&Preset::Graphite.style(), mode)),
+            mattermost,
             Radius::Soft,
         ),
     ];

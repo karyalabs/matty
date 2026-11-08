@@ -43,16 +43,16 @@ pub enum ThemeChoice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeSource {
-    /// Matty's default Graphite colors, light or dark as [`ThemeChoice`]
-    /// says.
-    #[default]
+    /// Matty's Graphite colors, light or dark as [`ThemeChoice`] says.
     Matty,
     /// Matty's Porcelain colors, light or dark as [`ThemeChoice`] says.
     Porcelain,
     /// The person's own style, [`Settings::custom_style`] (#705).
     Custom,
     /// The account's Mattermost theme for the team on screen, which is
-    /// light or dark by itself.
+    /// light or dark by itself. The default, so Matty looks like the
+    /// person's other Mattermost apps.
+    #[default]
     Mattermost,
 }
 
@@ -342,7 +342,7 @@ impl Default for Settings {
             sidebar_width: SIDEBAR_DEFAULT,
             right_pane_width: RIGHT_PANE_DEFAULT,
             theme: ThemeChoice::System,
-            theme_source: ThemeSource::Matty,
+            theme_source: ThemeSource::Mattermost,
             mattermost_theme: None,
             custom_style: None,
             ui_font: None,
