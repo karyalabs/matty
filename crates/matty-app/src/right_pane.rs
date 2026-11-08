@@ -2799,7 +2799,7 @@ impl RightPaneView {
             .selectable(|index, _| index == 0 || index >= THREAD_HEAD)
             .on_select({
                 let view = cx.entity().downgrade();
-                move |index, window, cx| {
+                move |&index, window, cx| {
                     view.update(cx, |this, cx| this.select_row(index, window, cx))
                         .ok();
                 }

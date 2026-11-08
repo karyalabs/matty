@@ -308,7 +308,7 @@ impl ThreadsView {
                             ))
                             .on_change({
                                 let view = cx.entity().downgrade();
-                                move |values: Vec<SharedString>, _, cx| {
+                                move |values: &[SharedString], _, cx| {
                                     let unread_only =
                                         values.first().is_some_and(|value| value == "unread");
                                     view.update(cx, |this, cx| {

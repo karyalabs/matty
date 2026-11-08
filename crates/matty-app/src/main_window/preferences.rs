@@ -914,7 +914,7 @@ impl MainWindow {
                     Switch::new("preferences.collapse-previews")
                         .checked(settings.collapse_previews)
                         .aria_label(t!("prefs-collapse-previews"))
-                        .on_change(move |next, _, _, cx| {
+                        .on_change(move |&next, _, cx| {
                             view.update(cx, |this, cx| {
                                 this.set_synced(
                                     |s| s.collapse_previews = next,
@@ -972,7 +972,7 @@ impl MainWindow {
                         Switch::new("preferences.collapsed-threads")
                             .checked(on)
                             .aria_label(t!("prefs-collapsed-threads"))
-                            .on_change(move |next, _, _, cx| {
+                            .on_change(move |&next, _, cx| {
                                 view.update(cx, |this, cx| this.set_collapsed_threads(next, cx))
                                     .ok();
                             })
@@ -1070,7 +1070,7 @@ impl MainWindow {
                 Switch::new(id)
                     .checked(checked)
                     .aria_label(title)
-                    .on_change(move |next, _, _, cx| {
+                    .on_change(move |&next, _, cx| {
                         let value = if next { values.0 } else { values.1 };
                         view.update(cx, |this, cx| this.set_notify_prop(key, value, cx))
                             .ok();
@@ -1184,7 +1184,7 @@ impl MainWindow {
             Switch::new("preferences.dnd")
                 .checked(on)
                 .aria_label(t!("prefs-dnd"))
-                .on_change(move |next, _, _, cx| {
+                .on_change(move |&next, _, cx| {
                     let presence = if next {
                         Presence::Dnd
                     } else {
@@ -1364,7 +1364,7 @@ impl MainWindow {
             Switch::new(id)
                 .checked(checked)
                 .aria_label(title)
-                .on_change(move |next, _, _, cx| {
+                .on_change(move |&next, _, cx| {
                     store.update(cx, |store, cx| store.update(cx, |s| write(s, next)))
                 })
                 .into_any_element(),
