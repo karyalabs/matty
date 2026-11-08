@@ -55,7 +55,7 @@ presets pass without moving.
 | Token | Graphite light | Graphite dark | Porcelain light | Porcelain dark | Used for |
 | --- | --- | --- | --- | --- | --- |
 | `background` / `foreground` | `#fdfdfe` / `#17181a` | `#131415` / `#eaebec` | `#fdfdff` / `#15181e` | `#121417` / `#e9ebee` | Channel view, dialogs' text |
-| `sidebar` | `#f5f6f7` | `#0d0e0f` | `#f4f6fa` | `#0c0e11` | Title bar, team rail, sidebar |
+| `sidebar` | `#f5f6f7` | `#0d0e0f` | `#f4f6fa` | `#0c0e11` | Title bar, sidebar |
 | `sidebar-accent` | `#e5e6e8` | `#222324` | `#e3e6ec` | `#202327` | Hovered and selected sidebar rows |
 | `border` / `input` | `#e2e3e4` / `#d8d9da` | `#232425` / `#2d2e2f` | `#e1e3e7` / `#d7d9dd` | `#222427` / `#2c2e31` | Hairlines, field fills |
 | `primary` / `primary-foreground` | `#1f2226` / `#fcfcfc` | `#e5e8ed` / `#121212` | `#4b64ae` / `#fcfcfc` | `#94aff6` / `#101116` | Buttons, links, mention badges, send |
@@ -93,7 +93,7 @@ because a Mattermost theme colors the sidebar apart from the channel view.
 
 ### Mattermost themes
 
-Preferences → Appearance → Colors can show the account's Mattermost theme
+Settings → Appearance → Theme can show the account's Mattermost theme
 instead (#214): the `theme` preference for the team on screen, else the
 one for every team, else Denim. `mattermost_theme.rs` maps its JSON onto
 the tokens above on Matty's theme for its mode (light when
@@ -115,7 +115,7 @@ the tokens above on Matty's theme for its mode (light when
 `sidebarHeaderBg`, `sidebarHeaderTextColor`, `newMessageSeparator`,
 `mentionHighlightBg`, `mentionHighlightLink` and `codeTheme` have no
 gpuicn token yet and are read but not shown. For a custom theme,
-Preferences warns with a destructive tag when a mapped pair falls below
+Settings warns with a destructive tag when a mapped pair falls below
 4.5:1 for text or 3:1 for other UI. The five built-ins fail a few pairs
 too (Denim's presence dots on white), but the user cannot change them, so
 they never warn.
@@ -144,11 +144,11 @@ text lives. The scale has wide steps so the channel name, a message and a
 sidebar row read at different volumes. Sizes are in px at text scale 1;
 everything multiplies by the user's text scale and zoom.
 
-People can swap either face in Preferences › Appearance › Fonts (#706): any
+People can swap either face in Settings › Appearance › Customise (#706): any
 installed family for the interface, any monospace family for code, or a
 .ttf/.otf file they add (kept in the data folder's `fonts/` and loaded at
 start). The scale and weights stay the same. A chosen family missing on this
-machine falls back to Plex, and Preferences says so.
+machine falls back to Plex, and Settings says so.
 
 | Role | Size / line | Weight | Where |
 | --- | --- | --- | --- |
@@ -163,28 +163,31 @@ machine falls back to Plex, and Preferences says so.
 ## 4. Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ ● ● ●  ‹ ›      [ 🔍 Search Matty                      ⌘K ]   @ 🔖 ? ◯ │ 34  title bar
-├────┬───────────────┬───────────────────────────────────┬─────────────┤
-│    │ Team name   ▾ │ # design  ☆   12 · 3 pinned    ⓘ  │ Thread    ✕ │ 48  headers
-│ T1 │               ├───────────────────────────────────┤             │
-│ T2 │ CATEGORY      │                                   │             │
-│  + │  # channel  3 │  posts                            │             │
-│    │  ◯ person     │                                   │             │
-│    │               ├───────────────────────────────────┤             │
-│    │               │ [ composer                   ➤ ] │             │
-└────┴───────────────┴───────────────────────────────────┴─────────────┘
-  56      240–400              ≥ 260 (flex)                  320–640
+┌──────────────────────────────────────────────────────────────────┐
+│ ● ● ●  ‹ ›    [ 🔍 Search Matty                  ⌘K ]   @ 🔖 ? ◯ │ 34  title bar
+├───────────────┬───────────────────────────────────┬──────────────┤
+│ Team name 3 ▾ │ # design  ☆   12 · 3 pinned    ⓘ  │ Thread     ✕ │ 48  headers
+│               ├───────────────────────────────────┤              │
+│ CATEGORY      │                                   │              │
+│  # channel  3 │  posts                            │              │
+│  ◯ person     │                                   │              │
+│               ├───────────────────────────────────┤              │
+│               │ [ composer                     ➤ ] │              │
+└───────────────┴───────────────────────────────────┴──────────────┘
+    240–400              ≥ 260 (flex)                   320–640
 ```
 
 - **Title bar** (34px, `sidebar` background) spans the whole window. Left:
   window controls, then back and forward. Center: the quick switcher as a
   search pill, max 560px wide, that opens Cmd/Ctrl+K. Right: recent
   mentions, saved, help, and the user's avatar with a presence dot.
-- **Team rail** (56px) appears only with more than one team. Teams are 32px
-  rounded squares with initials or icons; the current one is filled with
-  `primary` and marked with a 2px `primary` bar on the rail's edge; unread
-  teams get a dot, mentions a count. A dashed square at the end joins a team.
+- **Team switcher** (#735, spec `docs/specs/settings-window-and-team-switcher.md`
+  §2): there is no team rail. The sidebar header's team name is the
+  switcher, with one badge for mentions (or a dot for unreads) in every
+  other team and server. Its menu lists the current server's teams as radio
+  items with their icons and unread marks (Cmd/Ctrl+Alt+1…9), Join another
+  team, then the other servers (Cmd/Ctrl+1…9), Add a server and Manage
+  servers, which opens Settings on Servers.
 - **Sidebar** (default 260px, 200 to 400) is the `sidebar` surface with no
   right border on the content side beyond the hairline. Header is 48px with
   the team name as a menu button. Threads and Drafts sit above the
@@ -348,7 +351,7 @@ machine falls back to Plex, and Preferences says so.
   title bar avatar, which carries the presence dot (`design-19`). A `menu`
   with a `label` row ("Arya · @arya"), the four presences as radio items,
   "Set a status…" (or "Status: …" once set) opening a small dialog with one
-  field and Clear, Cancel, Done, then Preferences and "Sign out…". Signing
+  field and Clear, Cancel, Done, then Settings and "Sign out…". Signing
   out confirms in an `alert_dialog` with the destructive button named for
   the action, and returns to the sign-in card.
 - **Composer autocomplete and typing** (PLAN §4.3; §3 M1 typing) use
@@ -442,22 +445,15 @@ machine falls back to Plex, and Preferences says so.
   until the handle is two characters long, and the new channel opens at
   its empty state with the purpose as its line. Sync owns both on the
   server (PLAN §4.3).
-- **Preferences** (#155) is a gpuicn `Drawer` from the window's right
-  edge, 760px wide or the window's width: a title, "Changes apply right
-  away and are saved for next time." and Done above a section list (a
-  gpuicn `Sidebar` with roving focus: Tab lands on the open section, Up and
-  Down move, Enter opens) and the open section's controls. gpuicn's
-  `Dialog` is fixed at 384px, too narrow for a list beside the controls;
-  the drawer is gpuicn's sheet and closes on Escape and the backdrop.
-  Sections: **General** (keep running when closed, open at login, the
-  download folder), **Appearance** (theme, text size, message display,
-  clock, names, reduce motion), **Messages** (send key, collapsed reply
-  threads where the server lets users choose), **Notifications** (the
-  user's `notify_props`) and **Advanced** (log detail, the logs folder).
-  Groups sit under `label` headings, with joined toggle groups for
-  choices and switches with a one-line `meta` explanation. A setting the
-  Mattermost account keeps ends with a cloud glyph and "Synced with your
-  Mattermost account": message display (`display_settings/
+- **Settings** (#731, spec `docs/specs/settings-window-and-team-switcher.md`
+  §1) replaced the Preferences drawer: its own window (an overlay on the
+  web), 880×640 by default and remembered, with a search field and seven
+  sections (General, Appearance, Messages, Notifications, Servers,
+  Keyboard, Advanced) on the left and the open section's rows on the
+  right, built from gpuicn `Item` and `ItemGroup`. Cmd/Ctrl+, opens it,
+  Cmd/Ctrl+W and Escape close it. Groups have sentence case labels and one
+  "Synced" or "This computer only" tag. A setting the
+  Mattermost account keeps is synced: message display (`display_settings/
   message_display`, `clean` or `compact`), clock (`use_military_time`),
   names (`name_format`: nickname, full name or username, falling back as
   the web app does), the send key (`advanced_settings/send_on_ctrl_enter`
@@ -473,8 +469,7 @@ machine falls back to Plex, and Preferences says so.
   closed, Enter starts a new line and the modifier sends. The modifier
   combination always sends, whichever is chosen, in the channel composer
   and in thread replies (`design-30`).
-  Every change applies behind the sheet as it is made; the only button is
-  Done.
+  Every change applies as it is made; there is no Save button.
 - **Channel menu** (PLAN §3 M1 channel management): the channel name in
   the header is a gpuicn `Menu` trigger with a chevron: "Edit header…",
   "Edit purpose…", "Rename channel…" and "Leave channel…" (`design-31`);
@@ -516,14 +511,6 @@ machine falls back to Plex, and Preferences says so.
   dialogs: Cmd/Ctrl+Shift+J for Browse channels and Cmd/Ctrl+Shift+N for
   Create channel (`design-35`). The shortcut sheet lists them from the
   same table, so the sheet and the bindings cannot drift apart.
-- **Team rail states** (§4 above, PLAN §3 M1): the rail is its own view,
-  `rail.rs`, with a `Team` per square. The current team is a primary
-  button, so its hover stays primary; the others are ghost buttons on the
-  sidebar accent. A team with mentions wears a count badge on its top-right
-  corner and an unread team a dot, each ringed in the rail's color so it
-  stands off the tile (`design-36`). Clicking a square makes it current and
-  emits `RailEvent::Select`; the dashed square emits `RailEvent::Join`.
-  Switching and joining teams are sync's (M2).
 - **Channel row options** (PLAN §3 M1): hovering a sidebar row swaps its
   count or dot for a "…" button, gpuicn's `sidebar_menu_action`, and the
   button or a right-click opens one shared menu for that row: Mark as read
@@ -583,13 +570,13 @@ machine falls back to Plex, and Preferences says so.
   gpuicn's list anchors the scroll on the row that was at the top. At the
   oldest post the row reads "This is the start of #channel."; a failed page
   says so and offers Retry (`design-43`). Preview starts at the beginning.
-- **Message display** (PLAN §4.2): Preferences gains "Message display",
+- **Message display** (PLAN §4.2): Settings gains "Message display",
   Standard or Compact, stored as `display` in settings. Compact is gpuicn's
   `MessageDensity::Compact` from 0.9.0: one line per post, the time always
   in the gutter, the name starting the body line, tighter rows. It applies
   to the channel transcript, the thread pane and the listings at once, and
   the lists remeasure when it changes (`design-44`).
-- **Text selection across messages** (PLAN §4.2): the rail, sidebar,
+- **Text selection across messages** (PLAN §4.2): the sidebar,
   channel and right pane sit inside one gpuicn `selection_root`, so a drag
   selects text from one message into the next, including code blocks, and
   Cmd/Ctrl+C copies it as plain text in reading order; a focused text field
@@ -625,8 +612,8 @@ machine falls back to Plex, and Preferences says so.
   the split and the title bar gains a panel button at the far left. It and
   Cmd/Ctrl+Shift+D open the sidebar as a drawer from the left edge at its
   saved width; picking a channel, Threads or Drafts closes it, as do
-  Escape and the backdrop. The team rail stays put, so switching teams
-  never needs the drawer (`design-50`).
+  Escape and the backdrop. The team switcher
+  rides in the drawer's header (`design-50`).
 - **Pop-out windows** (#222): "Open in new window" on a sidebar row, a
   post's menu ("Open thread in new window"), the thread pane's header, or
   Cmd/Ctrl+Shift+O opens the channel or thread alone in its own window:
@@ -665,7 +652,7 @@ machine falls back to Plex, and Preferences says so.
 - **Motion** (DESIGN §1, PLAN §5 and §8): the connection banner slides open
   and closed over 200ms and a sidebar category's chevron turns from right to
   down over 150ms, both through gpuicn's `transition_value`, so the theme's
-  timing and the OS reduced-motion setting govern them. Preferences → Appearance
+  timing and the OS reduced-motion setting govern them. Settings → Appearance
   gains "Reduce motion", which sets the theme's `motion.reduced` and snaps
   every gpuicn transition (drawers, switches, the sidebar) as well. Nothing
   in the message list moves (`design-54`).

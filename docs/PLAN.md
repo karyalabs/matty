@@ -251,8 +251,8 @@ starts early.
 
 ### M2 — Parity with the official desktop app for most people
 
-- Multiple servers with a server rail (Mattermost desktop and Discord pattern),
-  per-server notifications and badges.
+- Multiple servers in the sidebar's team switcher (servers below the
+  current server's teams), per-server notifications and badges.
 - Full search modifiers (`before:`, `after:`, `on:`, `-` exclusions,
   wildcards) and file search.
 - Channel management: create public/private, rename, header
@@ -299,29 +299,30 @@ starts early.
 ### 4.1 Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│ ● ● ●   ‹ ›   [ Search  ⌘K / ⌘F                 ]            ⓘ  (avatar) │  title bar
-├────┬───────────────┬─────────────────────────────────┬───────────────────┤
-│ S1 │ Team name   ▾ │ # design   ☆  👤 12  📌 3  …     │ Thread        ✕   │
-│ S2 │ ⊕ Threads     │ header text                     │                   │
-│ S3 │ ⊕ Drafts      ├─────────────────────────────────┤ root message      │
-│    │ ▾ FAVORITES   │ ─────── Today ───────           │ 4 replies         │
-│ +  │   # design  2 │ (av) Ana  10:42                 │ ...               │
-│    │ ▾ CHANNELS    │      message text               │                   │
-│    │   # general   │      👍 3  🎉 1                  │                   │
-│    │   # random    │ ───── New messages ─────        │                   │
-│    │ ▾ DIRECT MSGS │ (av) Ben  10:44                 │                   │
-│    │   ● Ana       │      ...                        │                   │
-│    │               ├─────────────────────────────────┤───────────────────┤
-│    │  (me) ● ▾     │ [ composer                 ]  ➤ │ [ reply      ]  ➤ │
-└────┴───────────────┴─────────────────────────────────┴───────────────────┘
- rail   sidebar         channel                           right pane
+┌─────────────────────────────────────────────────────────────────────┐
+│ ● ● ●   ‹ ›   [ Search  ⌘K / ⌘F                 ]       ⓘ  (avatar) │  title bar
+├───────────────┬─────────────────────────────────┬───────────────────┤
+│ Team name   ▾ │ # design   ☆  👤 12  📌 3  …     │ Thread        ✕   │
+│ ⊕ Threads     │ header text                     │                   │
+│ ⊕ Drafts      ├─────────────────────────────────┤ root message      │
+│ ▾ FAVORITES   │ ─────── Today ───────           │ 4 replies         │
+│   # design  2 │ (av) Ana  10:42                 │ ...               │
+│ ▾ CHANNELS    │      message text               │                   │
+│   # general   │      👍 3  🎉 1                  │                   │
+│   # random    │ ───── New messages ─────        │                   │
+│ ▾ DIRECT MSGS │ (av) Ben  10:44                 │                   │
+│   ● Ana       │      ...                        │                   │
+│               ├─────────────────────────────────┤───────────────────┤
+│  (me) ● ▾     │ [ composer                 ]  ➤ │ [ reply      ]  ➤ │
+└───────────────┴─────────────────────────────────┴───────────────────┘
+  sidebar         channel                           right pane
 ```
 
-- **Rail**: 64px. In M1 it appears when the user belongs to more than one
-  team and shows team icons with unread dots and mention counts, as
-  Mattermost does. In M2 it also holds servers (server icons above, the
-  current server's teams below), with drag to reorder.
+- **Team switcher** (no rail since #735): the sidebar header's team name
+  opens a menu of the current server's teams with unread dots and mention
+  counts, then the other servers; one badge on the header sums every other
+  team and server. Settings → Servers reorders and removes servers
+  (`docs/specs/settings-window-and-team-switcher.md` §2).
 - **Sidebar**: 240px default, resizable 200–400px, collapsible with
   Cmd/Ctrl+Shift+D (Slack's binding). Team name at the top, then Threads and
   Drafts entries, then the user's categories. Own avatar and status
@@ -416,7 +417,7 @@ conventions or Matty additions. A Cmd/Ctrl+/ sheet lists them all.
 | Toggle sidebar | Cmd+Shift+D (Slack) |
 | Close right pane | Escape |
 | Zoom in / out / reset | Cmd+= / Cmd+- / Cmd+0 |
-| Preferences | Cmd+, |
+| Settings | Cmd+, |
 | Open channel or thread in new window (M3) | Cmd+Shift+O (Matty) |
 | Close a channel or thread window | Cmd+W (Matty) |
 | Open in split view (M3) | Cmd+\ (Matty) |
@@ -499,7 +500,7 @@ dark, compact and the narrow layouts.
 - **Motion:** 120–180ms, ease-out, only for overlays, pane open and close, and
   the jump-to-latest pill. No motion in the message list. Reduced motion
   honored from the OS (Matty wires it, since GPUI does not).
-- **Icons:** Lucide via gpui-icons at 16px in chrome, 20px in the rail; stroke
+- **Icons:** Lucide via gpui-icons at 16px in chrome; stroke
   width consistent; every icon-only button has a tooltip and accessible label.
 - **Themes:** light, dark, follow system. M2 imports Mattermost's own custom
   theme JSON (the 20-color theme users share) and maps it onto gpuicn tokens,
@@ -743,10 +744,13 @@ makes it testable with fixtures taken from the Mattermost webapp's own tests.
 
 Keep server-backed preferences on the server (they sync to the user's other
 clients) and app preferences locally.
+Settings is its own window with search, seven sections and one "Synced" or
+"This computer only" tag per group; the full layout and every row are in
+`docs/specs/settings-window-and-team-switcher.md` §1.
 
 | Server-synced | Local to Matty |
 | --- | --- |
-| Display name format, clock (12/24h), message display (standard/compact), collapsed reply threads, send on Ctrl+Enter, notification preferences, theme (the `theme` preference category, used when importing Mattermost themes), timezone | Window size and pane widths, launch at login, tray behavior, text scale, cache size, download folder, update channel (stable/beta), log level |
+| Display name format, clock (12/24h), message display (standard/compact), collapsed reply threads, send on Ctrl+Enter, notification preferences, theme (the `theme` preference category, used when importing Mattermost themes), timezone | Window size and pane widths, launch at login, tray behavior, text scale, style (fonts, accent, greys, corners), cache size limit, download folder, update channel (stable/beta), log level |
 
 ## 8. Accessibility and internationalization
 
