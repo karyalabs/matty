@@ -29,9 +29,24 @@ fn is_font_file(path: &Path) -> bool {
         })
 }
 
+/// Draws text the way Mattermost's own apps do on macOS: antialiased, with
+/// no font smoothing. GPUI copies CoreGraphics' smoothing, which thickens
+/// every stroke (most of all for light text on dark), so Matty read as bold
+/// next to the official client, whose CSS sets `-webkit-font-smoothing:
+/// antialiased`. GPUI reads `AppleFontSmoothing` from Matty's own defaults
+/// once, at the first glyph, so this has to run before anything is drawn.
+#[cfg(target_os = "macos")]
+fn match_mattermost_text_rendering() {
+    use objc2_foundation::{NSString, NSUserDefaults};
+    NSUserDefaults::standardUserDefaults()
+        .setInteger_forKey(0, &NSString::from_str("AppleFontSmoothing"));
+}
+
 /// Loads IBM Plex and the person's own font files, then lists the families
 /// this machine has.
 pub fn load(cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    match_mattermost_text_rendering();
     cx.text_system()
         .add_fonts(vec![
             Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf")),
