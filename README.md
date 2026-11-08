@@ -40,7 +40,8 @@ below) at 1200×800.
 ## What works today
 
 - **Sign in** with a password or single sign-on (GitLab, Google, Office 365,
-  OpenID, SAML). Your teams sit in the team rail.
+  OpenID, SAML). Switch teams and servers from the
+  team name at the top of the sidebar.
 - **Sidebar** with your categories, favorites, unread and mention badges, an
   Unreads filter, and direct and group messages with presence dots.
 - **Messages:** Markdown, code blocks, reactions, file and image attachments,
@@ -55,9 +56,11 @@ below) at 1200×800.
   messages you send while offline wait in an outbox and go out in order
   when you reconnect.
 - **Status:** online, away, offline, and Do not disturb with a duration.
-- **Preferences:** theme (light, dark, system), text size, 12 or 24-hour
-  clock, Enter or Ctrl+Enter to send, standard or compact messages, mention
-  keywords, and reduced motion.
+- **Settings** in its own window with search: theme (light, dark, system,
+  or your Mattermost theme), a gallery of styles with your own fonts and
+  colors, text size, 12 or 24-hour clock, Enter or Ctrl+Enter to send,
+  standard or compact messages, notifications, servers, and the keyboard
+  shortcuts.
 - **Keyboard and screen readers:** shortcuts for navigation and message
   actions, one tab stop per list, and accessible names on every control.
 
@@ -109,8 +112,8 @@ getting patches. CI tests against Mattermost 12.0, 11.7, 10.11 and 10.5.
 [Open an issue](https://github.com/karyalabs/matty/issues/new) with your
 Matty version (`/Applications/Matty.app/Contents/MacOS/matty --version`, or
 the commit you built from),
-your macOS version and your Mattermost server version. Preferences has a
-button that opens the logs folder. Logs leave out tokens and message text
+your macOS version and your Mattermost server version. Settings → Advanced has
+a button that opens the logs folder. Logs leave out tokens and message text
 by default, but look before you attach one.
 
 ## Building
