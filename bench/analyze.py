@@ -39,19 +39,19 @@ import numpy as np
 
 BIG = 0.0015     # share of the app region that counts as a noticeable change
 SMALL_PX = 150   # changed pixels that count as "the picture moved" while scrolling
-FPS = 60
+FPS = 60         # capture rate when a run's meta does not say (runs before --fps was recorded)
 DIFF = 24        # gray-level difference that counts as a changed pixel
 
 
-def frames(video: Path, scale: float):
+def frames(video: Path, scale: float, fps: int = FPS):
     """Yields (pts seconds, gray frame at 1 px per point)."""
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
          "-of", "json", str(video)], capture_output=True, text=True, check=True)
     st = json.loads(probe.stdout)["streams"][0]
     w, h = int(st["width"] / scale) // 2 * 2, int(st["height"] / scale) // 2 * 2
-    # Resample to a constant 60 fps (the fps filter repeats or drops frames to
-    # the nearest slot), so frame i is at first_pts + i/60 with no timestamp
+    # Resample to the constant capture rate (the fps filter repeats or drops
+    # frames to the nearest slot), so frame i is at first_pts + i/fps with no timestamp
     # bookkeeping; the error is at most half a frame.
     first = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1",
@@ -60,7 +60,7 @@ def frames(video: Path, scale: float):
     t0 = float(first[0].strip(",")) if first and first[0].strip(",") not in ("", "N/A") else 0.0
     proc = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-i", str(video),
-         "-vf", f"fps={FPS}:start_time={t0},scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-"],
+         "-vf", f"fps={fps}:start_time={t0},scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-"],
         stdout=subprocess.PIPE)
     size = w * h
     i = 0
@@ -68,7 +68,7 @@ def frames(video: Path, scale: float):
         buf = proc.stdout.read(size)
         if len(buf) < size:
             break
-        yield t0 + i / FPS, np.frombuffer(buf, np.uint8).reshape(h, w)
+        yield t0 + i / fps, np.frombuffer(buf, np.uint8).reshape(h, w)
         i += 1
     proc.wait()
 
@@ -98,7 +98,7 @@ def scan(video: Path, meta: dict):
     marker = meta["marker"]
     rows = []
     prev = None
-    for t, f in frames(video, scale):
+    for t, f in frames(video, scale, meta.get("fps", FPS)):
         app = f[:ah, :aw]
         m = decode_marker(f, marker)
         if prev is None:
@@ -129,7 +129,7 @@ def locate(rows, events):
     return out
 
 
-def response(rows, t0, t_cap, area, quiet=0.6):
+def response(rows, t0, t_cap, area, quiet=0.6, fps=FPS):
     thresh = area * BIG
     first = last = None
     for t, _, d, *_ in rows:
@@ -145,7 +145,7 @@ def response(rows, t0, t_cap, area, quiet=0.6):
             break
     if first is None:
         return None, None
-    return (first - t0) * 1000, (last - t0) * 1000 + 1000 / 60
+    return (first - t0) * 1000, (last - t0) * 1000 + 1000 / fps
 
 
 def scroll_stats(rows, t0, t1):
@@ -263,6 +263,7 @@ def analyze_app(d: Path) -> dict:
                         res[f"perf_{e['name'][:-6]}"] = frame_stats(perf, e["wall"], stop["wall"])
         if video.exists() and video.stat().st_size > 0:
             print(f"  {d.name}/{name}", flush=True)
+            fps = meta.get("fps", FPS)
             rows = scan(video, meta)
             at = locate(rows, evs)
             area = meta["rect"][2] * meta["rect"][3]
@@ -279,10 +280,10 @@ def analyze_app(d: Path) -> dict:
             for e in ordered:
                 t0 = vt[e["seq"]]
                 if e["name"] == "launch":
-                    first, ready = response(rows, t0, t0 + 30, area, quiet=1.0)
+                    first, ready = response(rows, t0, t0 + 30, area, quiet=1.0, fps=fps)
                     res["first_paint_ms"], res["ready_ms"] = (round(first) if first else None), (round(ready) if ready else None)
                 elif e["name"] == "nav":
-                    first, ready = response(rows, t0, min(nexts[e["seq"]], t0 + 8), area)
+                    first, ready = response(rows, t0, min(nexts[e["seq"]], t0 + 8), area, fps=fps)
                     navs.append({"target": e.get("target"), "round": e.get("round"), "first_ms": first, "ready_ms": ready})
                 elif e["name"] == "key":
                     lat = None
@@ -300,7 +301,7 @@ def analyze_app(d: Path) -> dict:
                         st = scroll_stats(rows, t0, vt[end["seq"]])
                         if st:
                             st.update(cpu_mem(samples, mono[e["seq"]], mono[end["seq"]]))
-                            _, catch = response(rows, vt[end["seq"]], vt[end["seq"]] + 5, area, quiet=0.4)
+                            _, catch = response(rows, vt[end["seq"]], vt[end["seq"]] + 5, area, quiet=0.4, fps=fps)
                             st["catch_up_ms"] = round(catch) if catch else 0
                             res[f"scroll_{tag}"] = st
                 elif e["name"] == "traffic-start":
