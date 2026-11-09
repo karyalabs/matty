@@ -9,6 +9,14 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+### Fixed
+
+- Messages read the way Mattermost shows them (#773): each typed line
+  break stays a line break, code blocks are syntax-highlighted, tables are
+  as wide as their content with a bold header and cell rules, headings sit
+  closer to their text, quotes are no longer faded, and a code fence with
+  text after it (```` ``` #783 ````) ends the block.
+
 ## [0.1.0-beta.14] - 2026-11-09
 
 ### Changed
