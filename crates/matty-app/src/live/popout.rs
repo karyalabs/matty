@@ -155,7 +155,7 @@ impl Live {
     }
 
     /// The shown team's channels, for `~` in a pop-out's composer.
-    pub fn directory(&self) -> Vec<crate::sidebar::ChannelRow> {
+    pub fn directory(&self) -> std::sync::Arc<[crate::sidebar::ChannelRow]> {
         self.shown_categories()
             .unwrap_or_default()
             .into_iter()

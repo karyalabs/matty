@@ -417,7 +417,7 @@ impl MainWindow {
             |this, _, event: &SwitcherEvent, window, cx| this.on_switcher_event(event, window, cx),
         )
         .detach();
-        let directory: Vec<_> = model
+        let directory: std::sync::Arc<[_]> = model
             .categories
             .iter()
             .flat_map(|category| category.rows.iter().cloned())
@@ -1980,28 +1980,32 @@ impl MainWindow {
             }
             self.restore_split(window, cx);
             let selected = self.selected_channel.clone();
-            let model = self.sidebar.update(cx, |sidebar, cx| {
+            let (changed, model) = self.sidebar.update(cx, |sidebar, cx| {
                 let mut model = sidebar.model().clone();
                 model.loading = false;
                 model.categories = categories;
                 model.selected = selected;
-                sidebar.set_model(model, cx);
-                sidebar.model().clone()
+                let changed = sidebar.set_model(model, cx);
+                (changed, sidebar.model().clone())
             });
-            self.switcher
-                .update(cx, |switcher, cx| switcher.set_model(&model, cx));
-            // `~` completes from the sidebar's channels in both composers.
-            let directory: Vec<_> = model
-                .categories
-                .iter()
-                .flat_map(|category| category.rows.iter().cloned())
-                .collect();
-            self.right_pane
-                .update(cx, |pane, _| pane.set_directory(directory.clone()));
-            let detail = self.threads.read(cx).detail().clone();
-            detail.update(cx, |pane, _| pane.set_directory(directory.clone()));
-            self.channel
-                .update(cx, |channel, cx| channel.set_directory(directory, cx));
+            // An unchanged sidebar leaves the switcher and the `~` lists as
+            // they are: presence and unread events repeat a lot (#787).
+            if changed {
+                self.switcher
+                    .update(cx, |switcher, cx| switcher.set_model(&model, cx));
+                // `~` completes from the sidebar's channels in both composers.
+                let directory: std::sync::Arc<[_]> = model
+                    .categories
+                    .iter()
+                    .flat_map(|category| category.rows.iter().cloned())
+                    .collect();
+                self.right_pane
+                    .update(cx, |pane, _| pane.set_directory(directory.clone()));
+                let detail = self.threads.read(cx).detail().clone();
+                detail.update(cx, |pane, _| pane.set_directory(directory.clone()));
+                self.channel
+                    .update(cx, |channel, cx| channel.set_directory(directory, cx));
+            }
             // The demo opens on its first favorite, so it starts mid-story.
             if crate::demo()
                 && self.selected_channel.is_none()

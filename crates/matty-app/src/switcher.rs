@@ -97,6 +97,8 @@ pub struct Switcher {
     /// Opened since the last frame: the field takes focus as the dialog
     /// mounts (see [`Self::element`]).
     focus_field: bool,
+    /// The sidebar changed while closed: the rows wait for the next open.
+    stale: bool,
     _subscription: Subscription,
 }
 
@@ -151,6 +153,7 @@ impl Switcher {
             query: SharedString::default(),
             forwarding: None,
             focus_field: false,
+            stale: false,
             _subscription: subscription,
         };
         switcher.refresh(cx);
@@ -195,6 +198,7 @@ impl Switcher {
     /// Lists the rows for the query: the channels ranked, a pasted link's
     /// "Open link" first, and "Search messages for …" last.
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.stale = false;
         let query = self.query.trim().to_string();
         // Forwarding picks among the shown team's conversations alone.
         let none = Elsewhere::default();
@@ -232,10 +236,15 @@ impl Switcher {
         Self::install_slots(&self.command, &self.model, trailing, cx);
     }
 
-    /// Rebuilds the rows from a new sidebar snapshot.
+    /// Takes a new sidebar snapshot. The rows are rebuilt now only while
+    /// the switcher is open; closed, the next opening builds them (#787).
     pub fn set_model(&mut self, model: &SidebarModel, cx: &mut Context<Self>) {
         self.model = model.clone();
-        self.refresh(cx);
+        if self.handle.is_open() {
+            self.refresh(cx);
+        } else {
+            self.stale = true;
+        }
     }
 
     /// Takes what the window gathered of other teams, recent channels and
@@ -246,6 +255,9 @@ impl Switcher {
     }
 
     pub fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.stale {
+            self.refresh(cx);
+        }
         self.handle.open(window, cx);
         // The field takes focus in the frame that mounts the dialog, after
         // the dialog has put focus on itself, so typing that follows Cmd+K
