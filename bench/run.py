@@ -358,7 +358,7 @@ class Browser(App):
         return [str(exe), f"--user-data-dir={self.profile / 'chrome'}",
                 "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
                 "--hide-crash-restore-bubble", "--disable-session-crashed-bubble",
-                "--deny-permission-prompts", "--use-mock-keychain", "--password-store=basic",
+                "--use-mock-keychain", "--password-store=basic",
                 # Matty web (https://karyalabs.dev) talks to the bench server on
                 # http://localhost; Chrome would otherwise ask first.
                 "--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessRespectPreflightResults,Translate",
@@ -367,6 +367,34 @@ class Browser(App):
 
     def running_pattern(self) -> str:
         return str(self.profile / "chrome")
+
+    def prepare(self, server: str):
+        """Chrome preferences that keep both web clients' windows alike and
+        let Cmd+Q quit at once: Chrome's "hold ⌘Q to quit" left the window
+        open, the harness then killed Chrome, and Matty web lost the session
+        it had just written to localStorage."""
+        prefs_file = self.profile / "chrome" / "Default" / "Preferences"
+        prefs_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            prefs = json.loads(prefs_file.read_text())
+        except Exception:
+            prefs = {}
+
+        def put(path: str, value) -> None:
+            d = prefs
+            *head, last = path.split(".")
+            for k in head:
+                d = d.setdefault(k, {})
+            d[last] = value
+
+        put("browser.confirm_to_quit", False)
+        put("credentials_enable_service", False)  # no "Save password?" bubble
+        put("profile.password_manager_enabled", False)
+        # Allowed, so the official web app shows no "we need your permission"
+        # banner; the same for Matty web.
+        put("profile.default_content_setting_values.notifications", 1)
+        put("translate.enabled", False)
+        prefs_file.write_text(json.dumps(prefs))
 
 
 def app_version(app: App) -> str:
@@ -852,7 +880,20 @@ class Session:
         self.proc = None
 
     # Recording per scenario.
+    def require_signed_in(self, where: str) -> None:
+        """Stop before any input goes to a sign-in screen: the server must see
+        the app connected. Checked after the warm-up launch and before every
+        scenario that runs in an open app."""
+        if wait_signed_in(self.server, 15):
+            return
+        print(f"  {self.app.label} is not signed in ({where}): stopping before it gets any input")
+        self.quit()
+        sys.exit(f"{self.app.label} opened signed out ({where}). Run `bench/run.py setup --apps {self.app.key}` "
+                 "and check its signed-in.png, then run again.")
+
     def begin(self, scenario: str) -> None:
+        if not scenario.startswith("startup") and self.proc and self.proc.poll() is None:
+            self.require_signed_in(scenario)
         self.scenario = scenario
         if self.sampler:
             self.sampler.scenario = scenario
@@ -921,9 +962,11 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     # land on Town Square, quit cleanly so the app saves its state.
     s.scenario = "warmup"
     log_mark = matty_log_size(app)
+    wait_signed_out(server)  # so that "online" below means this launch
     s.launch()
     s.wait_window()
     s.after_launch()
+    s.require_signed_in("warm-up")
     s.wait(8)
     s.place()
     s.do(f"front {s.proc.pid}")
@@ -949,8 +992,10 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
             finally:
                 s.wait(args.startup_wait)
             s.end()
+            s.require_signed_in(f"startup-{i + 1}")
             if i < args.starts - 1:
                 s.quit()
+                wait_signed_out(server)
                 s.wait(3)
     else:
         s.launch()
@@ -1185,6 +1230,43 @@ def check_signed_in(app: App, rect, shot: Path, log_mark=(None, 0)) -> None:
                  f"Run `bench/run.py setup` again, then the run.")
 
 
+def bench_status(server: dict) -> str:
+    """The bench user's presence on the server. It is "online" (or "away")
+    while any client holds a websocket, and "offline" once the last one
+    closes, so with one app running it says whether that app is signed in."""
+    m = server.get("manifest", {})
+    user = m.get("server_user", "bench")
+
+    def api(path):
+        req = urllib.request.Request(f"{server['url']}/api/v4{path}",
+                                     headers={"Authorization": f"Bearer {server['admin_token']}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+
+    try:
+        uid = server.setdefault("_bench_uid", api(f"/users/username/{user}")["id"])
+        return api(f"/users/{uid}/status").get("status", "?")
+    except Exception as e:
+        return f"unknown ({e})"
+
+
+def wait_signed_in(server: dict, seconds: float = 15) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if bench_status(server) in ("online", "away", "dnd"):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def wait_signed_out(server: dict, seconds: float = 20) -> None:
+    """Before a launch: wait until no client is connected, so that "online"
+    afterwards proves this launch signed in."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline and bench_status(server) != "offline":
+        time.sleep(0.5)
+
+
 def refuse_running(apps) -> None:
     """A copy of an app under test that is already running (left by an
     interrupted run) would take over the launches: stop instead."""
@@ -1221,7 +1303,10 @@ def setup(args, driver) -> None:
         x, y, w, h = (int(v) for v in got) if got and got[2] != "0" else (WIN_X, WIN_Y, WIN_W, WIN_H)
         driver.cmd(f"front {proc.pid}")
         time.sleep(0.5)
-        if args.manual:
+        signed_in_already = wait_signed_in(server, 8)
+        if signed_in_already:
+            print(f"{app.label}: already signed in; not typing anything")
+        elif args.manual:
             print(f"\n{app.label}: sign in to {server['url']} as `{user}`, password `{password}`.")
             print("Dismiss any welcome tips, open Town Square, then press Enter here.")
             input()
@@ -1255,7 +1340,8 @@ def setup(args, driver) -> None:
             driver.cmd(f"type 20 {password}")
             driver.cmd("key return")
             time.sleep(12)
-        shot = app.profile / "signed-in.png"
+        ok = signed_in_already or wait_signed_in(server)
+        shot = app.profile / ("signed-in.png" if ok else "sign-in-failed.png")
         if MAC:
             subprocess.run(["screencapture", "-x", "-R", f"{x},{y},{w},{h}", str(shot)], check=False)
             print(f"{app.label}: check {shot}")
@@ -1264,6 +1350,11 @@ def setup(args, driver) -> None:
             proc.wait(timeout=15)
         except Exception:
             os.killpg(proc.pid, signal.SIGTERM)
+        if not ok:
+            (app.profile / "signed-in.png").unlink(missing_ok=True)
+            sys.exit(f"{app.label} did not sign in (the server never saw it connect); see {shot}. "
+                     "Sign it in with `bench/run.py setup --manual --apps " + app.key + "`.")
+        wait_signed_out(server)
     print("\nProfiles ready in bench/out/profiles. Check the signed-in screenshots, then run bench/run.py.")
 
 
