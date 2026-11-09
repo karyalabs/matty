@@ -2198,6 +2198,20 @@ impl Live {
                     return update;
                 };
                 let image = Arc::new(gpui_kit::Image::from_bytes(format, bytes.to_vec()));
+                // The bytes stay in the decoded images' cache, not here or
+                // in the posts (#789); sync reads them from its media cache
+                // on disk if they are needed again.
+                let sync = self.sync.clone();
+                let (asked, asked_size) = (file_id.clone(), *size);
+                let image = crate::decoded_images::hold(
+                    image,
+                    std::rc::Rc::new(move || {
+                        sync.send(Command::LoadImage {
+                            file_id: asked.clone(),
+                            size: asked_size,
+                        });
+                    }),
+                );
                 if matches!(size, ImageSize::Preview | ImageSize::Original) {
                     self.full_images.insert(file_id.clone(), image.clone());
                     update.full_image = Some((file_id.as_str().into(), image.clone()));
@@ -2269,6 +2283,16 @@ impl Live {
                     return update;
                 };
                 let image = Arc::new(gpui_kit::Image::from_bytes(format, bytes.to_vec()));
+                // The bytes stay in the decoded images' cache, not here
+                // (#789); sync reads them from disk if they are needed again.
+                let sync = self.sync.clone();
+                let asked = url.clone();
+                let image = crate::decoded_images::hold(
+                    image,
+                    std::rc::Rc::new(move || {
+                        sync.send(Command::LoadRemoteImage { url: asked.clone() });
+                    }),
+                );
                 self.remote_images.landed(url, image);
                 let shown = self.shown.as_ref().is_some_and(|posts| {
                     posts
