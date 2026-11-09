@@ -9,6 +9,18 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.14] - 2026-11-09
+
+### Changed
+
+- Graphite is the default theme again, and the sign-in screen is no
+  longer navy when the Mattermost theme is chosen (#768).
+
+### Fixed
+
+- Shortcuts such as Cmd+, keep working after a menu, popover or dialog
+  closes, without a click in the composer first (#766).
+
 ## [0.1.0-beta.13] - 2026-11-08
 
 ### Fixed
@@ -195,7 +207,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.13...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.14...HEAD
+[0.1.0-beta.14]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.11
