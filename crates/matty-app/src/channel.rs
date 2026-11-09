@@ -2229,16 +2229,61 @@ impl ChannelView {
     /// Removes a post the server deleted. Only its rows leave the list, so
     /// the scroll and the New messages line stay where they were (#164).
     pub fn remove_post(&mut self, id: &SharedString, _window: &mut Window, cx: &mut Context<Self>) {
+        self.remove_posts(std::slice::from_ref(id), cx);
+    }
+
+    /// Takes `ids` out of the transcript, keeping the reader's place. Sync
+    /// drops a page at a time from the far end of a long read (#786), so
+    /// each run of neighbouring posts goes in one splice: rows above the
+    /// viewport leave without moving it.
+    pub fn remove_posts(&mut self, ids: &[SharedString], cx: &mut Context<Self>) {
+        let Some(model) = self.model.as_ref() else {
+            return;
+        };
+        let gone: std::collections::HashSet<&SharedString> = ids.iter().collect();
+        let at: Vec<usize> = model
+            .posts
+            .iter()
+            .enumerate()
+            .filter(|(_, post)| gone.contains(&post.id))
+            .map(|(at, _)| at)
+            .collect();
+        if at.is_empty() {
+            return;
+        }
+        // Runs of neighbouring posts, last first, so earlier positions hold.
+        let mut runs: Vec<std::ops::Range<usize>> = Vec::new();
+        for i in at {
+            match runs.last_mut() {
+                Some(run) if run.end == i => run.end = i + 1,
+                _ => runs.push(i..i + 1),
+            }
+        }
+        for run in runs.into_iter().rev() {
+            self.remove_run(run, cx);
+        }
+        if self
+            .editing
+            .as_ref()
+            .is_some_and(|editing| gone.contains(&editing.post))
+        {
+            self.editing = None;
+        }
+        cx.notify();
+    }
+
+    fn remove_run(&mut self, run: std::ops::Range<usize>, cx: &mut Context<Self>) {
         let Some(model) = self.model.as_mut().map(Rc::make_mut) else {
             return;
         };
-        let Some(at) = model.posts.iter().position(|post| &post.id == id) else {
-            return;
-        };
         let before = model.row_keys(&self.rows);
-        model.posts.remove(at);
+        model.posts.drain(run.clone());
         model.first_unread = model.first_unread.and_then(|first| {
-            let first = if at < first { first - 1 } else { first };
+            let first = if first >= run.end {
+                first - run.len()
+            } else {
+                first.min(run.start)
+            };
             (first < model.posts.len()).then_some(first)
         });
         self.rows = Rc::new(model.rows());
@@ -2249,17 +2294,15 @@ impl ChannelView {
                 list.reset(rows, cx);
             }
         });
-        if self
-            .editing
-            .as_ref()
-            .is_some_and(|editing| &editing.post == id)
-        {
-            self.editing = None;
-        }
-        if self.selection.is_some_and(|row| row >= range.start) {
-            self.selection = None;
-        }
-        cx.notify();
+        self.selection = self.selection.and_then(|row| {
+            if row < range.start {
+                Some(row)
+            } else if row >= range.end {
+                Some(row + count - range.len())
+            } else {
+                None
+            }
+        });
     }
 
     /// In preview, a couple of posts land in #general a while after it

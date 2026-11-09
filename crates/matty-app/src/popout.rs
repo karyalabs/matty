@@ -939,9 +939,7 @@ impl PopOutView {
                         .filter(|post| post.id.starts_with("pending-"))
                         .map(|post| post.id.clone())
                         .collect();
-                    for id in local.iter().chain(&removed) {
-                        view.remove_post(id, window, cx);
-                    }
+                    view.remove_posts(&[local, removed].concat(), cx);
                     for post in updated {
                         view.update_post(post, cx);
                     }
