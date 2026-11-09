@@ -65,10 +65,20 @@ pub enum Fit {
     Tile,
     /// An inline Markdown image, as wide as the message column.
     Inline,
-    /// The lightbox: the whole window. Capped so a huge original cannot
-    /// take hundreds of megabytes.
+    /// The lightbox: the whole window, at the window's own size in
+    /// pixels when it first draws the picture (#794), and never past
+    /// [`Fit::max_side`] so a huge original cannot take hundreds of
+    /// megabytes. The size holds until the picture is let go, so a window
+    /// grown afterwards draws it scaled up; [`FULL_MIN_SIDE`] keeps that
+    /// sharp enough.
     Full,
 }
+
+/// The lightbox decodes at least this many pixels on its longest side,
+/// so a small window grown afterwards still shows a sharp picture.
+const FULL_MIN_SIDE: u32 = 1536;
+/// The lightbox's size in pixels is rounded up to a multiple of this.
+const FULL_STEP: u32 = 256;
 
 impl Fit {
     /// The longest side, in pixels.
@@ -79,6 +89,31 @@ impl Fit {
             Fit::Full => 4096,
         }
     }
+
+    /// The longest side to decode at for drawing in `window`: the
+    /// lightbox's is the window's longest side in pixels, so a 1440 by
+    /// 900 window at 2x decodes at 3,072 rather than 4,096 (about half
+    /// the memory); the others are fixed.
+    fn side_in(self, window: &Window) -> u32 {
+        match self {
+            Fit::Full => {
+                let size = window.viewport_size();
+                let points = f32::from(size.width).max(f32::from(size.height));
+                full_side(points * window.scale_factor())
+            }
+            _ => self.max_side(),
+        }
+    }
+}
+
+/// [`Fit::Full`]'s side for a window `pixels` long on its longest side.
+fn full_side(pixels: f32) -> u32 {
+    // Saturates: a NaN or negative size is 0, a huge one the cap.
+    let pixels = pixels.ceil() as u32;
+    pixels
+        .div_ceil(FULL_STEP)
+        .saturating_mul(FULL_STEP)
+        .clamp(FULL_MIN_SIDE, Fit::Full.max_side())
 }
 
 /// `image` for drawing at `fit`: decoded off the main thread, scaled down,
@@ -186,6 +221,9 @@ struct Store {
     passing: bool,
     /// Idle passes are scheduled.
     idling: bool,
+    /// The system is short of memory: the next pass lets go of every
+    /// picture off screen, whatever the budget.
+    pressed: bool,
     /// When a window that shows pictures last drew a frame.
     drawn: Option<Instant>,
     /// When the last pass finished.
@@ -315,7 +353,7 @@ fn load(
     match start? {
         Ok(result) => Some(result),
         Err(Start::Decode(image)) => {
-            decode_in_background(key, image, cx);
+            decode_in_background(key, image, key.1.side_in(window), cx);
             None
         }
         Err(Start::Fetch(refetch, wake)) => {
@@ -357,10 +395,10 @@ fn fetched(id: u64, cx: &mut App) {
     }
 }
 
-fn decode_in_background(key: Key, image: Arc<Image>, cx: &mut App) {
+fn decode_in_background(key: Key, image: Arc<Image>, side: u32, cx: &mut App) {
     let decoding = cx
         .background_executor()
-        .spawn(async move { decode(&image, key.1.max_side()) });
+        .spawn(async move { decode(&image, side) });
     cx.spawn(async move |cx| {
         let decoded = decoding.await;
         cx.update(|cx| landed(key, decoded, cx));
@@ -400,6 +438,19 @@ fn landed(key: Key, decoded: Result<RenderImage, String>, cx: &mut App) {
     start_idling(cx);
 }
 
+/// The system is short of memory (#794): lets go of the held encoded
+/// bytes, which sync can read from disk again, and starts a pass that
+/// lets go of every decoded picture off screen.
+pub fn relieve(cx: &mut App) {
+    STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        store.pressed = true;
+        store.held.clear();
+        store.held_size = 0;
+    });
+    start_pass(cx);
+}
+
 /// Redraws every window so each picture on screen marks itself drawn, then
 /// lets go of what did not: the oldest while over [`LOW_WATER`], and any
 /// not drawn for [`IDLE`].
@@ -424,7 +475,9 @@ fn finish_pass(mark: Instant, cx: &mut App) {
         store.passing = false;
         let now = Instant::now();
         store.passed = Some(now);
-        evict(&mut store, mark, now)
+        let dropped = evict(&mut store, mark, now);
+        store.pressed = false;
+        dropped
     });
     if dropped.is_empty() {
         return;
@@ -442,8 +495,9 @@ fn finish_pass(mark: Instant, cx: &mut App) {
 }
 
 /// Takes from `store` what goes: of the pictures not drawn since `mark`,
-/// the oldest first while over [`LOW_WATER`], and any not drawn for
-/// [`IDLE`] before `now`. Forgets entries whose bytes are gone.
+/// the oldest first while over [`LOW_WATER`] (all of them under memory
+/// pressure), and any not drawn for [`IDLE`] before `now`. Forgets
+/// entries whose bytes are gone.
 fn evict(store: &mut Store, mark: Instant, now: Instant) -> Vec<Arc<RenderImage>> {
     let mut stale: Vec<(Instant, Key)> = store
         .entries
@@ -453,9 +507,10 @@ fn evict(store: &mut Store, mark: Instant, now: Instant) -> Vec<Arc<RenderImage>
         .collect();
     stale.sort_by_key(|(touched, _)| *touched);
     let mut dropped = Vec::new();
+    let floor = if store.pressed { 0 } else { LOW_WATER };
     for (touched, key) in stale {
         let idle = now.saturating_duration_since(touched) >= IDLE;
-        if store.kept <= LOW_WATER && !idle {
+        if store.kept <= floor && !idle {
             continue;
         }
         let Some(entry) = store.entries.get_mut(&key) else {
@@ -616,6 +671,16 @@ mod tests {
     }
 
     #[test]
+    fn the_lightbox_decodes_at_the_windows_size_within_bounds() {
+        // A 1440 point window at 2x.
+        assert_eq!(super::full_side(2880.0), 3072);
+        assert_eq!(super::full_side(2816.0), 2816);
+        assert_eq!(super::full_side(800.0), super::FULL_MIN_SIDE);
+        assert_eq!(super::full_side(12_000.0), Fit::Full.max_side());
+        assert_eq!(super::full_side(f32::NAN), super::FULL_MIN_SIDE);
+    }
+
+    #[test]
     fn large_pictures_decode_scaled_down() {
         let image = png(3000, 1500);
         let decoded = decode(&image, Fit::Tile.max_side()).unwrap();
@@ -709,6 +774,31 @@ mod tests {
         ready(&mut store, 2, 1 << 20, start + IDLE, &image);
         let now = start + IDLE + Duration::from_secs(1);
         let dropped = evict(&mut store, now, now);
+        assert_eq!(dropped.len(), 1);
+        assert!(matches!(store.entries[&(1, Fit::Tile)].state, State::Idle));
+        assert!(matches!(
+            store.entries[&(2, Fit::Tile)].state,
+            State::Ready(..)
+        ));
+    }
+
+    #[test]
+    fn under_memory_pressure_every_picture_off_screen_goes() {
+        let image = png(1, 1);
+        let mut store = Store::default();
+        let start = Instant::now();
+        ready(&mut store, 1, 1 << 20, start, &image);
+        ready(
+            &mut store,
+            2,
+            1 << 20,
+            start + Duration::from_secs(2),
+            &image,
+        );
+        store.pressed = true;
+        // Picture 2 was drawn after the pass began: it is on screen.
+        let mark = start + Duration::from_secs(1);
+        let dropped = evict(&mut store, mark, mark);
         assert_eq!(dropped.len(), 1);
         assert!(matches!(store.entries[&(1, Fit::Tile)].state, State::Idle));
         assert!(matches!(

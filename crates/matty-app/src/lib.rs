@@ -42,6 +42,7 @@ pub mod login;
 pub mod login_item;
 mod main_window;
 pub mod mattermost_theme;
+mod memory_pressure;
 pub mod menu;
 pub mod offline;
 pub mod perf;
@@ -254,6 +255,7 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     // window set up (#791).
     main_window::start_early(cx);
     fonts::load(cx);
+    memory_pressure::watch(cx);
     if let Some(logs) = logs {
         follow_log_level(&settings, logs, cx);
     }
