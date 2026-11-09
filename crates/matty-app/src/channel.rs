@@ -916,8 +916,31 @@ impl ChannelModel {
     fn rows(&self) -> Vec<Row> {
         let mut rows = Vec::with_capacity(self.posts.len() + 4);
         rows.push(Row::History);
-        let mut day: Option<&SharedString> = None;
-        for (index, post) in self.posts.iter().enumerate() {
+        self.push_rows(&mut rows, 0);
+        rows.push(Row::Newer);
+        rows
+    }
+
+    /// Brings `rows`, made for the first `from` posts, up to all of them:
+    /// day dividers and the New messages line only look back one post, so
+    /// an append needs no pass over the posts already shown (#790).
+    fn extend_rows(&self, rows: &mut Vec<Row>, from: usize) {
+        if rows.last() != Some(&Row::Newer) {
+            *rows = self.rows();
+            return;
+        }
+        rows.pop();
+        self.push_rows(rows, from);
+        rows.push(Row::Newer);
+    }
+
+    /// The rows for the posts from `from` on.
+    fn push_rows(&self, rows: &mut Vec<Row>, from: usize) {
+        let mut day: Option<&SharedString> = from
+            .checked_sub(1)
+            .and_then(|last| self.posts.get(last))
+            .map(|post| &post.day);
+        for (index, post) in self.posts.iter().enumerate().skip(from) {
             if day != Some(&post.day) {
                 rows.push(Row::Day(post.day.clone()));
                 day = Some(&post.day);
@@ -930,8 +953,6 @@ impl ChannelModel {
                 _ => Row::Post(index),
             });
         }
-        rows.push(Row::Newer);
-        rows
     }
 
     /// Puts an older page before the loaded posts, skipping ids already
@@ -1330,6 +1351,10 @@ pub struct ChannelView {
     /// Part of every profile card's id: bumping it after a card's action
     /// closes the card, since a new id starts closed.
     profile_cards: usize,
+    /// Where each display name's profile sits in the model's `profiles`,
+    /// for the rows' avatars and cards: a lookup, not a scan of what can be
+    /// the channel's whole member list (#790).
+    profile_index: Rc<HashMap<SharedString, usize>>,
     /// The channel is one of split view's two panes: the header offers
     /// Swap panes and Close pane (#222).
     split_controls: bool,
@@ -1775,6 +1800,7 @@ impl ChannelView {
             offline: crate::preview::connection() == crate::main_window::ConnectionState::Offline,
             connected: crate::preview::enabled(),
             profile_cards: 0,
+            profile_index: Rc::default(),
             split_controls: false,
             action_menus: Default::default(),
             bookmarks,
@@ -1883,6 +1909,7 @@ impl ChannelView {
             self.slash.reset();
         }
         self.model = model.map(Rc::new);
+        self.index_profiles();
         self.apply_pending_jump(cx);
         cx.notify();
     }
@@ -1945,13 +1972,15 @@ impl ChannelView {
             .iter()
             .filter(|post| !post.mine && !matches!(post.kind, PostKind::System { .. }))
             .count();
+        let from = model.posts.len();
         model.posts.extend(posts);
         // Sync's first posts for a channel it had none of come as a patch.
         crate::perf::channel_shown(Some(&model.id), model.loading, model.posts.len());
-        let rows = model.rows();
         let before = self.rows.len();
-        let added = rows.len().saturating_sub(before);
-        self.rows = Rc::new(rows);
+        model.extend_rows(Rc::make_mut(&mut self.rows), from);
+        #[cfg(test)]
+        debug_assert_eq!(*self.rows, model.rows());
+        let added = self.rows.len().saturating_sub(before);
         self.history.loading_newer = false;
         let scrolled_up = self.list.read(cx).is_scrolled_up();
         self.list.update(cx, |list, cx| {
@@ -2329,8 +2358,11 @@ impl ChannelView {
         notifications: ChannelNotifications,
         cx: &mut Context<Self>,
     ) {
-        if let Some(model) = self.model.as_mut().map(Rc::make_mut)
-            && (model.muted, model.notifications) != (muted, notifications)
+        if self
+            .model
+            .as_ref()
+            .is_some_and(|model| (model.muted, model.notifications) != (muted, notifications))
+            && let Some(model) = self.model.as_mut().map(Rc::make_mut)
         {
             model.muted = muted;
             model.notifications = notifications;
@@ -2341,8 +2373,12 @@ impl ChannelView {
     /// The people typing in the channel now, for the line under the
     /// transcript.
     pub fn set_typing(&mut self, names: Vec<SharedString>, cx: &mut Context<Self>) {
-        if let Some(model) = self.model.as_mut().map(Rc::make_mut)
-            && model.typing != names
+        // Compare before `make_mut`, which copies a shared model (#790).
+        if self
+            .model
+            .as_ref()
+            .is_some_and(|model| model.typing != names)
+            && let Some(model) = self.model.as_mut().map(Rc::make_mut)
         {
             model.typing = names;
             cx.notify();
@@ -2352,18 +2388,41 @@ impl ChannelView {
     /// Profiles for the avatar card and `@` autocomplete, as sync learns
     /// of people.
     pub fn set_profiles(&mut self, profiles: Vec<UserProfile>, cx: &mut Context<Self>) {
-        if let Some(model) = self.model.as_mut().map(Rc::make_mut)
-            && model.profiles != profiles
+        // Compare before `make_mut`, which copies a shared model (#790).
+        if self
+            .model
+            .as_ref()
+            .is_some_and(|model| model.profiles != profiles)
+            && let Some(model) = self.model.as_mut().map(Rc::make_mut)
         {
             model.profiles = profiles;
+            self.index_profiles();
             cx.notify();
         }
     }
 
+    fn index_profiles(&mut self) {
+        let mut index = HashMap::new();
+        for (at, profile) in self
+            .model
+            .iter()
+            .flat_map(|model| model.profiles.iter())
+            .enumerate()
+        {
+            // The first of two people with one name, as a scan found.
+            index.entry(profile.display_name.clone()).or_insert(at);
+        }
+        self.profile_index = Rc::new(index);
+    }
+
     /// The channel's admins, once its full member list loaded (#208).
     pub fn set_admins(&mut self, admins: Vec<SharedString>, cx: &mut Context<Self>) {
-        if let Some(model) = self.model.as_mut().map(Rc::make_mut)
-            && model.admins != admins
+        // Compare before `make_mut`, which copies a shared model (#790).
+        if self
+            .model
+            .as_ref()
+            .is_some_and(|model| model.admins != admins)
+            && let Some(model) = self.model.as_mut().map(Rc::make_mut)
         {
             model.admins = admins;
             cx.notify();
@@ -4715,6 +4774,7 @@ impl ChannelView {
         let theme = UiTheme::read(cx).clone();
         let rows = self.rows.clone();
         let channel = channel.clone();
+        let profiles = self.profile_index.clone();
         let view = cx.entity();
         MessageList::new(
             "channel.transcript",
@@ -4744,10 +4804,9 @@ impl ChannelView {
                 }
                 Some(Row::Post(post)) => {
                     let post = &channel.posts[*post];
-                    let profile = channel
-                        .profiles
-                        .iter()
-                        .find(|profile| profile.display_name == post.author);
+                    let profile = profiles
+                        .get(&post.author)
+                        .and_then(|&at| channel.profiles.get(at));
                     view.update(cx, |this, cx| {
                         let editor = this
                             .editing
@@ -6387,6 +6446,16 @@ mod tests {
                 Row::Newer,
             ]
         );
+
+        // Appending extends the rows to what a full pass makes (#790),
+        // across a day and the New messages line.
+        for split in 0..=channel.posts.len() {
+            let mut shorter = channel.clone();
+            shorter.posts.truncate(split);
+            let mut rows = shorter.rows();
+            channel.extend_rows(&mut rows, split);
+            assert_eq!(rows, channel.rows(), "appended after {split}");
+        }
     }
 
     #[test]
