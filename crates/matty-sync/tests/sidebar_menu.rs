@@ -303,6 +303,13 @@ async fn removing_a_member_reaches_the_server_and_recounts() {
         .await;
     let (sync, changes) = connected(&server).await;
 
+    // The open channel's own stats fetch may still be on its way; only
+    // stats asked for after the removal count.
+    let removal = |requests: &[wiremock::Request]| {
+        requests.iter().position(|r| {
+            r.method.as_str() == "DELETE" && r.url.path() == "/api/v4/channels/c1/members/ada"
+        })
+    };
     sync.send(Command::RemoveMember {
         channel_id: "c1".into(),
         user_id: "ada".into(),
@@ -312,10 +319,18 @@ async fn removing_a_member_reaches_the_server_and_recounts() {
         |c| matches!(c, ChangeSet::Stats(stats) if stats.member_count == 4),
     )
     .await;
-    let requests = server.received_requests().await.unwrap_or_default();
-    assert!(requests.iter().any(
-        |r| r.method.as_str() == "DELETE" && r.url.path() == "/api/v4/channels/c1/members/ada"
-    ));
+    for _ in 0..100 {
+        let requests = server.received_requests().await.unwrap_or_default();
+        if let Some(at) = removal(&requests)
+            && requests[at..]
+                .iter()
+                .any(|r| r.url.path() == "/api/v4/channels/c1/stats")
+        {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("no removal followed by a recount");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -218,6 +218,30 @@ impl MainWindow {
             .current()
             .and_then(|team| self.team_places.get(team).cloned());
         self.arrive_in_team(place, window, cx);
+        self.remember_opening_channel(cx);
+    }
+
+    /// Notes the channel this server opened on, for the next launch to
+    /// fetch its posts with the account ([`matty_sync::Command::Prefetch`]).
+    fn remember_opening_channel(&mut self, cx: &mut Context<Self>) {
+        let Some(channel_id) = self.selected_channel.clone() else {
+            return;
+        };
+        let settings = self.settings.read(cx).get();
+        let Some(key) = settings.account.as_ref().map(|account| account.data_key()) else {
+            return;
+        };
+        if crate::demo() || crate::preview::enabled() {
+            return;
+        }
+        if settings.opens_on.get(&key).map(String::as_str) == Some(channel_id.as_ref()) {
+            return;
+        }
+        self.settings.update(cx, |settings, cx| {
+            settings.update(cx, |s| {
+                s.opens_on.insert(key, channel_id.to_string());
+            })
+        });
     }
 
     /// Sync's teams changed: the rail follows. When the team on screen is
