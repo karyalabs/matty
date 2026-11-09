@@ -1,4 +1,5 @@
-//! The sign-in screen (PLAN §4.5, DESIGN.md §4): one centered card. First
+//! The sign-in screen (PLAN §4.5, DESIGN.md §4): the step's title beside
+//! its card, laid out like the official desktop and web clients. First
 //! the server URL with inline validation, then the sign-in methods the
 //! server advertises. The view owns the fields; the window owns what
 //! happens on submit, because reaching the server is sync's job.
@@ -6,8 +7,8 @@
 use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
-    Window, div, prelude::FluentBuilder as _,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _,
 };
 
 use crate::settings::{RecentServer, SettingsStore};
@@ -639,11 +640,7 @@ impl LoginView {
             .flex()
             .flex_col()
             .gap(theme.space(4.))
-            .child(if self.model.adding {
-                Self::heading(t!("login-add-title"), t!("login-address-hint"), &theme)
-            } else {
-                Self::heading(t!("login-connect-title"), t!("login-address-hint"), &theme)
-            })
+            .child(Self::card_title(t!("login-server-card-title"), &theme))
             .child(
                 Field::new("login.server", &self.server)
                     .label(t!("login-address"))
@@ -769,11 +766,7 @@ impl LoginView {
             .flex()
             .flex_col()
             .gap(theme.space(4.))
-            .child(Self::heading(
-                t!("login-sign-in-title"),
-                t!("login-sign-in-hint"),
-                &theme,
-            ))
+            .child(Self::card_title(t!("login-sign-in-title"), &theme))
             .child(server_row);
         if password_form {
             card = card
@@ -919,11 +912,6 @@ impl LoginView {
             .flex()
             .flex_col()
             .gap(theme.space(4.))
-            .child(Self::heading(
-                t!("login-mfa-title"),
-                t!("login-mfa-hint"),
-                &theme,
-            ))
             .child(
                 div()
                     .flex()
@@ -1049,19 +1037,6 @@ impl LoginView {
             .flex()
             .flex_col()
             .gap(theme.space(4.))
-            .child(if failed {
-                Self::heading(
-                    t!("login-browser-failed-title"),
-                    t!("login-browser-failed-hint"),
-                    &theme,
-                )
-            } else {
-                Self::heading(
-                    t!("login-browser-waiting-title"),
-                    t!("login-browser-waiting-hint"),
-                    &theme,
-                )
-            })
             .children(self.scheme_notice(cx))
             .child(status_row)
             .children(self.error_line(cx))
@@ -1127,29 +1102,36 @@ impl LoginView {
         )
     }
 
-    fn heading(
-        title: SharedString,
-        text: SharedString,
-        theme: &UiTheme,
-    ) -> impl IntoElement + use<> {
+    /// The small title at the top of the card, like the official
+    /// clients' "Log in" over their form.
+    fn card_title(title: SharedString, theme: &UiTheme) -> impl IntoElement + use<> {
         div()
-            .flex()
-            .flex_col()
-            .gap(theme.space(1.))
-            .child(
-                div()
-                    .text_size(theme.text(20.))
-                    .line_height(theme.text(26.))
-                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                    .text_color(theme.colors.foreground)
-                    .child(title),
-            )
-            .child(
-                div()
-                    .type_style(style::UI, theme)
-                    .text_color(theme.colors.muted_foreground)
-                    .child(text),
-            )
+            .text_size(theme.text(22.))
+            .line_height(theme.text(28.))
+            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+            .text_color(theme.colors.foreground)
+            .child(title)
+    }
+
+    /// The step's large title and the line under it, beside the card the
+    /// way the official desktop and web clients lay out their sign-in.
+    fn hero_text(&self) -> (SharedString, SharedString) {
+        match &self.model.step {
+            LoginStep::Server if self.model.adding => {
+                (t!("login-add-title"), t!("login-address-hint"))
+            }
+            LoginStep::Server => (t!("login-connect-title"), t!("login-address-hint")),
+            LoginStep::Methods { .. } => (t!("login-sign-in-hero"), t!("login-sign-in-hint")),
+            LoginStep::Mfa { .. } => (t!("login-mfa-title"), t!("login-mfa-hint")),
+            LoginStep::Browser { .. } if self.model.error.is_some() => (
+                t!("login-browser-failed-title"),
+                t!("login-browser-failed-hint"),
+            ),
+            LoginStep::Browser { .. } => (
+                t!("login-browser-waiting-title"),
+                t!("login-browser-waiting-hint"),
+            ),
+        }
     }
 
     fn or_rule(theme: &UiTheme) -> impl IntoElement + use<> {
@@ -1178,7 +1160,7 @@ enum Submit {
 }
 
 impl Render for LoginView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = UiTheme::read(cx).clone();
         let body = match self.model.step.clone() {
             LoginStep::Server => self.server_step(cx).into_any_element(),
@@ -1199,22 +1181,76 @@ impl Render for LoginView {
                 .browser_step(&server_name, provider, cx)
                 .into_any_element(),
         };
+        // Side by side when there is room, stacked otherwise, like the
+        // official clients.
+        let wide = f32::from(window.viewport_size().width) >= f32::from(scaled(&theme, WIDE));
+        let (title, hint) = self.hero_text();
+        let hero = div()
+            .flex()
+            .flex_col()
+            .gap(theme.space(4.))
+            .when(wide, |hero| hero.flex_1().min_w_0())
+            .when(!wide, |hero| {
+                hero.w_full().max_w(scaled(&theme, CARD_WIDTH))
+            })
+            .child(
+                div()
+                    .text_size(theme.text(if wide { 52. } else { 32. }))
+                    .line_height(theme.text(if wide { 58. } else { 38. }))
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .text_color(theme.colors.foreground)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .max_w(scaled(&theme, 440.))
+                    .text_size(theme.text(if wide { 18. } else { 15. }))
+                    .line_height(theme.text(if wide { 28. } else { 22. }))
+                    .text_color(theme.colors.muted_foreground)
+                    .child(hint),
+            );
+        let card = div()
+            .flex()
+            .flex_col()
+            .gap(theme.space(4.))
+            .w_full()
+            .max_w(scaled(&theme, CARD_WIDTH))
+            .flex_shrink_0()
+            .child(
+                div()
+                    .w_full()
+                    .p(theme.space(10.))
+                    .rounded(theme.radius.xl)
+                    .bg(theme.colors.card)
+                    .border(style::hairline())
+                    .border_color(theme.colors.border)
+                    .shadow_md()
+                    .child(body),
+            )
+            .when(self.model.adding, |column| {
+                column.child(
+                    div().flex().justify_center().child(
+                        Button::new("login.cancel")
+                            .variant(ButtonVariant::Ghost)
+                            .label(t!("login-cancel"))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(LoginEvent::Cancel))),
+                    ),
+                )
+            });
         div()
             .track_focus(&self.focus)
             .size_full()
             .flex()
             .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(theme.space(6.))
-            .p(theme.space(6.))
-            .bg(theme.colors.sidebar)
+            .bg(theme.colors.background)
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(theme.space(2.))
-                    .child(style::mark(theme.space(10.)))
+                    .px(theme.space(10.))
+                    .pt(theme.space(8.))
+                    .child(style::mark(theme.space(7.)))
                     .child(
                         div()
                             .text_size(theme.text(18.))
@@ -1225,32 +1261,52 @@ impl Render for LoginView {
             )
             .child(
                 div()
-                    .w_full()
-                    .max_w(scaled(&theme, 400.))
-                    .p(theme.space(6.))
-                    .rounded(theme.radius.xl)
-                    .bg(theme.colors.card)
-                    .border(style::hairline())
-                    .border_color(theme.colors.border)
-                    .shadow_md()
-                    .child(body),
+                    .id("login.page")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .min_h_full()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .justify_center()
+                            .px(theme.space(10.))
+                            .py(theme.space(6.))
+                            .child(
+                                div()
+                                    .w_full()
+                                    .max_w(scaled(&theme, 1040.))
+                                    .flex()
+                                    .when(wide, |row| {
+                                        row.flex_row().items_center().gap(theme.space(16.))
+                                    })
+                                    .when(!wide, |col| {
+                                        col.flex_col().items_center().gap(theme.space(6.))
+                                    })
+                                    .child(hero)
+                                    .child(card),
+                            ),
+                    ),
             )
-            .when(self.model.adding, |page| {
-                page.child(
-                    Button::new("login.cancel")
-                        .variant(ButtonVariant::Ghost)
-                        .label(t!("login-cancel"))
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(LoginEvent::Cancel))),
-                )
-            })
             .child(
                 div()
+                    .px(theme.space(10.))
+                    .pb(theme.space(6.))
                     .type_style(style::META, &theme)
                     .text_color(theme.colors.muted_foreground)
                     .child(t!("login-footer")),
             )
     }
 }
+
+/// The card's width, as in the official desktop client's sign-in.
+const CARD_WIDTH: f32 = 460.;
+
+/// The window width, in unscaled pixels, from which the title sits beside
+/// the card instead of above it.
+const WIDE: f32 = 880.;
 
 #[cfg(test)]
 mod tests {
