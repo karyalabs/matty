@@ -250,6 +250,11 @@ impl Switcher {
     /// Takes what the window gathered of other teams, recent channels and
     /// other servers, as the switcher opens.
     pub fn set_elsewhere(&mut self, elsewhere: Elsewhere, cx: &mut Context<Self>) {
+        // Opened again with nothing new to list: the rows are as they were
+        // (#793).
+        if self.elsewhere == elsewhere && !self.stale {
+            return;
+        }
         self.elsewhere = elsewhere;
         self.refresh(cx);
     }
@@ -314,7 +319,10 @@ impl Switcher {
             state.set_query("", window, cx);
             state.set_placeholder(t!("switcher-placeholder"), window, cx);
         });
-        self.refresh(cx);
+        // Rebuilt at the next opening, not in the frame that switches
+        // channel (#793): the pick changes the selection and the recent
+        // channels, so those rows would be rebuilt again then anyway.
+        self.stale = true;
     }
 
     /// Direct messages lead with the person's avatar; mention counts sit
