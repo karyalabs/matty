@@ -343,6 +343,60 @@ class Mattermost(App):
             {"x": WIN_X, "y": WIN_Y, "width": WIN_W, "height": WIN_H, "maximized": False, "fullscreen": False}))
 
 
+class Browser(App):
+    """A web client in Chrome: its own profile, an app-mode window (no tabs or
+    address bar, so both web clients get the same chrome-less window), at the
+    run's window position. `url` is what it opens: Matty web, or the official
+    web app served by the bench server itself."""
+
+    url: str = ""
+
+    def command(self):
+        exe = self.path
+        if self.path.suffix == ".app":
+            exe = next(p for p in (self.path / "Contents" / "MacOS").iterdir() if p.is_file())
+        return [str(exe), f"--user-data-dir={self.profile / 'chrome'}",
+                "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
+                "--hide-crash-restore-bubble", "--disable-session-crashed-bubble",
+                "--use-mock-keychain", "--password-store=basic",
+                # Matty web (https://karyalabs.dev) talks to the bench server on
+                # http://localhost; Chrome would otherwise ask first.
+                "--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessRespectPreflightResults,Translate",
+                f"--window-position={WIN_X},{WIN_Y}", f"--window-size={WIN_W},{WIN_H}",
+                f"--app={self.url}"]
+
+    def running_pattern(self) -> str:
+        return str(self.profile / "chrome")
+
+    def prepare(self, server: str):
+        """Chrome preferences that keep both web clients' windows alike and
+        let Cmd+Q quit at once: Chrome's "hold ⌘Q to quit" left the window
+        open, the harness then killed Chrome, and Matty web lost the session
+        it had just written to localStorage."""
+        prefs_file = self.profile / "chrome" / "Default" / "Preferences"
+        prefs_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            prefs = json.loads(prefs_file.read_text())
+        except Exception:
+            prefs = {}
+
+        def put(path: str, value) -> None:
+            d = prefs
+            *head, last = path.split(".")
+            for k in head:
+                d = d.setdefault(k, {})
+            d[last] = value
+
+        put("browser.confirm_to_quit", False)
+        put("credentials_enable_service", False)  # no "Save password?" bubble
+        put("profile.password_manager_enabled", False)
+        # Allowed, so the official web app shows no "we need your permission"
+        # banner; the same for Matty web.
+        put("profile.default_content_setting_values.notifications", 1)
+        put("translate.enabled", False)
+        prefs_file.write_text(json.dumps(prefs))
+
+
 def app_version(app: App) -> str:
     plist = app.path / "Contents" / "Info.plist"
     if MAC and plist.exists():
@@ -826,7 +880,20 @@ class Session:
         self.proc = None
 
     # Recording per scenario.
+    def require_signed_in(self, where: str) -> None:
+        """Stop before any input goes to a sign-in screen: the server must see
+        the app connected. Checked after the warm-up launch and before every
+        scenario that runs in an open app."""
+        if wait_signed_in(self.server, 15):
+            return
+        print(f"  {self.app.label} is not signed in ({where}): stopping before it gets any input")
+        self.quit()
+        sys.exit(f"{self.app.label} opened signed out ({where}). Run `bench/run.py setup --apps {self.app.key}` "
+                 "and check its signed-in.png, then run again.")
+
     def begin(self, scenario: str) -> None:
+        if not scenario.startswith("startup") and self.proc and self.proc.poll() is None:
+            self.require_signed_in(scenario)
         self.scenario = scenario
         if self.sampler:
             self.sampler.scenario = scenario
@@ -895,9 +962,11 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     # land on Town Square, quit cleanly so the app saves its state.
     s.scenario = "warmup"
     log_mark = matty_log_size(app)
+    wait_signed_out(server)  # so that "online" below means this launch
     s.launch()
     s.wait_window()
     s.after_launch()
+    s.require_signed_in("warm-up")
     s.wait(8)
     s.place()
     s.do(f"front {s.proc.pid}")
@@ -923,8 +992,10 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
             finally:
                 s.wait(args.startup_wait)
             s.end()
+            s.require_signed_in(f"startup-{i + 1}")
             if i < args.starts - 1:
                 s.quit()
+                wait_signed_out(server)
                 s.wait(3)
     else:
         s.launch()
@@ -1074,8 +1145,11 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
 
 def default_apps() -> dict[str, Path]:
     if MAC:
-        return {"matty": Path("/Applications/Matty.app"), "mattermost": Path("/Applications/Mattermost.app")}
-    return {"matty": HERE.parent / "target" / "release" / "matty"}
+        chrome = Path("/Applications/Google Chrome.app")
+        return {"matty": Path("/Applications/Matty.app"), "mattermost": Path("/Applications/Mattermost.app"),
+                "matty-web": chrome, "mattermost-web": chrome}
+    chrome = Path(shutil.which("google-chrome") or shutil.which("chromium") or "/usr/bin/google-chrome")
+    return {"matty": HERE.parent / "target" / "release" / "matty", "matty-web": chrome, "mattermost-web": chrome}
 
 
 def make_apps(args) -> list[App]:
@@ -1089,10 +1163,14 @@ def make_apps(args) -> list[App]:
         path = paths.get(key)
         if not path or not path.exists():
             sys.exit(f"{key}: {path} not found; pass --app {key}=/path/to/App.app")
-        cls, label = {"matty": (Matty, "Matty"), "mattermost": (Mattermost, "Mattermost Desktop")}[key]
+        cls, label = {"matty": (Matty, "Matty"), "mattermost": (Mattermost, "Mattermost Desktop"),
+                      "matty-web": (Browser, "Matty web"), "mattermost-web": (Browser, "Mattermost web")}[key]
         app = cls(key, label, path, profiles / key)
         app.profile.mkdir(parents=True, exist_ok=True)
         app.version = app_version(app)
+        if isinstance(app, Browser):
+            app.url = args.matty_web_url if key == "matty-web" else load_server(args)["url"]
+            app.version = f"(Chrome {app.version})" if app.version else ""
         apps.append(app)
     return apps
 
@@ -1152,14 +1230,51 @@ def check_signed_in(app: App, rect, shot: Path, log_mark=(None, 0)) -> None:
                  f"Run `bench/run.py setup` again, then the run.")
 
 
+def bench_status(server: dict) -> str:
+    """The bench user's presence on the server. It is "online" (or "away")
+    while any client holds a websocket, and "offline" once the last one
+    closes, so with one app running it says whether that app is signed in."""
+    m = server.get("manifest", {})
+    user = m.get("server_user", "bench")
+
+    def api(path):
+        req = urllib.request.Request(f"{server['url']}/api/v4{path}",
+                                     headers={"Authorization": f"Bearer {server['admin_token']}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+
+    try:
+        uid = server.setdefault("_bench_uid", api(f"/users/username/{user}")["id"])
+        return api(f"/users/{uid}/status").get("status", "?")
+    except Exception as e:
+        return f"unknown ({e})"
+
+
+def wait_signed_in(server: dict, seconds: float = 15) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if bench_status(server) in ("online", "away", "dnd"):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def wait_signed_out(server: dict, seconds: float = 20) -> None:
+    """Before a launch: wait until no client is connected, so that "online"
+    afterwards proves this launch signed in."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline and bench_status(server) != "offline":
+        time.sleep(0.5)
+
+
 def refuse_running(apps) -> None:
     """A copy of an app under test that is already running (left by an
     interrupted run) would take over the launches: stop instead."""
     for app in apps:
-        cmd = app.command()
-        found = subprocess.run(["pgrep", "-f", cmd[0]], capture_output=True, text=True).stdout.split()
+        pattern = app.running_pattern() if isinstance(app, Browser) else app.command()[0]
+        found = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True).stdout.split()
         if found:
-            sys.exit(f"{app.label} ({cmd[0]}) is already running as pid {', '.join(found)}; quit it first")
+            sys.exit(f"{app.label} ({pattern}) is already running as pid {', '.join(found)}; quit it first")
 
 
 def setup(args, driver) -> None:
@@ -1188,10 +1303,24 @@ def setup(args, driver) -> None:
         x, y, w, h = (int(v) for v in got) if got and got[2] != "0" else (WIN_X, WIN_Y, WIN_W, WIN_H)
         driver.cmd(f"front {proc.pid}")
         time.sleep(0.5)
-        if args.manual:
+        signed_in_already = wait_signed_in(server, 8)
+        if signed_in_already:
+            print(f"{app.label}: already signed in; not typing anything")
+        elif args.manual:
             print(f"\n{app.label}: sign in to {server['url']} as `{user}`, password `{password}`.")
             print("Dismiss any welcome tips, open Town Square, then press Enter here.")
             input()
+        elif app.key == "matty-web":
+            # Same sign-in screen as the app; Tab from the login to the password.
+            time.sleep(8)  # first visit downloads the web build
+            driver.cmd(f"type 20 {server['url']}")
+            driver.cmd("key return")
+            time.sleep(3)
+            driver.cmd(f"type 20 {user}")
+            driver.cmd("key tab")
+            driver.cmd(f"type 20 {password}")
+            driver.cmd("key return")
+            time.sleep(10)
         elif app.key == "matty":
             driver.cmd(f"type 20 {server['url']}")
             driver.cmd("key return")
@@ -1211,7 +1340,8 @@ def setup(args, driver) -> None:
             driver.cmd(f"type 20 {password}")
             driver.cmd("key return")
             time.sleep(12)
-        shot = app.profile / "signed-in.png"
+        ok = signed_in_already or wait_signed_in(server)
+        shot = app.profile / ("signed-in.png" if ok else "sign-in-failed.png")
         if MAC:
             subprocess.run(["screencapture", "-x", "-R", f"{x},{y},{w},{h}", str(shot)], check=False)
             print(f"{app.label}: check {shot}")
@@ -1220,6 +1350,11 @@ def setup(args, driver) -> None:
             proc.wait(timeout=15)
         except Exception:
             os.killpg(proc.pid, signal.SIGTERM)
+        if not ok:
+            (app.profile / "signed-in.png").unlink(missing_ok=True)
+            sys.exit(f"{app.label} did not sign in (the server never saw it connect); see {shot}. "
+                     "Sign it in with `bench/run.py setup --manual --apps " + app.key + "`.")
+        wait_signed_out(server)
     print("\nProfiles ready in bench/out/profiles. Check the signed-in screenshots, then run bench/run.py.")
 
 
@@ -1244,6 +1379,8 @@ def main() -> None:
     ap.add_argument("--out", type=Path)
     ap.add_argument("--no-analyze", action="store_true")
     ap.add_argument("--manual", action="store_true", help="setup: sign in by hand instead of typing")
+    ap.add_argument("--matty-web-url", default="https://karyalabs.dev/matty/",
+                    help="where the matty-web client is served (default: the public build)")
     args = ap.parse_args()
     args.scenarios = set(args.scenarios.split(","))
 

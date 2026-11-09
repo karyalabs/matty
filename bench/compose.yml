@@ -33,6 +33,10 @@ services:
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_password@db:5432/mattermost?sslmode=disable&connect_timeout=10
       MM_SERVICESETTINGS_SITEURL: http://localhost:${MATTY_BENCH_PORT:-8075}
+      # Matty web (karyalabs.dev, or `scripts/web serve`) calls this server from
+      # the browser; it reads the session from the Token header (docs/web.md).
+      MM_SERVICESETTINGS_ALLOWCORSFROM: "https://karyalabs.dev http://localhost:8080 http://127.0.0.1:8080"
+      MM_SERVICESETTINGS_CORSEXPOSEDHEADERS: "Token ETag X-Request-Id X-Ratelimit-Limit X-Ratelimit-Remaining X-Ratelimit-Reset"
       MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
       MM_SERVICESETTINGS_ENABLECUSTOMEMOJI: "true"
       MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
