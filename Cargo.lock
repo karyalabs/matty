@@ -2998,9 +2998,9 @@ dependencies = [
 [[package]]
 name = "gpui-icons"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a60d20d372034679d68581b9124903930c21dcc53fafa35d79f7932d0d0062c"
+source = "git+https://github.com/karyalabs/gpui-icons?branch=claude%2Fproject-thread-ngfu9u#14427247be127ebe2ee588ffe705cdd2199072ec"
 dependencies = [
+ "gpui-fast",
  "gpui-pre",
 ]
 
@@ -3014,6 +3014,8 @@ dependencies = [
  "gpui-component",
  "gpui-fast",
  "gpui-fast-platform",
+ "gpui-fast-web",
+ "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-macros",
  "gpui-pre-platform",
@@ -3027,6 +3029,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "956a9864880e1f230e274a74cea8006e5018b8af383ad7bbd30b6b18254a97a9"
 dependencies = [
  "anyhow",
+ "gpui-fast",
  "gpui-pre",
  "gpui-pre-reqwest",
  "log",
@@ -3554,8 +3557,7 @@ checksum = "99b18b06f5026b3d312488eacfdddbe78f82b4bf32bb2d2bc3186e31e552b797"
 [[package]]
 name = "gpuicn"
 version = "0.10.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86af8d0dd063f646ed92afb6ec711af953ad4fdba4594855e48898958ab568d3"
+source = "git+https://github.com/karyalabs/gpuicn?branch=claude%2Fproject-thread-ngfu9u#abf3ebc93803173c7f9fcd65203546574fc83f5f"
 dependencies = [
  "gpui-icons",
  "gpui-kit",
@@ -4848,9 +4850,9 @@ dependencies = [
  "emojis",
  "fluent-bundle",
  "getrandom 0.3.4",
+ "gpui-fast-platform",
  "gpui-icons",
  "gpui-kit",
- "gpui-pre-platform",
  "gpuicn",
  "image",
  "jiff",
@@ -7825,9 +7827,9 @@ dependencies = [
 name = "spike-s1"
 version = "0.1.0-beta.16"
 dependencies = [
+ "gpui-fast-platform",
  "gpui-icons",
  "gpui-kit",
- "gpui-pre-platform",
  "gpuicn",
 ]
 

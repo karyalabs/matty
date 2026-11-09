@@ -16,12 +16,14 @@ publish = false
 # Every shared dependency version lives here. Upstream UI pins are exact and
 # move together; see docs/PINS.md before changing any of them.
 [workspace.dependencies]
-gpuicn = "=0.10.6"
-gpui-kit = { version = "=0.9.0", default-features = false, features = ["component"] }
+# Spike: GPUI Kit's GPUI Fast backend (longbridge/gpui-fast) in place of
+# gpui-pre. gpuicn and gpui-icons come from their spike branches.
+gpuicn = { version = "=0.10.6", features = ["gpui-fast"] }
+gpui-kit = { version = "=0.9.0", default-features = false, features = ["component", "gpui-fast"] }
 # Compiles matty.exe's icon and version resource (crates/matty/build.rs).
 embed-resource = "=3.0.12"
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features = ["font-kit"] }
-gpui-icons = "=0.6.0"
+gpui_platform = { package = "gpui-fast-platform", version = "=0.1.13", features = ["font-kit"] }
+gpui-icons = { version = "=0.6.0", features = ["gpui-fast"] }
 web-time = "1.1"
 fluent-bundle = "0.16"
 unic-langid = "0.9"
@@ -114,6 +116,10 @@ gpui-pre-sum-tree = { opt-level = 3 }
 gpui-pre-wgpu = { opt-level = 3 }
 gpui-pre-macos = { opt-level = 3 }
 gpui-pre-apple = { opt-level = 3 }
+gpui-fast = { opt-level = 3 }
+gpui-fast-wgpu = { opt-level = 3 }
+gpui-fast-macos = { opt-level = 3 }
+gpui-fast-apple = { opt-level = 3 }
 taffy = { opt-level = 3 }
 harfrust = { opt-level = 3 }
 gpui-base = { opt-level = 3 }
@@ -136,7 +142,16 @@ gpui-pre-sum-tree = { opt-level = "s" }
 gpui-pre-wgpu = { opt-level = "s" }
 gpui-pre-macos = { opt-level = "s" }
 gpui-pre-apple = { opt-level = "s" }
+gpui-fast = { opt-level = "s" }
+gpui-fast-wgpu = { opt-level = "s" }
+gpui-fast-macos = { opt-level = "s" }
+gpui-fast-apple = { opt-level = "s" }
 taffy = { opt-level = "s" }
 harfrust = { opt-level = "s" }
 gpui-base = { opt-level = "s" }
 gpui-component = { opt-level = "s" }
+
+# Spike only: unreleased gpui-fast features.
+[patch.crates-io]
+gpuicn = { git = "https://github.com/karyalabs/gpuicn", branch = "claude/project-thread-ngfu9u" }
+gpui-icons = { git = "https://github.com/karyalabs/gpui-icons", branch = "claude/project-thread-ngfu9u" }
