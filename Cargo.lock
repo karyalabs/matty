@@ -4815,6 +4815,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre-platform",
  "gpuicn",
+ "image",
  "jiff",
  "keyring",
  "matty-api",

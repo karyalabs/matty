@@ -933,7 +933,7 @@ impl RightPaneView {
                 items.push(LightboxItem::Link(image.url.clone()));
                 images.push(
                     LightboxImage::new(
-                        gpui_kit::ImageSource::Image(loaded.clone()),
+                        crate::decoded_images::source(loaded, crate::decoded_images::Fit::Full),
                         crate::embeds::image_name(&image.url),
                     )
                     .dimensions(image.width, image.height)
@@ -1063,7 +1063,8 @@ impl RightPaneView {
         self.lightbox.update(cx, |lightbox, cx| {
             let mut images = lightbox.images().to_vec();
             if let Some(entry) = images.get_mut(position) {
-                entry.source = gpui_kit::ImageSource::Image(image);
+                entry.source =
+                    crate::decoded_images::source(&image, crate::decoded_images::Fit::Full);
                 let index = lightbox.index();
                 lightbox.set_images(images, index, cx);
             }

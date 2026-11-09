@@ -123,7 +123,10 @@ fn store(cx: &App) -> Option<&RemoteImages> {
 pub fn source(url: &str, cx: &App) -> Option<ImageSource> {
     let store = store(cx)?;
     match store.image(url) {
-        Some(image) => Some(ImageSource::Image(image)),
+        Some(image) => Some(crate::decoded_images::source(
+            &image,
+            crate::decoded_images::Fit::Inline,
+        )),
         None => {
             store.want(url);
             None

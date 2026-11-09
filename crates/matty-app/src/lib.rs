@@ -19,6 +19,7 @@ pub mod channel_settings;
 pub mod composer_draft;
 pub mod contrast;
 pub mod custom_status;
+pub mod decoded_images;
 pub mod deeplink;
 pub mod directory;
 pub mod dnd;

@@ -57,6 +57,8 @@ tracing-appender = "0.2"
 skrifa = "0.44"
 regex = "1"
 emojis = "0.6"
+# Decodes message images scaled down, with the formats GPUI already builds.
+image = { version = "0.25", default-features = false }
 async-channel = "2"
 async-executor = "1.14"
 futures-lite = "2.6"
