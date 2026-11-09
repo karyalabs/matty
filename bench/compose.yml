@@ -1,0 +1,74 @@
+# The benchmark's Mattermost server: a separate Compose project from the dev
+# server (docker/compose.yml), on its own port and volumes, so a benchmark
+# corpus never mixes with dev data. Use bench/server rather than calling
+# compose directly; see bench/README.md.
+
+name: matty-bench
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_password
+      POSTGRES_DB: mattermost
+    # The corpus is a few hundred thousand posts; the defaults are tiny.
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=300"]
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mattermost:
+    image: ${MATTY_BENCH_IMAGE:-mattermost/mattermost-enterprise-edition}:${MATTY_BENCH_VERSION:-10.5}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${MATTY_BENCH_PORT:-8075}:8065"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_password@db:5432/mattermost?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://localhost:${MATTY_BENCH_PORT:-8075}
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_SERVICESETTINGS_ENABLECUSTOMEMOJI: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_COLLAPSEDTHREADS: default_on
+      # Nothing that reaches the internet or depends on timing: no link
+      # previews, no GIF picker, no onboarding tours or landing pages that
+      # one client shows and the other does not.
+      MM_SERVICESETTINGS_ENABLELINKPREVIEWS: "false"
+      MM_SERVICESETTINGS_ENABLEPERMALINKPREVIEWS: "false"
+      MM_SERVICESETTINGS_ENABLEGIFPICKER: "false"
+      MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
+      MM_SERVICESETTINGS_ENABLETUTORIAL: "false"
+      MM_SERVICESETTINGS_ENABLEDESKTOPLANDINGPAGE: "false"
+      MM_SERVICESETTINGS_ENABLESECURITYFIXALERT: "false"
+      MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS: "true"
+      MM_SERVICESETTINGS_ENABLEPOSTUSERNAMEOVERRIDE: "true"
+      MM_LOGSETTINGS_CONSOLELEVEL: WARN
+      MM_RATELIMITSETTINGS_ENABLE: "false"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_TEAMSETTINGS_MAXUSERSPERTEAM: "5000"
+      MM_TEAMSETTINGS_MAXCHANNELSPERTEAM: "5000"
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_ENABLEPREVIEWMODEBANNER: "false" # else a banner pushes the official app's UI down
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
+      MM_FILESETTINGS_MAXFILESIZE: "1048576000"
+      MM_PLUGINSETTINGS_ENABLE: "false"
+      MM_ANALYTICSSETTINGS_MAXUSERSFORSTATISTICS: "100000"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+    volumes:
+      - data:/mattermost/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8065/api/v4/system/ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+volumes:
+  db:
+  data:
