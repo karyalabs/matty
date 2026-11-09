@@ -743,7 +743,11 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     s.wait(1)
     s.switch_to("Town Square", mark=False, settle=4)
     if MAC:
-        check_signed_in(app, s.rect, s.dir / "warmup.png", log_mark)
+        try:
+            check_signed_in(app, s.rect, s.dir / "warmup.png", log_mark)
+        except SystemExit:
+            s.quit()  # a leftover copy would take over the next run's launches
+            raise
     s.quit()
     s.wait(3)
 
@@ -976,6 +980,16 @@ def check_signed_in(app: App, rect, shot: Path, log_mark=(None, 0)) -> None:
                  f"Run `bench/run.py setup` again, then the run.")
 
 
+def refuse_running(apps) -> None:
+    """A copy of an app under test that is already running (left by an
+    interrupted run) would take over the launches: stop instead."""
+    for app in apps:
+        cmd = app.command()
+        found = subprocess.run(["pgrep", "-f", cmd[0]], capture_output=True, text=True).stdout.split()
+        if found:
+            sys.exit(f"{app.label} ({cmd[0]}) is already running as pid {', '.join(found)}; quit it first")
+
+
 def setup(args, driver) -> None:
     """Fresh profiles, signed in as `bench`, windows where the run expects them.
 
@@ -986,7 +1000,9 @@ def setup(args, driver) -> None:
     server = load_server(args)
     m = server.get("manifest", {})
     user, password = m.get("server_user", "bench"), m.get("password", "Password1!")
-    for app in make_apps(args):
+    apps = make_apps(args)
+    refuse_running(apps)
+    for app in apps:
         app.prepare(server["url"])
         proc = app.spawn()
         deadline = time.monotonic() + 60
@@ -1069,6 +1085,7 @@ def main() -> None:
             setup(args, driver)
             return
         server = load_server(args)
+        refuse_running(make_apps(args))
         run_dir = args.out or OUT / "runs" / dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         run_dir.mkdir(parents=True, exist_ok=True)
         apps = make_apps(args)
