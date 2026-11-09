@@ -43,16 +43,16 @@ pub enum ThemeChoice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeSource {
-    /// Matty's Graphite colors, light or dark as [`ThemeChoice`] says.
+    /// Matty's default Graphite colors, light or dark as [`ThemeChoice`]
+    /// says.
+    #[default]
     Matty,
     /// Matty's Porcelain colors, light or dark as [`ThemeChoice`] says.
     Porcelain,
     /// The person's own style, [`Settings::custom_style`] (#705).
     Custom,
     /// The account's Mattermost theme for the team on screen, which is
-    /// light or dark by itself. The default, so Matty looks like the
-    /// person's other Mattermost apps.
-    #[default]
+    /// light or dark by itself.
     Mattermost,
 }
 
@@ -269,6 +269,12 @@ pub struct Settings {
     pub theme: ThemeChoice,
     /// One of Matty's presets or the account's Mattermost theme (#214).
     pub theme_source: ThemeSource,
+    /// Whether this file has been past the move back to Graphite as the
+    /// default. Betas 10 to 13 defaulted to the Mattermost theme and wrote
+    /// it to every file, so a file without this flag goes back to Graphite
+    /// once (#727). Missing in old files, so `false` there.
+    #[serde(default)]
+    pub graphite_default_restored: bool,
     /// The Mattermost theme last shown, as the server's preference value,
     /// so Matty starts in it before sync connects (#214). Dropped on
     /// signing out.
@@ -349,7 +355,8 @@ impl Default for Settings {
             sidebar_width: SIDEBAR_DEFAULT,
             right_pane_width: RIGHT_PANE_DEFAULT,
             theme: ThemeChoice::System,
-            theme_source: ThemeSource::Mattermost,
+            theme_source: ThemeSource::Matty,
+            graphite_default_restored: true,
             mattermost_theme: None,
             custom_style: None,
             ui_font: None,
@@ -477,6 +484,12 @@ impl Settings {
         }
         self.recent_servers.truncate(RECENT_SERVERS);
         self.migrate_servers();
+        if !self.graphite_default_restored {
+            if self.theme_source == ThemeSource::Mattermost {
+                self.theme_source = ThemeSource::Matty;
+            }
+            self.graphite_default_restored = true;
+        }
         let extra = self.preview_choices.len().saturating_sub(PREVIEW_CHOICES);
         self.preview_choices.drain(..extra);
         self
@@ -773,6 +786,26 @@ mod tests {
         // An older file without the key still loads.
         let old: Settings = serde_json::from_str(r#"{"zoom": 1.0}"#).unwrap();
         assert!(old.recent_servers.is_empty());
+    }
+
+    #[test]
+    fn graphite_is_the_default_again() {
+        assert_eq!(Settings::default().theme_source, ThemeSource::Matty);
+        // A file from betas 10 to 13 saved the Mattermost default: once,
+        // it goes back to Graphite.
+        let beta: Settings = serde_json::from_str(r#"{"theme_source": "mattermost"}"#).unwrap();
+        let beta = beta.sanitize();
+        assert_eq!(beta.theme_source, ThemeSource::Matty);
+        assert!(beta.graphite_default_restored);
+        // After that, picking the Mattermost theme sticks.
+        let chosen: Settings = serde_json::from_str(
+            r#"{"theme_source": "mattermost", "graphite_default_restored": true}"#,
+        )
+        .unwrap();
+        assert_eq!(chosen.sanitize().theme_source, ThemeSource::Mattermost);
+        // Other choices are left alone.
+        let porcelain: Settings = serde_json::from_str(r#"{"theme_source": "porcelain"}"#).unwrap();
+        assert_eq!(porcelain.sanitize().theme_source, ThemeSource::Porcelain);
     }
 
     #[test]

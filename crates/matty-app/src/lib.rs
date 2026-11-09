@@ -588,12 +588,11 @@ pub(crate) fn apply_theme(window: &Window, cx: &mut App) {
         theme.fonts.mono = chosen.mono;
         UiTheme::set(cx, theme);
     }
-    // The account's Mattermost theme, when chosen (#214), sets light or dark
-    // itself. Until the account's is known (signing in, the demo), Denim,
-    // Mattermost's own default.
-    if settings.theme_source == ThemeSource::Mattermost {
-        let imported =
-            mattermost_theme::shown(&settings, cx).unwrap_or_else(mattermost_theme::Theme::denim);
+    // The account's Mattermost theme, when chosen and known (#214), sets
+    // light or dark itself.
+    if settings.theme_source == ThemeSource::Mattermost
+        && let Some(imported) = mattermost_theme::shown(&settings, cx)
+    {
         let (theme, palette) = imported.ui();
         style::install_theme(theme, palette, cx);
     } else {
