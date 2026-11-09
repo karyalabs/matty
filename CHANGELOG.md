@@ -9,6 +9,30 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.15] - 2026-11-09
+
+Fixes from the first benchmark against the official desktop app (#764).
+
+### Added
+
+- Code blocks are syntax highlighted (#777).
+
+### Changed
+
+- Messages show the way Mattermost shows them: line breaks stay as typed,
+  tables are as wide as their content with a bold header, and headings,
+  quotes and code blocks are spaced like the webapp (#773).
+
+### Fixed
+
+- Images take far less memory: they are decoded at the size they are
+  shown, and ones off screen are let go, so a channel of photos no longer
+  holds gigabytes (#774).
+- Typing right after Cmd+K always reaches the quick switcher, and it no
+  longer opens with the last pick's matches (#771).
+- A code fence closed on a line with text after it no longer swallows
+  the rest of the message (#773).
+
 ### Fixed
 
 - Messages read the way Mattermost shows them (#773): each typed line
@@ -216,6 +240,7 @@ The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
 [Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.14...HEAD
+[0.1.0-beta.15]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.12
