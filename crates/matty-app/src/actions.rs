@@ -241,8 +241,50 @@ pub enum Platform {
 }
 
 impl Platform {
+    /// The platform whose keymap Matty uses. Native builds know it at
+    /// compile time; in a browser it is the visitor's OS, so a Mac browser
+    /// gets the Cmd keymap and hints like the desktop app.
     pub fn current() -> Self {
+        #[cfg(target_family = "wasm")]
+        {
+            thread_local! {
+                static CURRENT: Platform = Platform::from_browser();
+            }
+            CURRENT.with(|platform| *platform)
+        }
+        #[cfg(not(target_family = "wasm"))]
         if cfg!(target_os = "macos") {
+            Self::MacOs
+        } else {
+            Self::Other
+        }
+    }
+
+    /// Reads the OS from the browser the way GPUI's web platform does, so
+    /// the keymap agrees with the modifiers GPUI reports: Macs, and iPads
+    /// and iPhones with a keyboard, use Cmd.
+    #[cfg(target_family = "wasm")]
+    fn from_browser() -> Self {
+        let Some(navigator) = web_sys::window().map(|window| window.navigator()) else {
+            return Self::Other;
+        };
+        let user_agent = navigator.user_agent().unwrap_or_default();
+        #[allow(deprecated)]
+        let platform = navigator.platform().unwrap_or_default();
+        Self::from_user_agent(&user_agent, &platform)
+    }
+
+    /// Whether a browser with this user agent and `navigator.platform` runs
+    /// on an Apple OS whose shortcuts use Cmd.
+    #[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
+    fn from_user_agent(user_agent: &str, platform: &str) -> Self {
+        let apple = ["Mac", "iPhone", "iPad", "iPod"];
+        if user_agent.contains("Android") {
+            Self::Other
+        } else if apple
+            .iter()
+            .any(|name| platform.contains(name) || user_agent.contains(name))
+        {
             Self::MacOs
         } else {
             Self::Other
@@ -722,6 +764,28 @@ pub fn bind(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn browsers_on_apple_platforms_use_the_mac_keymap() {
+        let mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+        assert_eq!(Platform::from_user_agent(mac, "MacIntel"), Platform::MacOs);
+        let ipad = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15";
+        assert_eq!(Platform::from_user_agent(ipad, "iPad"), Platform::MacOs);
+        let windows =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0";
+        assert_eq!(Platform::from_user_agent(windows, "Win32"), Platform::Other);
+        let linux = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0.0.0";
+        assert_eq!(
+            Platform::from_user_agent(linux, "Linux x86_64"),
+            Platform::Other
+        );
+        let android =
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile";
+        assert_eq!(
+            Platform::from_user_agent(android, "Linux armv8l"),
+            Platform::Other
+        );
+    }
+
     use std::collections::HashMap;
 
     use super::*;
