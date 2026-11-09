@@ -694,7 +694,9 @@ impl SettingsStore {
     }
 
     /// Applies `change`; if anything changed, emits one [`SettingsChanged`] and
-    /// writes the file in the background.
+    /// writes the file in the background. A sign-in or sign-out is written
+    /// at once: a browser quit or killed in the next moments must still find
+    /// the account on the next launch.
     pub fn update(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Settings)) {
         let mut next = self.settings.clone();
         change(&mut next);
@@ -702,21 +704,41 @@ impl SettingsStore {
         if next == self.settings {
             return;
         }
+        let at_once =
+            next.account != self.settings.account || next.servers != self.settings.servers;
         self.settings = next;
         cx.emit(SettingsChanged);
         cx.notify();
-        if let Some(path) = self.path.clone() {
-            let mut settings = self.settings.clone();
-            if let Some((popouts, splits)) = &self.kept_places {
-                settings.popouts = popouts.clone();
-                settings.splits = splits.clone();
-            }
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        let mut settings = self.settings.clone();
+        if let Some((popouts, splits)) = &self.kept_places {
+            settings.popouts = popouts.clone();
+            settings.splits = splits.clone();
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            // localStorage lives on the page, not in a worker, and a page
+            // can be closed before any timer fires: the pending write waits
+            // where `pagehide` can reach it too (see `flush_on_page_hide`).
+            web_pending::put(path, settings);
+            self.save = if at_once {
+                web_pending::write();
+                None
+            } else {
+                Some(cx.spawn(async move |_, cx| {
+                    cx.background_executor().timer(SAVE_DELAY).await;
+                    web_pending::write();
+                }))
+            };
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
             self.save = Some(cx.spawn(async move |_, cx| {
-                cx.background_executor().timer(SAVE_DELAY).await;
-                // localStorage lives on the page, not in a worker.
-                #[cfg(target_family = "wasm")]
-                let written = save(&path, &settings).map_err(|e| (path, e));
-                #[cfg(not(target_family = "wasm"))]
+                if !at_once {
+                    cx.background_executor().timer(SAVE_DELAY).await;
+                }
                 let written = cx
                     .background_spawn(async move { save(&path, &settings).map_err(|e| (path, e)) })
                     .await;
@@ -726,6 +748,54 @@ impl SettingsStore {
             }));
         }
     }
+}
+
+/// On the web, the settings waiting to be written. The store's timer writes
+/// them, and so does the page being hidden or closed, which needs no `App`.
+#[cfg(target_family = "wasm")]
+mod web_pending {
+    use std::{cell::RefCell, path::PathBuf};
+
+    use super::Settings;
+
+    thread_local! {
+        static PENDING: RefCell<Option<(PathBuf, Settings)>> = const { RefCell::new(None) };
+    }
+
+    /// Makes `settings` the next write, replacing any older one.
+    pub(super) fn put(path: PathBuf, settings: Settings) {
+        PENDING.with_borrow_mut(|pending| *pending = Some((path, settings)));
+    }
+
+    /// Writes the pending settings, if any.
+    pub(super) fn write() {
+        let Some((path, settings)) = PENDING.with_borrow_mut(Option::take) else {
+            return;
+        };
+        if let Err(error) = super::save(&path, &settings) {
+            tracing::warn!(path = %path.display(), %error, "could not save settings");
+        }
+    }
+}
+
+/// Writes settings still waiting on their delay when the page is hidden or
+/// closed. A tab switch, a closed tab and a quit browser all hide the page
+/// first, and nothing on the page runs after that.
+#[cfg(target_family = "wasm")]
+pub fn flush_on_page_hide() {
+    use wasm_bindgen::{JsCast as _, closure::Closure};
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let flush = Closure::<dyn Fn()>::new(web_pending::write);
+    let callback = flush.as_ref().unchecked_ref();
+    let _ = window.add_event_listener_with_callback("pagehide", callback);
+    if let Some(document) = window.document() {
+        let _ = document.add_event_listener_with_callback("visibilitychange", callback);
+    }
+    // The page keeps the listener for its life.
+    flush.forget();
 }
 
 #[cfg(test)]

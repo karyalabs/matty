@@ -42,13 +42,47 @@
         // compiles as it downloads, so the demo's wait doesn't hold it up.
         // The demo is gzipped by scripts/web, since hosts only compress text.
         const app = WebAssembly.compileStreaming(fetch("./matty-web_bg.wasm"));
+        // The app keeps its settings and session in localStorage, which
+        // Chrome writes to disk lazily: a browser quit or killed soon after
+        // signing in could forget the session. The app hands every change
+        // to mattyKept too, which keeps it in IndexedDB with strict
+        // durability; that copy goes back into localStorage before the app
+        // starts. Only changed entries are written back, so a launch adds no
+        // localStorage write of its own.
+        window.mattyKept = (() => {
+          let opened;
+          const store = (mode) => (opened ??= new Promise((resolve, reject) => {
+            const request = indexedDB.open("matty", 1);
+            request.onupgradeneeded = () => request.result.createObjectStore("kept");
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          })).then((db) => db.transaction("kept", mode, { durability: "strict" }).objectStore("kept"));
+          const quietly = (promise) => promise.catch((error) => console.warn("mattyKept:", error));
+          return {
+            put: (key, value) => { quietly(store("readwrite").then((kept) => kept.put(value, key))); },
+            remove: (key) => { quietly(store("readwrite").then((kept) => kept.delete(key))); },
+            restore: () => quietly(store("readonly").then((kept) => new Promise((resolve, reject) => {
+              const request = kept.openCursor();
+              request.onsuccess = () => {
+                const cursor = request.result;
+                if (!cursor) return resolve();
+                if (localStorage.getItem(cursor.key) !== cursor.value) {
+                  localStorage.setItem(cursor.key, cursor.value);
+                }
+                cursor.continue();
+              };
+              request.onerror = () => reject(request.error);
+            }))),
+          };
+        })();
+        const restored = window.mattyKept.restore();
         const demo = !showDemo
           ? Promise.resolve(null)
           : fetch("./demo.sqlite.gz")
               .then((r) => (r.ok ? new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer() : null))
               .catch(() => null);
-        demo
-          .then((bytes) => { window.mattyDemo = bytes; return init({ module_or_path: app }); })
+        Promise.all([demo, restored])
+          .then(([bytes]) => { window.mattyDemo = bytes; return init({ module_or_path: app }); })
           .then(() => {
             loading.hidden = true;
             // sw.js serves this page and the app from the browser's copy on
