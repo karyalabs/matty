@@ -162,3 +162,50 @@ fn the_switcher_reaches_every_team_and_other_servers(cx: &mut gpui_kit::TestAppC
         .any(|element| element.placeholder() == Some("Message #deploys"));
     assert!(composer, "deploys is open");
 }
+
+/// The keys typed right after Cmd/Ctrl+K reach the field, with no frame
+/// drawn in between, and do again right after a pick: the bench run of
+/// beta.14 lost every other switch because the dialog took focus back
+/// from the field as it mounted, leaving the field empty and the last
+/// pick's rows listed.
+#[gpui_kit::test]
+fn typing_right_after_opening_reaches_the_field_every_time(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("servers".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    let open = if cfg!(target_os = "macos") {
+        "cmd-k"
+    } else {
+        "ctrl-k"
+    };
+    for (query, channel) in [
+        ("critiq", "critique"),
+        ("motio", "motion"),
+        ("critiq", "critique"),
+    ] {
+        let typed = query
+            .chars()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join(" ");
+        cx.simulate_keystrokes(&format!("{open} {typed} enter"));
+        cx.run_until_parked();
+        assert_eq!(open_row(&mut cx), channel, "after typing {query:?}");
+        assert!(options(&mut cx).is_empty(), "the switcher closed");
+    }
+
+    // Opening again lists the rows for no query, not the last pick's.
+    cx.simulate_keystrokes(open);
+    cx.run_until_parked();
+    let rows = options(&mut cx);
+    assert!(rows.len() > 3, "{rows:?}");
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row.starts_with("Search messages for")),
+        "{rows:?}"
+    );
+}

@@ -94,6 +94,9 @@ pub struct Switcher {
     query: SharedString,
     /// What the switcher picks a channel for, instead of opening one.
     forwarding: Option<Pick>,
+    /// Opened since the last frame: the field takes focus as the dialog
+    /// mounts (see [`Self::element`]).
+    focus_field: bool,
     _subscription: Subscription,
 }
 
@@ -147,6 +150,7 @@ impl Switcher {
             all_servers: false,
             query: SharedString::default(),
             forwarding: None,
+            focus_field: false,
             _subscription: subscription,
         };
         switcher.refresh(cx);
@@ -241,13 +245,16 @@ impl Switcher {
         self.refresh(cx);
     }
 
-    pub fn open(&self, window: &mut Window, cx: &mut App) {
+    pub fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.handle.open(window, cx);
-        // The dialog mounts on the next frame; focus the input once it exists.
-        let command = self.command.clone();
-        window.on_next_frame(move |window, cx| {
-            command.update(cx, |state, cx| state.focus(window, cx));
-        });
+        // The field takes focus in the frame that mounts the dialog, after
+        // the dialog has put focus on itself, so typing that follows Cmd+K
+        // at once reaches the field however long that frame takes. Focusing
+        // it from a next-frame callback lost the race now and then: those
+        // run before the frame draws, so the mounting dialog took focus back
+        // and the next keys went nowhere (#771).
+        self.focus_field = true;
+        cx.notify();
     }
 
     /// Opens the switcher to pick where to forward `post`.
@@ -287,10 +294,15 @@ impl Switcher {
 
     fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.all_servers = false;
+        // Setting the field's text sends no query event, so the rows are
+        // listed again here: the next opening shows them for no query, not
+        // the last pick's matches.
+        self.query = SharedString::default();
         self.command.update(cx, |state, cx| {
             state.set_query("", window, cx);
             state.set_placeholder(t!("switcher-placeholder"), window, cx);
         });
+        self.refresh(cx);
     }
 
     /// Direct messages lead with the person's avatar; mention counts sit
@@ -366,12 +378,19 @@ impl Switcher {
 
     /// The dialog element; the window mounts it every frame so focus
     /// returns to the right place when it closes.
-    pub fn element(&self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    pub fn element(&mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = UiTheme::read(cx).clone();
         let popup = command_dialog_popup("switcher.popup", &self.command, cx)
             .max_w(style::scaled(&theme, style::metrics::SWITCHER_MAX_WIDTH))
             .type_style(style::UI, &theme);
-        dialog("switcher", &self.handle, popup, window, cx)
+        // Building the dialog moves focus onto it as it opens; the field
+        // takes it from there in the same frame.
+        let element = dialog("switcher", &self.handle, popup, window, cx);
+        if std::mem::take(&mut self.focus_field) && self.handle.is_open() {
+            let field = gpui_kit::Focusable::focus_handle(self.command.read(cx), cx);
+            window.focus(&field, cx);
+        }
+        element
     }
 }
 
