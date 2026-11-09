@@ -233,7 +233,7 @@ impl AccountView {
     }
 
     fn set_dnd(&mut self, duration: DndDuration, cx: &mut Context<Self>) {
-        let end = dnd::end_time(duration, &jiff::Zoned::now());
+        let end = dnd::end_time(duration, &crate::clock::now());
         self.set_presence(Presence::Dnd, end, cx);
     }
 
@@ -243,7 +243,7 @@ impl AccountView {
             .account
             .dnd_end
             .filter(|_| self.account.presence == Presence::Dnd)?;
-        let now = jiff::Zoned::now();
+        let now = crate::clock::now();
         if end <= now.timestamp().as_second() {
             return None;
         }
@@ -251,7 +251,7 @@ impl AccountView {
     }
 
     fn open_custom(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let now = jiff::Zoned::now();
+        let now = crate::clock::now();
         let clock = ClockFormat::current(cx);
         crate::when::reset(&self.custom_end, None, &now, clock, cx);
         self.custom.open(window, cx);
@@ -260,7 +260,7 @@ impl AccountView {
 
     /// The custom pick in seconds since the epoch, if it is still ahead.
     fn custom_end(&self, cx: &App) -> Option<i64> {
-        crate::when::picked(&self.custom_end, &jiff::Zoned::now(), cx)
+        crate::when::picked(&self.custom_end, &crate::clock::now(), cx)
     }
 
     /// Takes the user's own custom status and recent ones from the server.
@@ -346,7 +346,7 @@ impl AccountView {
             .map(|name| Duration::from_server(name))
             .unwrap_or_default();
         let status = (!text.is_empty()).then(|| {
-            custom_status::to_server(&self.status_emoji, &text, duration, &jiff::Zoned::now())
+            custom_status::to_server(&self.status_emoji, &text, duration, &crate::clock::now())
         });
         // An emptied field clears the status, as Clear does.
         if status.is_some() || self.account.status.is_some() {

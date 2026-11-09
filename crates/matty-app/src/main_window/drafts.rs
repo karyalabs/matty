@@ -168,8 +168,8 @@ impl MainWindow {
             return;
         };
         let clock = crate::settings::ClockFormat::current(cx);
-        let zone = jiff::tz::TimeZone::system();
-        let today = jiff::Zoned::now().date();
+        let zone = crate::clock::zone();
+        let today = crate::clock::now().date();
         let drafts = all
             .into_iter()
             .filter_map(|(key, kept)| {

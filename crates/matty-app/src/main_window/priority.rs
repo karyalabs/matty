@@ -183,7 +183,7 @@ impl MainWindow {
         )));
         let when = crate::scheduled::when_label(
             at,
-            &jiff::Zoned::now(),
+            &crate::clock::now(),
             crate::settings::ClockFormat::current(cx),
         );
         self.toasts.update(cx, |toasts, cx| {

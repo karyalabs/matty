@@ -1187,7 +1187,7 @@ impl SidebarView {
         if let Some(status) = &row.status {
             let mut tooltip = status.label();
             let until = status.until_label(
-                &jiff::Zoned::now(),
+                &crate::clock::now(),
                 crate::settings::ClockFormat::current(cx),
             );
             if let Some(until) = &until {

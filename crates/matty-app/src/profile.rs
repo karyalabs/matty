@@ -223,7 +223,7 @@ fn details(profile: &UserProfile, cx: &App) -> gpui_kit::Div {
         ))
         .children(profile.status.as_ref().map(|status| {
             let until = status.until_label(
-                &jiff::Zoned::now(),
+                &crate::clock::now(),
                 crate::settings::ClockFormat::current(cx),
             );
             div()
