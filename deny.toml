@@ -44,3 +44,5 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Spike only (#828): unreleased gpui-fast features on the spike branches.
+allow-git = ["https://github.com/karyalabs/gpuicn", "https://github.com/karyalabs/gpui-icons"]
