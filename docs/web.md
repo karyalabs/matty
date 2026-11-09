@@ -151,6 +151,19 @@ where slow frames show first. What keeps it smooth:
   responding for good. Signed in under live traffic that happened in most
   runs; without workers it hasn't happened, and frames cost the same.
 
+Launch, with nothing cached in the browser:
+
+- The app's `.wasm` and `.js` are named by their content (`scripts/web`)
+  and `_headers` lets the browser keep them for a year, so a warm launch
+  downloads only `index.html`, and Chrome reuses the compiled app. Under
+  one name with `no-cache`, every launch first asked Cloudflare about the
+  22 MB file, and the public site took about a second longer than the same
+  build served locally (1.75 s against 0.7 s, beta.16 bench).
+- Sync loads drafts, scheduled messages and emoji beside the teams, and
+  fetches the channel the server last opened on with the account
+  (`Command::Prefetch`, `Settings::opens_on`), so the first channel doesn't
+  wait for the sidebar (#816).
+
 To measure, `node scripts/web-bench.mjs <label> <dist dir or URL> --headed`
 drives Chrome (through Playwright) over a build or the live site: startup,
 wheel scrolling, hovering, typing, with the main-thread time of every frame.

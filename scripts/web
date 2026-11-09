@@ -120,6 +120,22 @@ build() {
     # Cloudflare reads _headers from the root of the site, the rest is the app.
     cp "$crate/web/_headers" "$dist/"
     find "$crate/web" -maxdepth 1 -type f ! -name _headers -exec cp {} "$app/" \;
+    # The app's files are named by their content, so the browser keeps them
+    # for good (_headers) and a warm launch neither downloads them nor asks
+    # whether they changed; index.html, checked on every load, names the
+    # new ones after a deploy.
+    rm -f "$app"/*.d.ts
+    local hash
+    hash="$(cat "$app/matty-web_bg.wasm" "$app/matty-web.js" | shasum -a 256 | cut -c1-16)"
+    mv "$app/matty-web_bg.wasm" "$app/matty-web_bg-$hash.wasm"
+    mv "$app/matty-web.js" "$app/matty-web-$hash.js"
+    sed -i.bak -e "s|\./matty-web_bg\.wasm|./matty-web_bg-$hash.wasm|" \
+        -e "s|\./matty-web\.js|./matty-web-$hash.js|" "$app/index.html"
+    rm "$app/index.html.bak"
+    if grep -q 'matty-web\.js\|matty-web_bg\.wasm' "$app/index.html"; then
+        echo "error: index.html still names an unhashed app file" >&2
+        exit 1
+    fi
     # The demo workspace, gzipped: index.html unpacks it in the browser.
     gzip -9 -c "$crate/demo/demo.sqlite" > "$app/demo.sqlite.gz"
     cp "$crate/assets/IBMPlexSans-LICENSE.txt" "$app/"
