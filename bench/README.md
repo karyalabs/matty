@@ -37,6 +37,12 @@ take an hour and slows every request during the run
 (`colima start --vz-rosetta --cpu 10 --memory 16`, or Docker Desktop's "Use
 Rosetta for x86/amd64 emulation").
 
+The official app must be the regular download (`brew install --cask
+mattermost` or releases.mattermost.com), not the Mac App Store build: that one
+is sandboxed, cannot use the benchmark's own profile folder, and crashes with
+EPERM. A copy anywhere works, e.g. `--app
+mattermost=bench/out/apps/Mattermost.app`.
+
 Before a run: quit your everyday Matty and Mattermost (the benchmark uses its
 own profiles in `bench/out/profiles/`, but two copies of an app fight over the
 keychain and single-instance locks), close other heavy apps, plug in power,
