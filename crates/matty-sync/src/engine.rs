@@ -54,6 +54,16 @@ pub enum Command {
     /// Publishes what the cache has without touching the network, as
     /// `matty --offline` and the launch before a session is restored do.
     ShowCache,
+    /// The channel the app will likely open once the sidebar is in: its
+    /// posts are fetched as soon as the account has loaded, side by side
+    /// with the teams, instead of a round trip after them. Send it after
+    /// [`Command::Connect`]; a later `OpenChannel` for it fetches nothing
+    /// more. With no cache (the web), this is what the first screen waits
+    /// on.
+    Prefetch {
+        /// The channel.
+        channel_id: String,
+    },
     /// Adds, edits, deletes or moves a channel bookmark (#226);
     /// [`ChangeSet::Bookmarks`](crate::ChangeSet::Bookmarks) follows, or a
     /// [`ChangeSet::Failed`](crate::ChangeSet::Failed).
@@ -777,6 +787,10 @@ impl std::fmt::Debug for Command {
         match self {
             Self::Connect { .. } => f.write_str("Connect"),
             Self::ShowCache => f.write_str("ShowCache"),
+            Self::Prefetch { channel_id } => f
+                .debug_struct("Prefetch")
+                .field("channel_id", channel_id)
+                .finish(),
             Self::Bookmark(command) => f.debug_tuple("Bookmark").field(command).finish(),
             Self::App(command) => f.debug_tuple("App").field(command).finish(),
             Self::SignOut => f.write_str("SignOut"),
@@ -1250,6 +1264,9 @@ struct Session {
     collapsed_threads: bool,
     /// Open channels fetched over this session.
     fetched: BTreeSet<String>,
+    /// The channel to fetch once the account has loaded
+    /// ([`Command::Prefetch`]).
+    prefetch: Option<String>,
     load: JoinHandle<()>,
     /// The WebSocket; dropping it closes the connection.
     socket: WsClient,
@@ -1427,6 +1444,7 @@ impl Engine {
         dirty: &mut Dirty,
     ) -> Result<(), StoreError> {
         let mut to_fetch = Vec::new();
+        let mut to_prefetch = None;
         let mut uploads = Vec::new();
         let mut images = Vec::new();
         let mut remote_images = Vec::new();
@@ -1485,6 +1503,7 @@ impl Engine {
                         user_id: String::new(),
                         collapsed_threads: cached_crt(&tx)?,
                         fetched: BTreeSet::new(),
+                        prefetch: None,
                         load,
                         socket,
                         was_connected: false,
@@ -1495,6 +1514,15 @@ impl Engine {
                     // Tell the app what is still waiting from an earlier run.
                     dirty.outbox.extend(queue::channels(&tx)?);
                     publish_drafts(&tx, dirty)?;
+                }
+                Message::Command(Command::Prefetch { channel_id }) => {
+                    if let Some(session) = &mut self.session {
+                        if session.user_id.is_empty() {
+                            session.prefetch = Some(channel_id);
+                        } else {
+                            to_prefetch = Some(channel_id);
+                        }
+                    }
                 }
                 Message::Command(Command::ShowCache) => {
                     dirty.all_teams = true;
@@ -2367,6 +2395,9 @@ impl Engine {
         for channel_id in to_fetch {
             self.fetch_channel(&channel_id);
         }
+        if let Some(channel_id) = to_prefetch {
+            self.prefetch_channel(&channel_id);
+        }
         fetches.dedup();
         for what in fetches {
             self.fetch(what);
@@ -3048,6 +3079,25 @@ impl Engine {
         }
     }
 
+    /// Fetches the posts of a channel the app is about to open
+    /// ([`Command::Prefetch`]), once per session, like [`Self::fetch_channel`]
+    /// does for an open one; its stats and bookmarks wait for the open.
+    fn prefetch_channel(&mut self, channel_id: &str) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        if session.user_id.is_empty() || !session.fetched.insert(channel_id.to_owned()) {
+            return;
+        }
+        matty_api::rt::spawn(load::open_channel(
+            session.client.clone(),
+            session.user_id.clone(),
+            channel_id.to_owned(),
+            session.collapsed_threads,
+            self.loaded.clone(),
+        ));
+    }
+
     /// Writes loaded results in order. Runs of WebSocket events share one
     /// transaction, like a batch of commands.
     fn write_all(
@@ -3338,6 +3388,9 @@ impl Engine {
                 for channel_id in open {
                     self.fetch_channel(&channel_id);
                 }
+                if let Some(channel_id) = self.session.as_mut().and_then(|s| s.prefetch.take()) {
+                    self.prefetch_channel(&channel_id);
+                }
             }
             Loaded::Team {
                 team_id,
@@ -3513,6 +3566,19 @@ impl Engine {
                 let fetched: Vec<_> = list.posts.into_values().collect();
                 posts::insert_posts(&tx, &fetched)?;
                 tx.commit()?;
+                // A prefetched channel (Command::Prefetch) is not open yet:
+                // its authors are asked for now, so they are in when it is.
+                if !self.open_channels.contains(&channel_id) {
+                    let ids = fetched
+                        .iter()
+                        .map(|post| post.user_id.clone())
+                        .chain(fetched.iter().flat_map(quoted_authors))
+                        .chain(fetched.iter().flat_map(reactors))
+                        .collect();
+                    if let Some(users) = self.ask_users(ids) {
+                        dirty.direct.push(users);
+                    }
+                }
                 dirty.channels.insert(channel_id);
             }
             Loaded::Directory {
@@ -4092,6 +4158,12 @@ impl Engine {
                 .push(ChangeSet::Scheduled(self.scheduled.snapshot()));
         }
         let mut changes = dirty.direct;
+        // "Loaded" goes after the sidebars and unreads it may share a batch
+        // with, so whoever waits for it has them.
+        let loaded = changes
+            .iter()
+            .position(|change| matches!(change, ChangeSet::Connection(Connection::Loaded)))
+            .map(|at| changes.remove(at));
         let conn = self.store.conn();
         let user_id = posts::cursor(conn, ME_KEY).ok().flatten();
         let mode = match cached_crt(conn) {
@@ -4128,6 +4200,7 @@ impl Engine {
                 }
             }
         }
+        changes.extend(loaded);
         for root_id in dirty.threads {
             if !self.open_threads.contains(&root_id) {
                 continue;
@@ -4295,6 +4368,12 @@ impl Engine {
                 _ => {}
             }
         }
+        self.ask_users(ids)
+    }
+
+    /// Statuses and profiles for `ids`: the profiles the cache has, as a
+    /// change to send, and the rest fetched from the server.
+    fn ask_users(&mut self, mut ids: BTreeSet<String>) -> Option<ChangeSet> {
         self.watch_statuses(&ids);
         ids.retain(|id| !id.is_empty() && !self.sent_users.contains(id));
         if ids.is_empty() {

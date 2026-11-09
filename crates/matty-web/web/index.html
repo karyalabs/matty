@@ -38,9 +38,10 @@
           window.mattyConnectUrl = `https://${host.slice("demo.".length)}${location.pathname}`;
         }
         // The app and the demo workspace download side by side; the app
-        // reads the demo from window.mattyDemo as it starts.
+        // reads the demo from window.mattyDemo as it starts. The app
+        // compiles as it downloads, so the demo's wait doesn't hold it up.
         // The demo is gzipped by scripts/web, since hosts only compress text.
-        const app = fetch("./matty-web_bg.wasm");
+        const app = WebAssembly.compileStreaming(fetch("./matty-web_bg.wasm"));
         const demo = !showDemo
           ? Promise.resolve(null)
           : fetch("./demo.sqlite.gz")

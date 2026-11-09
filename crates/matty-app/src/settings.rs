@@ -330,6 +330,10 @@ pub struct Settings {
     pub servers: Vec<SavedAccount>,
     /// Servers whose check went through, newest first.
     pub recent_servers: Vec<RecentServer>,
+    /// The channel each server last opened on at launch, by account
+    /// [`data_key`](SavedAccount::data_key): sync fetches its posts with the
+    /// account at the next launch, before the sidebar has picked it.
+    pub opens_on: std::collections::BTreeMap<String, String>,
     /// The last searches, newest first, at most [`RECENT_SEARCHES`] (#129).
     pub recent_searches: Vec<String>,
     /// Emoji picked, most used first and the latest first among equals,
@@ -383,6 +387,7 @@ impl Default for Settings {
             account: None,
             servers: Vec::new(),
             recent_servers: Vec::new(),
+            opens_on: Default::default(),
             recent_searches: Vec::new(),
             emoji_usage: Vec::new(),
             skin_tone: None,

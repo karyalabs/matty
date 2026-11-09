@@ -143,6 +143,7 @@ impl Settings {
             .iter()
             .position(|server| server.data_key == data_key)?;
         let removed = self.servers.remove(index);
+        self.opens_on.remove(data_key);
         if self
             .account
             .as_ref()
