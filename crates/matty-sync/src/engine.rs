@@ -6,7 +6,7 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use matty_api::capabilities::CollapsedThreads;
-use matty_api::models::{Draft, PostChange, Preference, Reaction};
+use matty_api::models::{ChannelStats, Draft, PostChange, Preference, Reaction};
 use matty_api::ws::{ConnectionState, WsClient, WsEvent, WsSignal};
 use matty_api::{Client, ServerCapabilities};
 use matty_store::posts::{self, Window};
@@ -1301,6 +1301,10 @@ pub(crate) struct Engine {
     /// Open channels sent in [`ChangeSet::Channel`], by their `update_at`,
     /// so a posts change does not repeat them.
     sent_channels: std::collections::BTreeMap<String, SentChannel>,
+    /// Counts that arrived for a channel before it opened (fetched with a
+    /// [`Command::Prefetch`]), shown the moment it does: the header would
+    /// otherwise read 0 members until its own fetch answers.
+    early_stats: std::collections::BTreeMap<String, Arc<ChannelStats>>,
     session: Option<Session>,
     loaded: mpsc::UnboundedSender<Loaded>,
     loaded_inbox: Option<mpsc::UnboundedReceiver<Loaded>>,
@@ -1352,6 +1356,7 @@ impl Engine {
             sent_users: BTreeSet::new(),
             asked_users: BTreeSet::new(),
             sent_channels: std::collections::BTreeMap::new(),
+            early_stats: std::collections::BTreeMap::new(),
             session: None,
             loaded,
             loaded_inbox: Some(loaded_inbox),
@@ -1498,6 +1503,7 @@ impl Engine {
                             }
                         }
                     });
+                    self.early_stats.clear();
                     self.session = Some(Session {
                         client,
                         user_id: String::new(),
@@ -1573,6 +1579,12 @@ impl Engine {
                 }
                 Message::Command(Command::OpenChannel { channel_id }) => {
                     self.open_channels.insert(channel_id.clone());
+                    // The app forgets the row on every open, even of the
+                    // channel already open, so it is sent again.
+                    self.sent_channels.remove(&channel_id);
+                    if let Some(stats) = self.early_stats.remove(&channel_id) {
+                        dirty.direct.push(ChangeSet::Stats(stats));
+                    }
                     let bookmarks = self.capabilities.as_ref().map(|c| c.channel_bookmarks);
                     crate::bookmarks::opened(&tx, &channel_id, bookmarks, dirty)?;
                     to_fetch.push(channel_id.clone());
@@ -3081,7 +3093,8 @@ impl Engine {
 
     /// Fetches the posts of a channel the app is about to open
     /// ([`Command::Prefetch`]), once per session, like [`Self::fetch_channel`]
-    /// does for an open one; its stats and bookmarks wait for the open.
+    /// does for an open one, with its counts; its bookmarks wait for the
+    /// open.
     fn prefetch_channel(&mut self, channel_id: &str) {
         let Some(session) = &mut self.session else {
             return;
@@ -3089,6 +3102,11 @@ impl Engine {
         if session.user_id.is_empty() || !session.fetched.insert(channel_id.to_owned()) {
             return;
         }
+        matty_api::rt::spawn(load::channel_stats(
+            session.client.clone(),
+            channel_id.to_owned(),
+            self.loaded.clone(),
+        ));
         matty_api::rt::spawn(load::open_channel(
             session.client.clone(),
             session.user_id.clone(),
@@ -4123,6 +4141,9 @@ impl Engine {
             Loaded::Stats(stats) => {
                 if self.open_channels.contains(&stats.channel_id) {
                     dirty.direct.push(ChangeSet::Stats(Arc::new(stats)));
+                } else {
+                    self.early_stats
+                        .insert(stats.channel_id.clone(), Arc::new(stats));
                 }
             }
             Loaded::PostsFailed { channel_id, error } => {
