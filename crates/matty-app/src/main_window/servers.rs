@@ -46,6 +46,16 @@ impl MainWindow {
             live.send(matty_sync::Command::Connect {
                 client: client.with_token(token),
             });
+            let opens_on = self
+                .settings
+                .read(cx)
+                .get()
+                .opens_on
+                .get(&account.data_key())
+                .cloned();
+            if let Some(channel_id) = opens_on {
+                live.send(matty_sync::Command::Prefetch { channel_id });
+            }
         }
         true
     }

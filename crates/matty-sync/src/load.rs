@@ -341,7 +341,8 @@ pub(crate) async fn fetch(
     }
 }
 
-/// Loads the account, then every team at once, then emoji and statuses.
+/// Loads the account, then every team, drafts, scheduled messages and
+/// custom emoji at once, and statuses once the teams are in.
 pub(crate) async fn run(client: Client, results: UnboundedSender<Loaded>) {
     let account = tokio::try_join!(
         client.me(),
@@ -382,82 +383,105 @@ pub(crate) async fn run(client: Client, results: UnboundedSender<Loaded>) {
         return;
     }
 
-    let mut tasks = tokio::task::JoinSet::new();
-    for team_id in team_ids {
-        let client = client.clone();
-        let user_id = user_id.clone();
-        let load = async move {
-            let loaded = team(&client, &user_id, &team_id).await;
-            (team_id, loaded)
-        };
-        #[cfg(not(target_family = "wasm"))]
-        tasks.spawn(load);
-        #[cfg(target_family = "wasm")]
-        tasks.spawn_local(load);
-    }
-    let mut partners = BTreeSet::new();
-    while let Some(joined) = tasks.join_next().await {
-        let message = match joined {
-            Ok((_, Ok(loaded))) => {
-                if let Loaded::Team { channels, .. } = &loaded {
-                    partners.extend(dm_partners(channels, &user_id));
+    // The teams, then their people's statuses, side by side with drafts,
+    // scheduled messages and custom emoji: none of those needs the teams,
+    // and on the web, with nothing cached, every round trip here is one the
+    // first screen waits for.
+    let teams = async {
+        let mut tasks = tokio::task::JoinSet::new();
+        for team_id in team_ids {
+            let client = client.clone();
+            let user_id = user_id.clone();
+            let load = async move {
+                let loaded = team(&client, &user_id, &team_id).await;
+                (team_id, loaded)
+            };
+            #[cfg(not(target_family = "wasm"))]
+            tasks.spawn(load);
+            #[cfg(target_family = "wasm")]
+            tasks.spawn_local(load);
+        }
+        let mut partners = BTreeSet::new();
+        while let Some(joined) = tasks.join_next().await {
+            let message = match joined {
+                Ok((_, Ok(loaded))) => {
+                    if let Loaded::Team { channels, .. } = &loaded {
+                        partners.extend(dm_partners(channels, &user_id));
+                    }
+                    loaded
                 }
-                loaded
+                Ok((team_id, Err(error))) => Loaded::TeamFailed {
+                    team_id,
+                    error: error.to_string(),
+                },
+                Err(error) => {
+                    tracing::error!(%error, "a team load task failed");
+                    continue;
+                }
+            };
+            if results.send(message).is_err() {
+                return;
             }
-            Ok((team_id, Err(error))) => Loaded::TeamFailed {
-                team_id,
-                error: error.to_string(),
-            },
-            Err(error) => {
-                tracing::error!(%error, "a team load task failed");
-                continue;
+        }
+        // After the teams, so the sidebar rows are there to take them.
+        if !partners.is_empty() {
+            let ids: Vec<String> = partners.into_iter().collect();
+            match client.statuses(&ids).await {
+                Ok(statuses) => {
+                    let _ = results.send(Loaded::Statuses(statuses));
+                }
+                Err(error) => tracing::warn!(%error, "could not load statuses"),
             }
-        };
-        if results.send(message).is_err() {
+        }
+    };
+    let drafts = async {
+        if !synced_drafts {
             return;
         }
-    }
-
-    if !partners.is_empty() {
-        let ids: Vec<String> = partners.into_iter().collect();
-        match client.statuses(&ids).await {
-            Ok(statuses) => {
-                let _ = results.send(Loaded::Statuses(statuses));
-            }
-            Err(error) => tracing::warn!(%error, "could not load statuses"),
-        }
-    }
-    if synced_drafts {
-        for team_id in &draft_teams {
-            match client.drafts(&user_id, team_id).await {
+        let (client, user_id, results) = (&client, &user_id, &results);
+        let fetches = draft_teams.iter().map(|team_id| async move {
+            match client.drafts(user_id, team_id).await {
                 Ok(drafts) if !drafts.is_empty() => {
                     let _ = results.send(Loaded::Drafts(drafts));
                 }
                 Ok(_) => {}
                 Err(error) => tracing::warn!(%error, %team_id, "could not load drafts"),
             }
+        });
+        futures_util::future::join_all(fetches).await;
+    };
+    let scheduled = async {
+        if scheduled_posts {
+            load_scheduled(&client, &draft_teams, &results).await;
         }
-    }
-    if scheduled_posts {
-        load_scheduled(&client, &draft_teams, &results).await;
-    }
-    if custom_emoji {
-        match client.all_emoji().await {
-            Ok(emoji) => {
-                let _ = results.send(Loaded::Emoji(emoji));
+    };
+    let emoji = async {
+        if custom_emoji {
+            match client.all_emoji().await {
+                Ok(emoji) => {
+                    let _ = results.send(Loaded::Emoji(emoji));
+                }
+                Err(error) => tracing::warn!(%error, "could not load custom emoji"),
             }
-            Err(error) => tracing::warn!(%error, "could not load custom emoji"),
         }
-    }
+    };
+    futures_util::future::join4(teams, drafts, scheduled, emoji).await;
     let _ = results.send(Loaded::Done);
 }
 
 /// Lists the user's scheduled messages in every team, direct and group
 /// messages once with the first (#220).
 async fn load_scheduled(client: &Client, team_ids: &[String], results: &UnboundedSender<Loaded>) {
+    let fetches = team_ids
+        .iter()
+        .enumerate()
+        .map(|(index, team_id)| client.scheduled_posts(team_id, index == 0));
     let mut all = Vec::new();
-    for (index, team_id) in team_ids.iter().enumerate() {
-        match client.scheduled_posts(team_id, index == 0).await {
+    for (team_id, fetched) in team_ids
+        .iter()
+        .zip(futures_util::future::join_all(fetches).await)
+    {
+        match fetched {
             Ok(posts) => all.extend(posts),
             Err(error) => {
                 tracing::warn!(%error, %team_id, "could not load scheduled messages");
