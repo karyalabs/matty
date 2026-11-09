@@ -49,7 +49,7 @@ WIN_X, WIN_Y, WIN_W, WIN_H = 40, 60, 1280, 800
 MARK_H = 16
 MARK_W = 18 * 20
 
-SCENARIOS = ["startup", "idle", "switch", "sidebar", "scroll", "emoji", "gallery",
+SCENARIOS = ["startup", "idle", "idle-events", "switch", "sidebar", "scroll", "emoji", "gallery",
              "thread", "live", "typing", "settle"]
 
 
@@ -250,8 +250,6 @@ class Matty(App):
         self.home = self.profile / "home"
         self.home.mkdir(parents=True, exist_ok=True)
         self.env = {"HOME": str(self.home)}
-        if os.environ.get("MATTY_PERF_LOG_BENCH"):
-            self.env["MATTY_PERF_LOG"] = str(self.profile / "perf.log")
 
     def prepare(self, server: str):
         if not MAC:
@@ -401,6 +399,63 @@ def process_tree(root: int) -> dict[int, tuple[int, float, str]]:
                     tree[pid] = (rows[pid][0], cpu, rows[pid][2])
             stack.extend(children.get(pid, []))
     return tree
+
+
+# Footprint categories, grouped: what the GPU holds (GPUI's glyph and image
+# atlases, Chromium's compositor), the allocator, and files mapped in.
+GPU_CATEGORIES = ("IOAccelerator", "IOSurface", "IOKit", "Metal", "CG ", "CoreAnimation", "CA layer")
+
+
+def _bytes(v: str) -> float:
+    m = re.match(r"([\d.]+)\s*([KMG]?B)", v.strip())
+    if not m:
+        return 0.0
+    return float(m.group(1)) * {"B": 1 / 2**20, "KB": 1 / 1024, "MB": 1, "GB": 1024}[m.group(2)]
+
+
+def memory_split(pids: list[int], save: Path | None = None) -> dict | None:
+    """The footprint of each process split into gpu, malloc, mapped files and
+    the rest (MB), from `footprint -p <pid>`'s category table: dirty plus
+    swapped (compressed) memory, which is what footprint counts. The raw
+    `footprint` and `vmmap --summary` output is kept next to it, so a format
+    this parser misreads can be checked by hand."""
+    if not MAC or not shutil.which("footprint") or not pids:
+        return None
+    split = {"gpu_mb": 0.0, "malloc_mb": 0.0, "mapped_mb": 0.0, "other_mb": 0.0}
+    raw = []
+    found = False
+    for pid in pids:
+        out = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+        raw.append(out)
+        if shutil.which("vmmap") and save is not None:
+            raw.append(subprocess.run(["vmmap", "--summary", str(pid)], capture_output=True, text=True).stdout)
+        # "  Dirty  Clean  Reclaimable  Regions  Category" rows; newer
+        # releases add a Swapped column before Clean.
+        head = None
+        for line in out.splitlines():
+            cols = re.split(r"\s{2,}", line.strip())
+            if "Category" in cols and "Dirty" in cols:
+                head = cols
+                continue
+            if not head or len(cols) != len(head) or cols[0].startswith("---"):
+                continue
+            row = dict(zip(head, cols))
+            cat = row["Category"]
+            if cat.upper().startswith("TOTAL"):
+                continue
+            mb = _bytes(row["Dirty"]) + _bytes(row.get("Swapped", "0 B"))
+            found = True
+            if any(g in cat for g in GPU_CATEGORIES):
+                split["gpu_mb"] += mb
+            elif cat.startswith("MALLOC"):
+                split["malloc_mb"] += mb
+            elif "mapped file" in cat:
+                split["mapped_mb"] += mb
+            else:
+                split["other_mb"] += mb
+    if save is not None:
+        save.write_text("\n".join(raw))
+    return {k: round(v, 1) for k, v in split.items()} if found else None
 
 
 def footprint(pids: list[int]) -> float | None:
@@ -564,6 +619,96 @@ class Traffic(threading.Thread):
             t.join(timeout=30)
 
 
+class Presence(threading.Thread):
+    """Status flips and typing from other users while the client sits idle:
+    what a busy server sends all day. Nobody it touches is on screen (no DM
+    partner, nobody who posted in the open channel recently), so a client
+    that repaints, or burns CPU, does so for nothing it shows. Statuses are
+    put back as they were at the end."""
+
+    def __init__(self, server: dict, focus_channel: str, status_rate: float, typing_rate: float, seconds: float):
+        super().__init__(daemon=True)
+        self.url, self.token = server["url"], server["admin_token"]
+        self.focus, self.seconds = focus_channel, seconds
+        self.status_rate, self.typing_rate = status_rate, typing_rate
+        self.sent = {"status": 0, "typing": 0}
+        self.errors = 0
+        self.ready = threading.Event()
+
+    api = Traffic.api
+
+    def run(self):
+        try:
+            self._run()
+        except Exception as err:
+            print(f"  idle-events: no events sent ({err})")
+            self.errors += 1
+        finally:
+            self.ready.set()
+
+    def _run(self):
+        me = self.api("GET", "/users/me")
+        bench = self.api("GET", "/users/username/bench")
+        team = self.api("GET", "/teams/name/bench")
+        chans = self.api("GET", f"/users/{bench['id']}/teams/{team['id']}/channels")
+        focus = next(c for c in chans if c["name"] == self.focus)
+        on_screen = {me["id"], bench["id"]}
+        # Team channel lists include the DMs and GMs.
+        for c in chans:
+            if c["type"] == "D":
+                on_screen.update(c["name"].split("__"))
+            elif c["type"] == "G":
+                on_screen.update(m["user_id"] for m in self.api("GET", f"/channels/{c['id']}/members?per_page=20"))
+        posts = self.api("GET", f"/channels/{focus['id']}/posts?per_page=60")
+        on_screen.update(p["user_id"] for p in posts.get("posts", {}).values())
+        users = [u["id"] for u in self.api("GET", f"/users?in_team={team['id']}&per_page=200")
+                 if u["id"] not in on_screen and not u.get("is_bot")][:150]
+        typing_in = [c["id"] for c in chans if c["type"] in "OP" and c["id"] != focus["id"]][:40]
+        before = {s["user_id"]: s["status"] for s in self.api("POST", "/users/status/ids", users)} if users else {}
+        self.ready.set()
+        if not users or not typing_in:
+            return
+        r = random.Random(11)
+        jobs: queue.Queue = queue.Queue()
+
+        def worker():
+            while (item := jobs.get()) is not None:
+                kind, uid = item
+                try:
+                    if kind == "status":
+                        self.api("PUT", f"/users/{uid}/status",
+                                 {"user_id": uid, "status": r.choice(["online", "away", "dnd", "offline"])})
+                    else:
+                        self.api("POST", f"/users/{uid}/typing", {"channel_id": r.choice(typing_in), "parent_id": ""})
+                    self.sent[kind] += 1
+                except Exception:
+                    self.errors += 1
+
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(4)]
+        for t in threads:
+            t.start()
+        end = time.monotonic() + self.seconds
+        next_status = next_typing = time.monotonic()
+        while time.monotonic() < end:
+            now = time.monotonic()
+            if self.status_rate and now >= next_status:
+                jobs.put(("status", r.choice(users)))
+                next_status += 1 / self.status_rate
+            if self.typing_rate and now >= next_typing:
+                jobs.put(("typing", r.choice(users)))
+                next_typing += 1 / self.typing_rate
+            time.sleep(0.005)
+        for _ in threads:
+            jobs.put(None)
+        for t in threads:
+            t.join(timeout=30)
+        for uid, status in before.items():
+            try:
+                self.api("PUT", f"/users/{uid}/status", {"user_id": uid, "status": status})
+            except Exception:
+                pass
+
+
 # -- The journey -------------------------------------------------------------
 
 
@@ -582,13 +727,17 @@ class Session:
         self.screen = (int(w), int(h))
         self.scale = float(scale)
         self.recorder: Recorder | None = None
+        self.launches = 0
 
     # Input with a marker.
     def mark(self, name: str, op: str = "", **extra) -> int:
         self.seq += 1
         t = time.monotonic()
         self.driver.cmd(f"@{self.seq} {op}".strip())
-        self.events.write(json.dumps({"seq": self.seq, "t": t, "name": name, "scenario": self.scenario, **extra}) + "\n")
+        # `wall` lines the events up with Matty's perf log, which counts from
+        # the epoch.
+        self.events.write(json.dumps({"seq": self.seq, "t": t, "wall": time.time(), "name": name,
+                                      "scenario": self.scenario, **extra}) + "\n")
         self.events.flush()
         return self.seq
 
@@ -606,6 +755,12 @@ class Session:
 
     # Process control.
     def launch(self) -> None:
+        self.launches += 1
+        if self.app.key == "matty" and not self.args.no_perf_log:
+            # Matty's own frame log, one per launch: CPU time per frame for
+            # the report's "Matty only" rows. The official app has no such log;
+            # every comparison still comes from the video and the OS.
+            self.app.env["MATTY_PERF_LOG"] = str(self.dir / f"perf-{self.launches}.log")
         self.proc = self.app.spawn()
         self.driver.cmd(f"target {self.proc.pid}")
         self.sampler = Sampler(self.proc.pid, self.dir / "samples.jsonl")
@@ -700,11 +855,13 @@ class Session:
             self.recorder.stop()
             self.recorder = None
         if self.proc:
-            fp = footprint(list(process_tree(self.proc.pid)))
             tree = process_tree(self.proc.pid)
+            fp = footprint(list(tree))
+            split = memory_split(list(tree), self.dir / f"footprint-{self.scenario}.txt")
             with open(self.dir / "memory.jsonl", "a") as f:
                 f.write(json.dumps({"scenario": self.scenario, "t": time.monotonic(), "footprint_mb": fp,
-                                    "rss_mb": sum(v[0] for v in tree.values()) / 1024, "procs": len(tree)}) + "\n")
+                                    "rss_mb": sum(v[0] for v in tree.values()) / 1024, "procs": len(tree),
+                                    **(split or {})}) + "\n")
 
     def switch_to(self, display: str, mark: bool = True, settle: float = 2.5) -> None:
         """Quick switcher (Cmd+K), the channel's name, Enter; the Enter is marked."""
@@ -786,6 +943,17 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     if "idle" in scen:
         s.begin("idle")
         s.wait(args.idle)
+        s.end()
+
+    if "idle-events" in scen:
+        # Parked in a quiet channel, so nothing the events touch is on screen.
+        s.switch_to("Quiet 00", mark=False, settle=2)
+        presence = Presence(server, "quiet-00", args.status_rate, args.typing_rate, args.idle)
+        presence.start()
+        presence.ready.wait(30)
+        s.begin("idle-events")
+        presence.join(args.idle + 30)
+        s.mark("events-end", status=presence.sent["status"], typing=presence.sent["typing"], errors=presence.errors)
         s.end()
 
     if "switch" in scen:
@@ -1068,6 +1236,9 @@ def main() -> None:
     ap.add_argument("--live", type=float, default=30, help="seconds of live traffic")
     ap.add_argument("--live-focus-rate", type=float, default=4, help="posts/s into the open channel")
     ap.add_argument("--live-other-rate", type=float, default=25, help="posts/s into other channels")
+    ap.add_argument("--status-rate", type=float, default=10, help="idle-events: status changes/s (default 10)")
+    ap.add_argument("--typing-rate", type=float, default=5, help="idle-events: typing events/s (default 5)")
+    ap.add_argument("--no-perf-log", action="store_true", help="run Matty without MATTY_PERF_LOG")
     ap.add_argument("--fps", type=int, default=60)
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--out", type=Path)

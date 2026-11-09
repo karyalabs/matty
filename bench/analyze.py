@@ -174,6 +174,36 @@ def cpu_mem(samples, t0, t1):
             "rss_mb_max": round(max(s["rss_mb"] for s in seg)), "procs": seg[-1]["procs"]}
 
 
+def perf_frames(d: Path) -> list[tuple[float, float, bool]]:
+    """Matty's perf logs (MATTY_PERF_LOG, one per launch) as (wall seconds,
+    frame CPU ms, idle) per drawn frame."""
+    out = []
+    for log in sorted(d.glob("perf-*.log")):
+        epoch = None
+        for line in log.read_text(errors="replace").splitlines():
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if ev.get("ev") == "start":
+                epoch = ev["epoch_ms"] / 1000
+            elif ev.get("ev") == "frame" and epoch is not None:
+                out.append((epoch + ev["t"] / 1000, ev["dur"], bool(ev.get("idle"))))
+    return out
+
+
+def frame_stats(frames, w0, w1) -> dict:
+    seg = [f for f in frames if w0 <= f[0] <= w1]
+    if not seg:
+        return {}
+    durs = sorted(f[1] for f in seg)
+    return {"frames": len(seg), "frames_per_s": round(len(seg) / max(w1 - w0, 1e-3), 1),
+            "frame_ms_median": round(statistics.median(durs), 2),
+            "frame_ms_p95": round(durs[min(len(durs) - 1, int(len(durs) * 0.95))], 2),
+            "frame_ms_max": round(durs[-1], 1), "frame_cpu_ms_per_s": round(sum(durs) / max(w1 - w0, 1e-3), 1),
+            "idle_frames": sum(1 for f in seg if f[2])}
+
+
 def med(xs):
     xs = [x for x in xs if x is not None]
     return round(statistics.median(xs)) if xs else None
@@ -193,6 +223,7 @@ def analyze_app(d: Path) -> dict:
         if (d / "samples.jsonl").exists() else []
     memory = [json.loads(l) for l in (d / "memory.jsonl").read_text().splitlines() if l.strip()] \
         if (d / "memory.jsonl").exists() else []
+    perf = perf_frames(d)
     out = {}
     starts = []
     for meta_path in sorted(d.glob("*.json")):
@@ -215,6 +246,21 @@ def analyze_app(d: Path) -> dict:
             res["rss_mb_end"] = round(mem["rss_mb"])
             if mem.get("footprint_mb"):
                 res["footprint_mb_end"] = round(mem["footprint_mb"])
+            for k in ("gpu_mb", "malloc_mb", "mapped_mb", "other_mb"):
+                if mem.get(k) is not None:
+                    res[f"{k}_end"] = round(mem[k])
+        w_begin = next((e.get("wall") for e in evs if e["name"] == "begin"), None)
+        w_end = next((e.get("wall") for e in evs if e["name"] == "end"), None)
+        if perf and w_begin and w_end:
+            # Matty's own share of each frame (its log): build and paint CPU
+            # time, not presenting. The 0.5s after `begin` is skipped, as for
+            # idle repaints, so the scenario's setup does not count.
+            res["perf"] = frame_stats(perf, w_begin + 0.5, w_end)
+            for e in evs:
+                if e["name"].endswith("-start") and e.get("wall"):
+                    stop = next((x for x in evs if x["name"] == f"{e['name'][:-6]}-end" and x["seq"] > e["seq"]), None)
+                    if stop and stop.get("wall"):
+                        res[f"perf_{e['name'][:-6]}"] = frame_stats(perf, e["wall"], stop["wall"])
         if video.exists() and video.stat().st_size > 0:
             print(f"  {d.name}/{name}", flush=True)
             rows = scan(video, meta)
@@ -276,7 +322,7 @@ def analyze_app(d: Path) -> dict:
                 res["key_ms_median"] = med(keys)
                 res["key_ms_p95"] = p95(keys)
                 res["keys_missed"] = sum(1 for k in keys if k is None)
-            if name in ("idle", "settle") and t_begin and t_end and t_begin in mono.values():
+            if name in ("idle", "idle-events", "settle") and t_begin and t_end and t_begin in mono.values():
                 b = next(e for e in ordered if e["name"] == "begin")
                 en = next((e for e in ordered if e["name"] == "end"), None)
                 if en:
@@ -315,6 +361,10 @@ ROWS = [
     ("Idle", "CPU, idle 20s", "idle.cpu_pct", "%", True),
     ("Idle", "Repainted frames while idle", "idle.idle_repaints", "", True),
     ("Idle", "Memory (footprint)", "idle.footprint_mb_end", "MB", True),
+    ("Idle, busy server", "CPU, 20s of status and typing events", "idle-events.cpu_pct", "%", True),
+    ("Idle, busy server", "Repainted frames", "idle-events.idle_repaints", "", True),
+    ("Idle, busy server", "Frames drawn (Matty's log)", "idle-events.perf.frames", "", True),
+    ("Idle, busy server", "Frame CPU per second (Matty's log)", "idle-events.perf.frame_cpu_ms_per_s", "ms", True),
     ("Channel switch", "Quick switcher, first visit: ready (median)", "switch.nav_ready_ms_median_first", "ms", True),
     ("Channel switch", "Quick switcher, first visit: ready (p95)", "switch.nav_ready_ms_p95_first", "ms", True),
     ("Channel switch", "Quick switcher, revisit: ready (median)", "switch.nav_ready_ms_median_again", "ms", True),
@@ -322,14 +372,22 @@ ROWS = [
     ("Channel switch", "Alt+Down/Up: ready (median)", "sidebar.nav_ready_ms_median", "ms", True),
     ("Channel switch", "Alt+Down/Up: ready (p95)", "sidebar.nav_ready_ms_p95", "ms", True),
     ("Channel switch", "CPU while switching", "switch.cpu_pct", "%", True),
+    ("Channel switch", "Frame CPU, median (Matty's log)", "switch.perf.frame_ms_median", "ms", True),
+    ("Channel switch", "Frame CPU, p95 (Matty's log)", "switch.perf.frame_ms_p95", "ms", True),
+    ("Channel switch", "Memory after switching (footprint)", "switch.footprint_mb_end", "MB", True),
+    ("Channel switch", "  of which GPU", "switch.gpu_mb_end", "MB", True),
     ("Huge history (100k posts)", "Scroll up: frames shown per second", "scroll.scroll_up.shown_fps", "fps", False),
     ("Huge history (100k posts)", "Scroll up: longest freeze", "scroll.scroll_up.longest_freeze_ms", "ms", True),
     ("Huge history (100k posts)", "Scroll up: hitches ≥50ms", "scroll.scroll_up.hitches", "", True),
     ("Huge history (100k posts)", "Scroll up: CPU", "scroll.scroll_up.cpu_pct", "%", True),
+    ("Huge history (100k posts)", "Scroll up: frame CPU, median (Matty's log)", "scroll.perf_up.frame_ms_median", "ms", True),
+    ("Huge history (100k posts)", "Scroll up: frame CPU, p95 (Matty's log)", "scroll.perf_up.frame_ms_p95", "ms", True),
     ("Huge history (100k posts)", "Scroll down: frames shown per second", "scroll.scroll_down.shown_fps", "fps", False),
     ("Huge history (100k posts)", "Fling: frames shown per second", "scroll.scroll_fling.shown_fps", "fps", False),
     ("Huge history (100k posts)", "Fling: catch-up after input stops", "scroll.scroll_fling.catch_up_ms", "ms", True),
     ("Huge history (100k posts)", "Memory after scrolling (footprint)", "scroll.footprint_mb_end", "MB", True),
+    ("Huge history (100k posts)", "  of which GPU", "scroll.gpu_mb_end", "MB", True),
+    ("Huge history (100k posts)", "  of which malloc", "scroll.malloc_mb_end", "MB", True),
     ("Huge history (100k posts)", "Memory after scrolling (RSS)", "scroll.rss_mb_end", "MB", True),
     ("Emoji and reactions", "Scroll up: frames shown per second", "emoji.scroll_up.shown_fps", "fps", False),
     ("Emoji and reactions", "Scroll up: longest freeze", "emoji.scroll_up.longest_freeze_ms", "ms", True),
@@ -339,6 +397,8 @@ ROWS = [
     ("Images", "Scroll up: longest freeze", "gallery.scroll_up.longest_freeze_ms", "ms", True),
     ("Images", "Scroll up: CPU", "gallery.scroll_up.cpu_pct", "%", True),
     ("Images", "Memory after gallery (footprint)", "gallery.footprint_mb_end", "MB", True),
+    ("Images", "  of which GPU", "gallery.gpu_mb_end", "MB", True),
+    ("Images", "  of which malloc", "gallery.malloc_mb_end", "MB", True),
     ("Large thread (3,000 replies)", "Open thread: ready", "thread.nav_ready_ms_median", "ms", True),
     ("Large thread (3,000 replies)", "Scroll up: frames shown per second", "thread.scroll_up.shown_fps", "fps", False),
     ("Large thread (3,000 replies)", "Scroll up: longest freeze", "thread.scroll_up.longest_freeze_ms", "ms", True),
@@ -348,6 +408,9 @@ ROWS = [
     ("Typing", "Keypress to glyph (median)", "typing.key_ms_median", "ms", True),
     ("Typing", "Keypress to glyph (p95)", "typing.key_ms_p95", "ms", True),
     ("End of run", "Memory (footprint)", "settle.footprint_mb_end", "MB", True),
+    ("End of run", "  of which GPU", "settle.gpu_mb_end", "MB", True),
+    ("End of run", "  of which malloc", "settle.malloc_mb_end", "MB", True),
+    ("End of run", "  of which mapped files", "settle.mapped_mb_end", "MB", True),
     ("End of run", "Memory (RSS, all processes)", "settle.rss_mb_end", "MB", True),
     ("End of run", "Idle CPU after the stress", "settle.cpu_pct", "%", True),
 ]

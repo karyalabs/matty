@@ -24,7 +24,9 @@ A run lands in `bench/out/runs/<timestamp>/`:
 | `results.json` | Every number, including each individual channel switch and keypress. |
 | `side-by-side.mp4` | 1920×1080: Matty left, official app right, cut from the same input frame, a running clock and the scenario's numbers under each side, a summary card at the end. |
 | `<app>/<scenario>.mp4` | The raw screen recordings (window plus the marker strip). |
-| `<app>/events.jsonl`, `samples.jsonl`, `memory.jsonl` | Inputs sent, CPU/RSS every 0.5s, memory at the end of each scenario. |
+| `<app>/events.jsonl`, `samples.jsonl`, `memory.jsonl` | Inputs sent, CPU/RSS every 0.5s, memory at the end of each scenario (footprint, its GPU/malloc/mapped-file split on macOS). |
+| `<app>/footprint-<scenario>.txt` | Raw `footprint` and `vmmap --summary` output behind that split. |
+| `matty/perf-<n>.log` | Matty's own frame log (`MATTY_PERF_LOG`), one per launch; `--no-perf-log` turns it off. |
 | `run.json` | Machine, OS, app versions, corpus size, options. |
 
 `bench/analyze.py RUN` and `bench/compose.py RUN` redo the report and the
@@ -85,6 +87,7 @@ both recordings of a scenario are the same length:
 | --- | --- |
 | `startup` | Five launches (app not running, OS file cache warm, already signed in, opens on Town Square), 10s each. |
 | `idle` | 20s with nothing happening. |
+| `idle-events` | 20s parked in `quiet-00` while `benchadmin` flips other users' statuses (10/s) and sends typing events (5/s, other channels): a busy server's background chatter. Nobody it touches is on screen (no DM or GM partner, nobody who posted in `quiet-00`), so every repaint and every bit of CPU is spent on nothing visible. Statuses are restored afterwards. `--status-rate`, `--typing-rate`. |
 | `switch` | Quick switcher (Cmd+K, type a name, Enter) through 10 channels, including the heavy ones, then the same 10 again (cached). |
 | `sidebar` | Alt+Down 15 times, then Alt+Up 15 times, 1.2s apart. |
 | `scroll` | In `firehose`: wheel up 15s at ~3,100 px/s, down 7.5s, then a 5s fling at ~10,000 px/s. |
@@ -133,7 +136,17 @@ Matty runs one): summed CPU time, so 100% is one core busy, and summed
 resident memory. At the end of each scenario the macOS `footprint` tool gives
 the physical footprint, which is what Activity Monitor shows; summed RSS
 over-counts shared memory, which flatters neither app consistently, so the
-report shows both.
+report shows both. The footprint is also split by `footprint`'s categories
+into GPU (IOAccelerator, IOSurface, Metal: GPUI's atlases, Chromium's
+compositor), malloc, mapped files and the rest, since GPU memory never shows
+in RSS.
+
+**Matty's frame log.** Matty also runs with `MATTY_PERF_LOG`, which writes
+the CPU time of every frame it draws (build and paint, not presenting). Rows
+marked "Matty's log" come from it: Matty's own share of a frame while
+switching and scrolling, and how many frames it drew while idle with events.
+They have no official-app column; every comparison still comes from the video
+and the OS.
 
 **Caveats.** The screen recorder runs during the whole journey and costs both
 apps the same. ProMotion displays draw at up to 120 Hz but the capture is 60
