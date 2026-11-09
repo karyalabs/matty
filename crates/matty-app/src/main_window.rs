@@ -4642,6 +4642,7 @@ impl MainWindow {
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::decoded_images::frame_drawn();
         let reduce_motion = self.settings.read(cx).get().reduce_motion;
         style::set_reduced_motion(reduce_motion, cx);
         let theme = UiTheme::read(cx).clone();

@@ -1682,6 +1682,7 @@ impl PopOutView {
 
 impl Render for PopOutView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::decoded_images::frame_drawn();
         let theme = UiTheme::read(cx).clone();
         if self.host == Host::Split {
             // The main window's selection root and toasts are around it.
