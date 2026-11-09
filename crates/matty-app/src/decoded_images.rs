@@ -224,6 +224,17 @@ struct Store {
     /// The system is short of memory: the next pass lets go of every
     /// picture off screen, whatever the budget.
     pressed: bool,
+    /// When a window that shows pictures last drew a frame.
+    drawn: Option<Instant>,
+    /// When the last pass finished.
+    passed: Option<Instant>,
+}
+
+/// A window that shows pictures drew a frame. Until one does, what is on
+/// screen is what the last pass saw, so an idle pass has nothing to learn
+/// and does not redraw every window to find out (#795).
+pub fn frame_drawn() {
+    STORE.with(|store| store.borrow_mut().drawn = Some(Instant::now()));
 }
 
 impl Store {
@@ -462,7 +473,9 @@ fn finish_pass(mark: Instant, cx: &mut App) {
     let dropped = STORE.with(|store| {
         let mut store = store.borrow_mut();
         store.passing = false;
-        let dropped = evict(&mut store, mark, Instant::now());
+        let now = Instant::now();
+        store.passed = Some(now);
+        let dropped = evict(&mut store, mark, now);
         store.pressed = false;
         dropped
     });
@@ -514,6 +527,16 @@ fn evict(store: &mut Store, mark: Instant, now: Instant) -> Vec<Arc<RenderImage>
     dropped
 }
 
+/// Whether a frame was drawn after the last pass finished: only then can a
+/// picture the pass kept have left the screen.
+fn redrawn_since_pass(store: &Store) -> bool {
+    match (store.passed, store.drawn) {
+        (Some(passed), Some(drawn)) => drawn > passed,
+        (Some(_), None) => false,
+        (None, _) => true,
+    }
+}
+
 /// Runs a pass every [`IDLE_PASS`] while any picture is kept.
 fn start_idling(cx: &mut App) {
     let already = STORE.with(|store| std::mem::replace(&mut store.borrow_mut().idling, true));
@@ -537,7 +560,7 @@ fn start_idling(cx: &mut App) {
                         any = true;
                         due |= now.saturating_duration_since(entry.touched) >= IDLE;
                     }
-                    (any, due)
+                    (any, due && redrawn_since_pass(&store))
                 });
                 if due {
                     start_pass(cx);
@@ -836,5 +859,20 @@ mod tests {
         let now = start + IDLE;
         evict(&mut store, now, now);
         assert!(store.entries.is_empty());
+    }
+
+    /// #795: with nothing drawn since the last pass, an idle pass would only
+    /// redraw what is already known to be on screen.
+    #[test]
+    fn an_idle_pass_waits_for_a_frame() {
+        let mut store = Store::default();
+        assert!(redrawn_since_pass(&store), "no pass yet");
+        let start = Instant::now();
+        store.passed = Some(start);
+        assert!(!redrawn_since_pass(&store), "nothing drawn at all");
+        store.drawn = Some(start - Duration::from_secs(1));
+        assert!(!redrawn_since_pass(&store), "drawn before the pass");
+        store.drawn = Some(start + Duration::from_secs(1));
+        assert!(redrawn_since_pass(&store), "drawn after it");
     }
 }

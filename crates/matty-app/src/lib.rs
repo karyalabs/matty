@@ -247,6 +247,7 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     #[cfg(not(target_family = "wasm"))]
     fd_limit::raise();
     ui::theme::init(cx);
+    calm_caret(cx);
     i18n::install_builtin(cx);
     style::install(style::Preset::default(), ThemeMode::Light, cx);
     let settings = SettingsStore::init(settings::default_path(), cx);
@@ -268,6 +269,23 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     open_main_window(cx);
     cx.activate(true);
     follow_links(links, cx);
+}
+
+/// How long the caret blinks after the last keystroke, click or focus.
+const CARET_BLINKS_FOR: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The caret blinks for a while after each edit, then stays lit: a caret
+/// that blinks forever redraws the window twice a second for as long as
+/// the composer has focus, which is most of the time Matty is open (#795).
+/// GTK stops after ten seconds by default too.
+fn calm_caret(cx: &mut App) {
+    use gpui_kit::component::Theme;
+    if !cx.has_global::<Theme>() {
+        return;
+    }
+    Theme::global_mut(cx).cursor_blink =
+        gpui_kit::base::input::CursorBlink::default().with_idle_timeout(CARET_BLINKS_FOR);
+    Theme::sync_base(cx);
 }
 
 /// The main window while one is open. Closing it keeps the app running on
@@ -614,4 +632,18 @@ pub(crate) fn apply_theme(window: &Window, cx: &mut App) {
     // Cached views (the sidebar, the right pane) only redraw on their own
     // notify, and the theme is a global.
     cx.refresh_windows();
+}
+
+#[cfg(test)]
+mod tests {
+    /// #795: the caret stops blinking a while after the last edit.
+    #[gpui_kit::test]
+    fn the_caret_stops_blinking_when_idle(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            crate::ui::theme::init(cx);
+            super::calm_caret(cx);
+            let blink = gpui_kit::base::Theme::global(cx).cursor_blink;
+            assert_eq!(blink.idle_timeout(), Some(super::CARET_BLINKS_FOR));
+        });
+    }
 }
