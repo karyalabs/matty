@@ -111,7 +111,8 @@ app's own logging.
 CGEvent and, at the same instant, redraws a small barcode (18 cells: a white
 anchor, 16 bits of a sequence number, a black anchor) in an always-on-top
 panel just under the app window. ffmpeg records the window and the barcode
-together at 60 fps. `bench/analyze.py` decodes the barcode in every frame, so
+together at 60 fps, or at the rate `--fps` sets (`--fps 120` on a ProMotion
+display measures up to 120). `bench/analyze.py` decodes the barcode in every frame, so
 it knows the frame where each input happened, and compares each frame of the
 app region with the one before it:
 
@@ -121,13 +122,13 @@ app region with the one before it:
   600ms (1s for launches). Spinners, placeholders and images popping in all
   push "ready" later, as they should;
 - *frames shown per second* while scrolling: frames in which the picture moved,
-  per second of input. 60 is perfect at this capture rate. *Longest freeze* is
+  per second of input. The capture rate (60 by default) is perfect. *Longest freeze* is
   the longest stretch without a new picture while input kept coming;
   *hitches* count freezes of 50ms or more;
 - *catch-up*: how long the picture keeps changing after the input stopped;
 - *keypress to glyph*: the first change in the composer band after a key.
 
-The resolution is one captured frame (16.7ms). A caret blink is too small to
+The resolution is one captured frame (16.7ms at 60 fps, 8.3ms at 120). A caret blink is too small to
 count as a change.
 
 **CPU and memory from the OS.** Every 0.5s, `ps` over the app's whole process
@@ -149,8 +150,11 @@ They have no official-app column; every comparison still comes from the video
 and the OS.
 
 **Caveats.** The screen recorder runs during the whole journey and costs both
-apps the same. ProMotion displays draw at up to 120 Hz but the capture is 60
-fps, so "60 fps" means at least 60. Wheel events are continuous pixel deltas,
+apps the same. ProMotion displays draw at up to 120 Hz; at the default 60 fps
+capture "60 fps" means at least 60, so use `--fps 120` there (the analysis
+reads the rate from each run). Neither app caps itself at 60: GPUI paces
+Matty with `CAMetalDisplayLink` at the display's rate, and Chrome follows it
+too, unless Low Power Mode is on or the window sits on a 60 Hz screen. Wheel events are continuous pixel deltas,
 like a trackpad without momentum. The server runs in Docker on the same
 machine (on macOS, colima or Docker Desktop), which takes the same share from
 both runs. A run is one sample; run it twice before believing a small
@@ -168,8 +172,10 @@ bench/.venv/bin/python bench/run.py --apps matty-web,mattermost-web
 ```
 
 - `matty-web` opens Matty web, by default the public build at
-  https://karyalabs.dev/matty/ (`--matty-web-url http://127.0.0.1:8080/matty/`
-  for a local `scripts/web serve`). The bench server allows it through CORS.
+  https://karyalabs.dev/matty/ (`--matty-web-url http://127.0.0.1:8080/matty/?demo=0`
+  for a local `scripts/web serve`; `?demo=0` skips the demo download). The
+  bench server allows ports 8080 to 8082 through CORS, so two builds can be
+  served side by side (`MATTY_WEB_PORT=8082`) and compared run by run.
 - `mattermost-web` opens the official web app that the bench server itself
   serves on http://localhost:8075.
 - CPU and memory cover Chrome's whole process tree for that profile (browser,
