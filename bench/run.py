@@ -343,6 +343,32 @@ class Mattermost(App):
             {"x": WIN_X, "y": WIN_Y, "width": WIN_W, "height": WIN_H, "maximized": False, "fullscreen": False}))
 
 
+class Browser(App):
+    """A web client in Chrome: its own profile, an app-mode window (no tabs or
+    address bar, so both web clients get the same chrome-less window), at the
+    run's window position. `url` is what it opens: Matty web, or the official
+    web app served by the bench server itself."""
+
+    url: str = ""
+
+    def command(self):
+        exe = self.path
+        if self.path.suffix == ".app":
+            exe = next(p for p in (self.path / "Contents" / "MacOS").iterdir() if p.is_file())
+        return [str(exe), f"--user-data-dir={self.profile / 'chrome'}",
+                "--no-first-run", "--no-default-browser-check", "--disable-default-apps",
+                "--hide-crash-restore-bubble", "--disable-session-crashed-bubble",
+                "--deny-permission-prompts", "--use-mock-keychain", "--password-store=basic",
+                # Matty web (https://karyalabs.dev) talks to the bench server on
+                # http://localhost; Chrome would otherwise ask first.
+                "--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessRespectPreflightResults,Translate",
+                f"--window-position={WIN_X},{WIN_Y}", f"--window-size={WIN_W},{WIN_H}",
+                f"--app={self.url}"]
+
+    def running_pattern(self) -> str:
+        return str(self.profile / "chrome")
+
+
 def app_version(app: App) -> str:
     plist = app.path / "Contents" / "Info.plist"
     if MAC and plist.exists():
@@ -1074,8 +1100,11 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
 
 def default_apps() -> dict[str, Path]:
     if MAC:
-        return {"matty": Path("/Applications/Matty.app"), "mattermost": Path("/Applications/Mattermost.app")}
-    return {"matty": HERE.parent / "target" / "release" / "matty"}
+        chrome = Path("/Applications/Google Chrome.app")
+        return {"matty": Path("/Applications/Matty.app"), "mattermost": Path("/Applications/Mattermost.app"),
+                "matty-web": chrome, "mattermost-web": chrome}
+    chrome = Path(shutil.which("google-chrome") or shutil.which("chromium") or "/usr/bin/google-chrome")
+    return {"matty": HERE.parent / "target" / "release" / "matty", "matty-web": chrome, "mattermost-web": chrome}
 
 
 def make_apps(args) -> list[App]:
@@ -1089,10 +1118,14 @@ def make_apps(args) -> list[App]:
         path = paths.get(key)
         if not path or not path.exists():
             sys.exit(f"{key}: {path} not found; pass --app {key}=/path/to/App.app")
-        cls, label = {"matty": (Matty, "Matty"), "mattermost": (Mattermost, "Mattermost Desktop")}[key]
+        cls, label = {"matty": (Matty, "Matty"), "mattermost": (Mattermost, "Mattermost Desktop"),
+                      "matty-web": (Browser, "Matty web"), "mattermost-web": (Browser, "Mattermost web")}[key]
         app = cls(key, label, path, profiles / key)
         app.profile.mkdir(parents=True, exist_ok=True)
         app.version = app_version(app)
+        if isinstance(app, Browser):
+            app.url = args.matty_web_url if key == "matty-web" else load_server(args)["url"]
+            app.version = f"(Chrome {app.version})" if app.version else ""
         apps.append(app)
     return apps
 
@@ -1156,10 +1189,10 @@ def refuse_running(apps) -> None:
     """A copy of an app under test that is already running (left by an
     interrupted run) would take over the launches: stop instead."""
     for app in apps:
-        cmd = app.command()
-        found = subprocess.run(["pgrep", "-f", cmd[0]], capture_output=True, text=True).stdout.split()
+        pattern = app.running_pattern() if isinstance(app, Browser) else app.command()[0]
+        found = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True).stdout.split()
         if found:
-            sys.exit(f"{app.label} ({cmd[0]}) is already running as pid {', '.join(found)}; quit it first")
+            sys.exit(f"{app.label} ({pattern}) is already running as pid {', '.join(found)}; quit it first")
 
 
 def setup(args, driver) -> None:
@@ -1192,6 +1225,17 @@ def setup(args, driver) -> None:
             print(f"\n{app.label}: sign in to {server['url']} as `{user}`, password `{password}`.")
             print("Dismiss any welcome tips, open Town Square, then press Enter here.")
             input()
+        elif app.key == "matty-web":
+            # Same sign-in screen as the app; Tab from the login to the password.
+            time.sleep(8)  # first visit downloads the web build
+            driver.cmd(f"type 20 {server['url']}")
+            driver.cmd("key return")
+            time.sleep(3)
+            driver.cmd(f"type 20 {user}")
+            driver.cmd("key tab")
+            driver.cmd(f"type 20 {password}")
+            driver.cmd("key return")
+            time.sleep(10)
         elif app.key == "matty":
             driver.cmd(f"type 20 {server['url']}")
             driver.cmd("key return")
@@ -1244,6 +1288,8 @@ def main() -> None:
     ap.add_argument("--out", type=Path)
     ap.add_argument("--no-analyze", action="store_true")
     ap.add_argument("--manual", action="store_true", help="setup: sign in by hand instead of typing")
+    ap.add_argument("--matty-web-url", default="https://karyalabs.dev/matty/",
+                    help="where the matty-web client is served (default: the public build)")
     args = ap.parse_args()
     args.scenarios = set(args.scenarios.split(","))
 

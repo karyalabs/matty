@@ -156,6 +156,31 @@ machine (on macOS, colima or Docker Desktop), which takes the same share from
 both runs. A run is one sample; run it twice before believing a small
 difference.
 
+## Web
+
+The same journey runs both web clients in Google Chrome, each in its own
+profile and an app-mode window (no tabs or address bar), at the same window
+position:
+
+```sh
+bench/.venv/bin/python bench/run.py setup --apps matty-web,mattermost-web
+bench/.venv/bin/python bench/run.py --apps matty-web,mattermost-web
+```
+
+- `matty-web` opens Matty web, by default the public build at
+  https://karyalabs.dev/matty/ (`--matty-web-url http://127.0.0.1:8080/matty/`
+  for a local `scripts/web serve`). The bench server allows it through CORS.
+- `mattermost-web` opens the official web app that the bench server itself
+  serves on http://localhost:8075.
+- CPU and memory cover Chrome's whole process tree for that profile (browser,
+  GPU, renderer and utility processes), so they include the browser's own cost,
+  as they would for a user.
+- Startup includes Chrome starting and the page loading from the HTTP cache
+  (the warm-up launch fills it); Matty web's WebAssembly comes from the
+  network on the first visit only.
+- `--app mattermost-web=/path/to/Chrome.app` picks another Chromium build;
+  both web clients must use the same one.
+
 ## Linux
 
 The same scripts run Matty under Xvfb (xdotool for input, an X window for the
