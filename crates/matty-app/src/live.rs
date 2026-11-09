@@ -681,7 +681,7 @@ impl Live {
                 dm_limit: DM_LIMIT,
                 names: crate::settings::NameFormat::default(),
                 offline: crate::offline(),
-                zone: jiff::tz::TimeZone::system(),
+                zone: crate::clock::zone(),
                 shown: None,
                 interactive: Default::default(),
                 failed: Default::default(),

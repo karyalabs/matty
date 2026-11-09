@@ -59,7 +59,7 @@ pub fn scheduled() -> std::sync::Arc<[matty_api::models::ScheduledPost]> {
     if !priority() {
         return std::sync::Arc::from([]);
     }
-    let now = jiff::Zoned::now();
+    let now = crate::clock::now();
     let presets = crate::scheduled::presets(&now, crate::settings::ClockFormat::TwentyFourHour);
     let at = |index: usize| presets.get(index).or(presets.first()).map_or(0, |p| p.at);
     std::sync::Arc::from([

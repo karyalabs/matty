@@ -142,7 +142,7 @@ pub fn menu_items(
     pick: impl Fn(Option<i64>, &mut Window, &mut App) + Clone + 'static,
     cx: &App,
 ) -> Vec<MenuItem> {
-    let now = Zoned::now();
+    let now = crate::clock::now();
     let mut items = vec![MenuItem::label("schedule.heading", t!("schedule-message"))];
     for preset in presets(&now, ClockFormat::current(cx)) {
         let (pick, at) = (pick.clone(), preset.at);
@@ -289,7 +289,7 @@ impl ScheduleDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let now = Zoned::now();
+        let now = crate::clock::now();
         let at = at
             .and_then(|at| jiff::Timestamp::from_millisecond(at).ok())
             .map(|at| at.to_zoned(now.time_zone().clone()));
@@ -308,7 +308,7 @@ impl ScheduleDialog {
 
     /// The pick in ms since the epoch, if it is still ahead.
     fn picked(&self, cx: &App) -> Option<i64> {
-        crate::when::picked(&self.when, &Zoned::now(), cx).map(|at| at * 1000)
+        crate::when::picked(&self.when, &crate::clock::now(), cx).map(|at| at * 1000)
     }
 
     fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -478,7 +478,7 @@ impl ScheduledView {
 
     fn card(&self, index: usize, row: &Row, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        let now = Zoned::now();
+        let now = crate::clock::now();
         let when = send_label(row.post.scheduled_at, &now, ClockFormat::current(cx));
         let choice = Choice::from_api(row.post.metadata.priority.as_ref());
         let failed = !row.post.error_code.is_empty();

@@ -1328,7 +1328,7 @@ impl MainWindow {
     fn dnd_row(&self, cx: &mut Context<Self>) -> Row {
         let account = self.account.read(cx).account();
         let dnd = account.presence == Presence::Dnd;
-        let now = jiff::Zoned::now();
+        let now = crate::clock::now();
         let on = dnd::is_on(dnd, account.dnd_end, &now);
         let detail = dnd::preferences_detail(dnd, account.dnd_end, &now, ClockFormat::current(cx));
         let (view, account) = (cx.entity().downgrade(), self.account.clone());
