@@ -95,8 +95,13 @@ fn shortcuts_keep_working_after_focus_is_lost(cx: &mut gpui_kit::TestAppContext)
         "the window did not take focus back: {contexts}"
     );
 
-    // Ctrl+K opens the quick switcher and its list of channels.
-    cx.simulate_keystrokes("ctrl-k");
+    // Cmd/Ctrl+K opens the quick switcher and its list of channels.
+    let quick_switcher = if cfg!(target_os = "macos") {
+        "cmd-k"
+    } else {
+        "ctrl-k"
+    };
+    cx.simulate_keystrokes(quick_switcher);
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let options = cx.update(|window, _| {
@@ -107,5 +112,5 @@ fn shortcuts_keep_working_after_focus_is_lost(cx: &mut gpui_kit::TestAppContext)
             .filter(|element| element.role() == Some(gpui_kit::Role::ListBoxOption))
             .count()
     });
-    assert!(options > 0, "Ctrl+K did not open the quick switcher");
+    assert!(options > 0, "Cmd/Ctrl+K did not open the quick switcher");
 }
