@@ -387,6 +387,14 @@ impl MainWindow {
         .detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        // Closing a menu, popover or the channel that held focus leaves
+        // nothing focused, and then no MainWindow shortcut (Cmd+, and the
+        // rest) reaches the window until a click on a field. The window
+        // takes focus back instead, as Zed's workspace does.
+        cx.on_focus_lost(window, |this: &mut Self, window, cx| {
+            window.focus(&this.focus, cx);
+        })
+        .detach();
         if crate::preview::enabled() {
             // Nothing to fetch in preview: its cards bring their images,
             // and "Ask" shows the placeholders (#159).

@@ -74,3 +74,43 @@ fn a_clicked_channel_focuses_the_composer_and_keeps_its_place(cx: &mut gpui_kit:
     assert_eq!(row_top(&mut cx, "random"), random);
     assert_eq!(row_top(&mut cx, "town-square"), town_square);
 }
+
+/// Losing focus, as when the menu or channel that held it closes, hands it
+/// back to the window, so its shortcuts (Settings, the quick switcher) keep
+/// working without a click in the composer first.
+#[gpui_kit::test]
+fn shortcuts_keep_working_after_focus_is_lost(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+
+    cx.update(|window, cx| window.blur(cx));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let contexts = cx.update(|window, _| format!("{:?}", window.context_stack()));
+    assert!(
+        contexts.contains("MainWindow"),
+        "the window did not take focus back: {contexts}"
+    );
+
+    // Cmd/Ctrl+K opens the quick switcher and its list of channels.
+    let quick_switcher = if cfg!(target_os = "macos") {
+        "cmd-k"
+    } else {
+        "ctrl-k"
+    };
+    cx.simulate_keystrokes(quick_switcher);
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let options = cx.update(|window, _| {
+        use gpui_kit::test::TestQueryExt as _;
+        window
+            .elements()
+            .into_iter()
+            .filter(|element| element.role() == Some(gpui_kit::Role::ListBoxOption))
+            .count()
+    });
+    assert!(options > 0, "Cmd/Ctrl+K did not open the quick switcher");
+}

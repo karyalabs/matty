@@ -601,6 +601,14 @@ impl PopOutView {
                 }
             }));
         }
+        // A pop-out window keeps its shortcuts when what held focus closes;
+        // in split view the main window takes it back instead.
+        if host != Host::Split {
+            cx.on_focus_lost(window, |this: &mut Self, window, cx| {
+                window.focus(&this.focus, cx);
+            })
+            .detach();
+        }
         this.open_with_sync(window, cx);
         this.set_title(window, cx);
         this.remember_place(window, cx);
