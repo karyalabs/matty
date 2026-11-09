@@ -496,7 +496,7 @@ impl PopOutView {
                 .into_iter()
                 .flat_map(|category| category.rows)
                 .collect(),
-            None => Vec::new(),
+            None => std::sync::Arc::default(),
         };
         let content = match &target {
             Target::Channel(id) => {

@@ -2082,16 +2082,24 @@ impl Live {
                 update.teams = Some(self.rail_teams());
             }
             ChangeSet::Presence(statuses) => {
+                // Only people whose dot changed: a busy server repeats
+                // statuses, and most belong to nobody on screen (#787).
+                let mut changed = std::collections::HashSet::new();
                 for status in statuses.iter() {
-                    self.presence
-                        .insert(status.user_id.clone(), presence(&status.status));
+                    let now = presence(&status.status);
+                    let before = self.presence.insert(status.user_id.clone(), now);
+                    if before.unwrap_or(Presence::Offline) != now {
+                        changed.insert(status.user_id.as_str());
+                    }
                     if status.user_id == self.me.0 {
                         let end = (status.dnd_end_time > 0).then_some(status.dnd_end_time);
                         update.own_presence = Some((presence(&status.status), end));
                     }
                 }
-                update.categories = self.shown_categories();
-                if self.shown.is_some() {
+                if self.shows_conversation_with(&changed) {
+                    update.categories = self.shown_categories();
+                }
+                if self.shown.is_some() && self.profiles_include(&changed) {
                     update.profiles = Some(self.profiles());
                 }
             }
@@ -2781,6 +2789,40 @@ impl Live {
     fn shown_details(&self) -> Option<Details> {
         let shown = self.shown.as_ref()?;
         Some(self.details(shown.iter().filter(|post| post.pinned).count()))
+    }
+
+    /// Whether the shown team's sidebar has a direct message with any of
+    /// `users`, whose rows carry their presence.
+    fn shows_conversation_with(&self, users: &std::collections::HashSet<&str>) -> bool {
+        if users.is_empty() {
+            return false;
+        }
+        let Some(sections) = self.team.as_ref().and_then(|team| self.sections.get(team)) else {
+            return false;
+        };
+        sections
+            .iter()
+            .flat_map(|section| section.channels.iter())
+            .filter_map(|channel| channel.dm_user_id.as_deref())
+            .any(|id| users.contains(id))
+    }
+
+    /// Whether any of `users` is among the open channel's profiles (see
+    /// [`Self::profiles`]).
+    fn profiles_include(&self, users: &std::collections::HashSet<&str>) -> bool {
+        if users.is_empty() {
+            return false;
+        }
+        if let Some(members) = &self.members {
+            return members
+                .user_ids
+                .iter()
+                .any(|id| users.contains(id.as_str()));
+        }
+        self.posts
+            .iter()
+            .flat_map(|posts| posts.iter())
+            .any(|post| users.contains(post.user_id.as_str()))
     }
 
     fn shown_categories(&self) -> Option<Vec<Category>> {
@@ -3630,6 +3672,23 @@ mod tests {
                 presence: Presence::Dnd
             }
         );
+
+        // The same status again, or someone with no row here, leaves the
+        // sidebar alone (#787).
+        let update = live.apply(&ChangeSet::Presence(Arc::from(vec![
+            Status {
+                user_id: "dm-user".into(),
+                status: "dnd".into(),
+                ..Status::default()
+            },
+            Status {
+                user_id: "stranger".into(),
+                status: "online".into(),
+                ..Status::default()
+            },
+        ])));
+        assert!(update.categories.is_none());
+        assert!(update.profiles.is_none());
     }
 
     #[test]

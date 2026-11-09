@@ -889,15 +889,20 @@ impl SidebarView {
         cx.notify();
     }
 
-    /// Replaces the model, keeping the user's collapsed categories.
-    pub fn set_model(&mut self, mut model: SidebarModel, cx: &mut Context<Self>) {
+    /// Replaces the model, keeping the user's collapsed categories. Says
+    /// whether anything changed; an equal model does not redraw (#787).
+    pub fn set_model(&mut self, mut model: SidebarModel, cx: &mut Context<Self>) -> bool {
         for category in &mut model.categories {
             if let Some(old) = self.model.categories.iter().find(|c| c.id == category.id) {
                 category.collapsed = old.collapsed;
             }
         }
+        if model == self.model {
+            return false;
+        }
         self.model = model;
         cx.notify();
+        true
     }
 
     /// Selects `id` and clears its unread mark, as viewing a channel does;

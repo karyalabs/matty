@@ -1262,7 +1262,7 @@ pub struct ChannelView {
     /// Shortcodes picked this session, newest first, for the picker's
     /// Recent row; sync persists them later.
     /// The sidebar's channels, for `~` autocomplete.
-    directory: Vec<ChannelRow>,
+    directory: std::sync::Arc<[ChannelRow]>,
     /// What the server said about typed `@` names.
     people: PeopleAsk,
     /// Files waiting in the composer tray, and a send waiting on them.
@@ -1742,7 +1742,7 @@ impl ChannelView {
             picker,
             picker_open: false,
             picker_target: None,
-            directory: Vec::new(),
+            directory: std::sync::Arc::default(),
             people: PeopleAsk::default(),
             tray: UploadTray::new("upload"),
             lightbox: cx.new(|_| LightboxState::new([])),
@@ -3084,7 +3084,7 @@ impl ChannelView {
     }
 
     /// The channels `~` can complete; the window passes the sidebar's rows.
-    pub fn set_directory(&mut self, rows: Vec<ChannelRow>, cx: &mut Context<Self>) {
+    pub fn set_directory(&mut self, rows: std::sync::Arc<[ChannelRow]>, cx: &mut Context<Self>) {
         self.directory = rows;
         cx.notify();
     }

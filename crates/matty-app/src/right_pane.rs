@@ -463,7 +463,7 @@ pub struct RightPaneView {
     /// What the server said about names typed after `@` in a reply.
     people: crate::channel::PeopleAsk,
     /// The channels `~` can complete in a reply.
-    directory: Vec<crate::sidebar::ChannelRow>,
+    directory: std::sync::Arc<[crate::sidebar::ChannelRow]>,
     /// Who is typing a reply in the thread (#137).
     typing: Vec<SharedString>,
     draft_len: usize,
@@ -867,7 +867,7 @@ impl RightPaneView {
             me: me.into(),
             profiles: Vec::new(),
             people: crate::channel::PeopleAsk::default(),
-            directory: Vec::new(),
+            directory: std::sync::Arc::default(),
             typing: Vec::new(),
             draft_len: 0,
             draft: Default::default(),
@@ -2587,7 +2587,7 @@ impl RightPaneView {
     }
 
     /// The channels `~` can complete in a reply.
-    pub fn set_directory(&mut self, rows: Vec<crate::sidebar::ChannelRow>) {
+    pub fn set_directory(&mut self, rows: std::sync::Arc<[crate::sidebar::ChannelRow]>) {
         self.directory = rows;
     }
 
