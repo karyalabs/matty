@@ -379,13 +379,18 @@ static PENDING: LazyLock<Arc<gpui_kit::Image>> =
 fn shown(image: Option<&EmbedImage>) -> Option<(ImageSource, u32, u32)> {
     let image = image?;
     let loaded = image.loaded.clone().unwrap_or_else(|| PENDING.clone());
-    Some((ImageSource::Image(loaded), image.width, image.height))
+    let source = crate::decoded_images::source(&loaded, crate::decoded_images::Fit::Tile);
+    Some((source, image.width, image.height))
 }
 
 /// A small icon once it has come; nothing meanwhile, as it has no box to
 /// keep.
 fn loaded(image: Option<&EmbedImage>) -> Option<ImageSource> {
-    image?.loaded.clone().map(ImageSource::Image)
+    let loaded = image?.loaded.as_ref()?;
+    Some(crate::decoded_images::source(
+        loaded,
+        crate::decoded_images::Fit::Tile,
+    ))
 }
 
 /// The click-to-load stand-in for `image` when the person is asked before

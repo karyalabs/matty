@@ -24,6 +24,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 regex.workspace = true
 emojis.workspace = true
+image.workspace = true
 matty-api.workspace = true
 matty-sync.workspace = true
 matty-markdown.workspace = true

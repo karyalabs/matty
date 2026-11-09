@@ -2530,6 +2530,9 @@ impl ChannelView {
                 LightboxItem::Link(_) => None,
             })
             .collect::<Vec<_>>();
+        // Only this post's full-size images stay; the app still has the
+        // others' bytes should their post open again.
+        self.full_images.retain(|id, _| files.contains(id));
         self.lightbox_items = items;
         self.lightbox_post = Some(post);
         self.lightbox
@@ -2600,7 +2603,9 @@ impl ChannelView {
             .iter()
             .filter_map(|file| {
                 let image = match self.full_images.get(&file.id) {
-                    Some(full) => gpui_kit::ImageSource::Image(full.clone()),
+                    Some(full) => {
+                        crate::decoded_images::source(full, crate::decoded_images::Fit::Full)
+                    }
                     None => file.image()?,
                 };
                 items.push(LightboxItem::File(file.id.clone()));
@@ -2618,7 +2623,7 @@ impl ChannelView {
                 items.push(LightboxItem::Link(image.url.clone()));
                 images.push(
                     LightboxImage::new(
-                        gpui_kit::ImageSource::Image(loaded.clone()),
+                        crate::decoded_images::source(loaded, crate::decoded_images::Fit::Full),
                         crate::embeds::image_name(&image.url),
                     )
                     .dimensions(image.width, image.height)
