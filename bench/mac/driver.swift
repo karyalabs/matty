@@ -165,19 +165,28 @@ func scroll(dy: Int32, dx: Int32) {
     e.post(tap: .cghidEventTap)
 }
 
+/// The app's biggest AX window. Electron apps (Mattermost) also own small
+/// helper windows, and "main" or "focused" can be one of those.
 func axWindow(_ pid: pid_t) -> AXUIElement? {
     let appEl = AXUIElementCreateApplication(pid)
     var value: CFTypeRef?
-    for attr in [kAXMainWindowAttribute, kAXFocusedWindowAttribute] {
+    var found: [AXUIElement] = []
+    if AXUIElementCopyAttributeValue(appEl, kAXWindowsAttribute as CFString, &value) == .success,
+       let list = value as? [AXUIElement] { found = list }
+    for attr in [kAXMainWindowAttribute, kAXFocusedWindowAttribute] where found.isEmpty {
         if AXUIElementCopyAttributeValue(appEl, attr as CFString, &value) == .success, let v = value {
-            return (v as! AXUIElement)
+            found = [v as! AXUIElement]
         }
     }
-    if AXUIElementCopyAttributeValue(appEl, kAXWindowsAttribute as CFString, &value) == .success,
-       let list = value as? [AXUIElement], let first = list.first {
-        return first
+    func area(_ w: AXUIElement) -> CGFloat {
+        var v: CFTypeRef?
+        var size = CGSize.zero
+        if AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &v) == .success, let v {
+            AXValueGetValue(v as! AXValue, .cgSize, &size)
+        }
+        return size.width * size.height
     }
-    return nil
+    return found.max { area($0) < area($1) }
 }
 
 func windows(_ pid: pid_t) -> [CGRect] {
@@ -189,7 +198,7 @@ func windows(_ pid: pid_t) -> [CGRect] {
               let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
         let r = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
         return r.width > 100 && r.height > 100 ? r : nil
-    }
+    }.sorted { $0.width * $0.height > $1.width * $1.height } // biggest (the app window) first
 }
 
 func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
