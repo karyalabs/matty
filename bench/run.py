@@ -897,9 +897,10 @@ def setup(args, driver) -> None:
             driver.cmd("key return")
             time.sleep(10)
         else:
-            time.sleep(12)  # the webapp's sign-in page; the username field has focus
-            driver.cmd(f"click {x + w // 2} {y + h // 2 - 60}")
-            time.sleep(0.3)
+            # The webapp's sign-in page focuses the username field itself. No
+            # click: the middle of the window is the page's hero, whose
+            # "create an account" link would leave the sign-in page.
+            time.sleep(12)
             driver.cmd(f"type 20 {user}")
             driver.cmd("key tab")
             driver.cmd(f"type 20 {password}")
