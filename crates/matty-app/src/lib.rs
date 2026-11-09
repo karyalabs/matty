@@ -254,6 +254,8 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     i18n::install_builtin(cx);
     style::install(style::Preset::default(), ThemeMode::Light, cx);
     let settings = SettingsStore::init(settings::default_path(), cx);
+    #[cfg(target_family = "wasm")]
+    settings::flush_on_page_hide();
     // The cache opens on the sync thread while the rest of the app and the
     // window set up (#791).
     main_window::start_early(cx);
