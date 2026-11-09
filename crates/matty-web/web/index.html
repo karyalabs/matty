@@ -49,8 +49,22 @@
               .catch(() => null);
         demo
           .then((bytes) => { window.mattyDemo = bytes; return init({ module_or_path: app }); })
-          .then(() => { loading.hidden = true; })
-          .catch((error) => { loading.textContent = "Matty could not start: " + error; });
+          .then(() => {
+            loading.hidden = true;
+            // sw.js serves this page and the app from the browser's copy on
+            // the next launch, so it doesn't wait on the host. Hosted builds
+            // only, so a local build is never served stale; ?sw=1 tries it.
+            if ("serviceWorker" in navigator && (location.protocol === "https:" || params.get("sw") === "1")) {
+              navigator.serviceWorker.register("./sw.js").catch(() => {});
+            }
+          })
+          .catch((error) => {
+            loading.textContent = "Matty could not start: " + error;
+            // A copy that can't start isn't served again: reloading fetches
+            // everything from the host.
+            navigator.serviceWorker?.getRegistrations().then((all) => all.forEach((r) => r.unregister()));
+            caches?.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+          });
       }
     </script>
   </body>
