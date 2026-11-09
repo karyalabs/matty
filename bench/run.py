@@ -693,7 +693,7 @@ class Session:
                 # The driver gave the focus back each time, but the recording
                 # shows the other app in between: rerun this scenario.
                 print(f"  WARNING: another app took the focus {stolen}x during {self.scenario}")
-                self.events.write(json.dumps({"name": "focus-stolen", "scenario": self.scenario,
+                self.events.write(json.dumps({"name": "focus-stolen", "scenario": self.scenario, "t": time.monotonic(),
                                               "count": stolen}) + "\n")
                 self.events.flush()
         if self.recorder:

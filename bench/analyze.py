@@ -186,6 +186,9 @@ def p95(xs):
 
 def analyze_app(d: Path) -> dict:
     events = [json.loads(l) for l in (d / "events.jsonl").read_text().splitlines() if l.strip()]
+    # run.py also logs notes such as "focus-stolen" that are not inputs.
+    stolen = {e["scenario"]: e.get("count", 1) for e in events if e.get("name") == "focus-stolen"}
+    events = [e for e in events if "seq" in e]
     samples = [json.loads(l) for l in (d / "samples.jsonl").read_text().splitlines() if l.strip()] \
         if (d / "samples.jsonl").exists() else []
     memory = [json.loads(l) for l in (d / "memory.jsonl").read_text().splitlines() if l.strip()] \
@@ -297,6 +300,8 @@ def analyze_app(d: Path) -> dict:
             "procs": starts[-1].get("procs"),
             "clips": {f"startup-{i + 1}": s.get("clip") for i, s in enumerate(starts)},
         }
+    if stolen:
+        out["focus_stolen"] = stolen
     return out
 
 
@@ -372,6 +377,10 @@ def report(run: Path, results: dict, info: dict) -> str:
     lines += [f"Machine: {info.get('cpu', info.get('machine'))}, {info.get('memory_gb', '?')} GB, {info.get('os')}.",
               f"Server: {info.get('server')} with {corpus.get('posts', 0):,} posts, {corpus.get('users', 0)} users, "
               f"{len(corpus.get('channels', {}))} channels in the bench team.", ""]
+    for k in keys:
+        for scen, n in results[k].get("focus_stolen", {}).items():
+            lines += [f"**Warning:** another app took the focus from {labels[k]} {n}× during `{scen}`; "
+                      "the driver brought it back, but rerun that scenario before trusting its numbers.", ""]
     head = "| Metric | " + " | ".join(labels[k] for k in keys) + (" | Better |" if len(keys) == 2 else " |")
     sep = "|---|" + "---:|" * len(keys) + ("---|" if len(keys) == 2 else "")
     section = None
