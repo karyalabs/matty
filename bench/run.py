@@ -733,6 +733,7 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     # Warm-up launch: place the window where every later launch will open it,
     # land on Town Square, quit cleanly so the app saves its state.
     s.scenario = "warmup"
+    log_mark = matty_log_size(app)
     s.launch()
     s.wait_window()
     s.after_launch()
@@ -742,7 +743,7 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     s.wait(1)
     s.switch_to("Town Square", mark=False, settle=4)
     if MAC:
-        check_signed_in(app, s.rect, s.dir / "warmup.png")
+        check_signed_in(app, s.rect, s.dir / "warmup.png", log_mark)
     s.quit()
     s.wait(3)
 
@@ -932,7 +933,17 @@ def load_server(args) -> dict:
     return server
 
 
-def check_signed_in(app: App, rect, shot: Path) -> None:
+def matty_log(app: App) -> Path | None:
+    logs = sorted((getattr(app, "home", app.profile) / "Library" / "Logs" / "Matty").glob("*.log"))
+    return logs[-1] if logs else None
+
+
+def matty_log_size(app: App) -> tuple[Path | None, int]:
+    log = matty_log(app)
+    return log, (log.stat().st_size if log else 0)
+
+
+def check_signed_in(app: App, rect, shot: Path, log_mark=(None, 0)) -> None:
     """Stops the run when the app is not where setup left it (signed in, on
     Town Square): the warm-up screenshot is compared, coarsely, with setup's
     signed-in.png. A sign-in screen differs from Town Square by far more than
@@ -950,9 +961,14 @@ def check_signed_in(app: App, rect, shot: Path) -> None:
 
     diff = ImageStat.Stat(ImageChops.difference(small(ref), small(shot))).mean[0]
     print(f"  {app.label}: warm-up screen vs signed-in.png differ by {diff:.0f}/255")
-    log_dir = getattr(app, "home", app.profile) / "Library" / "Logs" / "Matty"
-    lost = [l for f in sorted(log_dir.glob("*.log"))[-1:] for l in f.read_text(errors="replace").splitlines()
-            if "could not save the session" in l]
+    # Only what this launch logged: older lines may predate a fixed setup.
+    log = matty_log(app)
+    text = ""
+    if log:
+        with open(log, "rb") as f:
+            f.seek(log_mark[1] if log == log_mark[0] else 0)
+            text = f.read().decode(errors="replace")
+    lost = [l for l in text.splitlines() if "could not save the session" in l or "could not read the saved session" in l]
     if lost:
         sys.exit(f"{app.label} cannot keep its session, so later launches open signed out:\n  {lost[-1]}")
     if diff > 35:
