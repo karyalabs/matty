@@ -711,7 +711,11 @@ class Session:
         self.do("key k cmd")
         self.wait(0.7)
         self.do(f"type 15 {display}")
-        self.wait(1.2)  # let the switcher's list catch up, or Enter searches instead
+        # Let the switcher's list catch up, or Enter searches (or does nothing)
+        # instead. Measured switches use the same wait in both apps; moves that
+        # only set up a scenario wait longer, so a slow switcher cannot leave
+        # the app in the wrong channel and void the scenario that follows.
+        self.wait(1.2 if mark else 4)
         if mark:
             self.mark("nav", "key return", target=display)
         else:
