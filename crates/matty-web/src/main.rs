@@ -13,9 +13,30 @@
 //! host it also sets `window.mattyConnectUrl`, where the demo's "Connect
 //! your server" goes. Off the web this binary does nothing.
 
+// The linker's constructors (the `inventory` registrations behind every
+// GPUI action). Calling them here, once, tells the linker this module runs
+// them itself. Otherwise it calls them, and their destructors, at the start
+// and end of every function the module exports, which the page calls
+// thousands of times a second: about 4% of the main thread while switching
+// channels (#818).
+#[cfg(target_family = "wasm")]
+#[expect(
+    unsafe_code,
+    reason = "the linker's own function, with no safe binding"
+)]
+unsafe extern "C" {
+    fn __wasm_call_ctors();
+}
+
 fn main() {
     #[cfg(target_family = "wasm")]
     {
+        // SAFETY: the first thing the module runs, before anything that
+        // could rely on a constructor having run.
+        #[expect(unsafe_code, reason = "see `__wasm_call_ctors`")]
+        unsafe {
+            __wasm_call_ctors();
+        }
         let params = web_sys::window()
             .and_then(|window| window.location().search().ok())
             .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok());
