@@ -268,11 +268,20 @@ class Matty(App):
 
         # Your own default keychain and search list, to prove they are untouched.
         mine = security("default-keychain", "-d", "user", env=None), security("list-keychains", "-d", "user", env=None)
+        prefs = self.home / "Library" / "Preferences"
+        prefs.mkdir(parents=True, exist_ok=True)
         if not kc.exists():
             kc.parent.mkdir(parents=True, exist_ok=True)
             security("create-keychain", "-p", "bench", str(kc))
         security("list-keychains", "-d", "user", "-s", str(kc))
         security("default-keychain", "-d", "user", "-s", str(kc))
+        if "bench.keychain-db" not in self._default_keychain(env):
+            # `security … -d user -s` may store the setting through cfprefsd,
+            # which ignores HOME; the Security framework reads this file.
+            self._write_security_plist(prefs / "com.apple.security.plist", kc)
+        if "bench.keychain-db" not in self._default_keychain(env):
+            sys.exit(f"could not give the bench HOME ({self.home}) a default keychain; "
+                     "Matty would open signed out on every launch")
         security("unlock-keychain", "-p", "bench", str(kc))
         security("set-keychain-settings", str(kc))  # no auto-lock
         if (security("default-keychain", "-d", "user", env=None),
@@ -282,6 +291,28 @@ class Matty(App):
             security("default-keychain", "-d", "user", "-s", mine[0].strip().strip('"'), env=None)
             sys.exit("macOS applied the bench keychain to your own account instead of the bench HOME; "
                      f"restored your settings:\n{mine[0]}{mine[1]}")
+
+    @staticmethod
+    def _default_keychain(env) -> str:
+        out = subprocess.run(["security", "default-keychain", "-d", "user"], env=env, capture_output=True, text=True)
+        return out.stdout + out.stderr
+
+    @staticmethod
+    def _write_security_plist(path: Path, kc: Path) -> None:
+        """The Security framework's own preferences, modelled on yours when you
+        have the file, pointing the search list and the default at `kc`."""
+        import plistlib
+
+        entry = {"DbName": str(kc), "DbSubserviceType": 6, "SubserviceType": 6,
+                 "GUID": {"Data1": 2269428384, "Data2": 63696, "Data3": 4567,
+                          "Data4": bytes.fromhex("bf5f000a95ab0a92")}}  # the Apple file DL
+        mine = Path.home() / "Library" / "Preferences" / "com.apple.security.plist"
+        try:
+            ref = plistlib.loads(mine.read_bytes())
+            entry = {**ref["DefaultKeychain"], "DbName": str(kc)}
+        except Exception:
+            pass
+        path.write_bytes(plistlib.dumps({"DLDBSearchList": [entry], "DefaultKeychain": entry}))
 
     def command(self):
         if self.path.suffix == ".app":
@@ -919,6 +950,11 @@ def check_signed_in(app: App, rect, shot: Path) -> None:
 
     diff = ImageStat.Stat(ImageChops.difference(small(ref), small(shot))).mean[0]
     print(f"  {app.label}: warm-up screen vs signed-in.png differ by {diff:.0f}/255")
+    log_dir = getattr(app, "home", app.profile) / "Library" / "Logs" / "Matty"
+    lost = [l for f in sorted(log_dir.glob("*.log"))[-1:] for l in f.read_text(errors="replace").splitlines()
+            if "could not save the session" in l]
+    if lost:
+        sys.exit(f"{app.label} cannot keep its session, so later launches open signed out:\n  {lost[-1]}")
     if diff > 35:
         sys.exit(f"{app.label} does not look signed in on Town Square (see {shot} and {ref}). "
                  f"Run `bench/run.py setup` again, then the run.")
