@@ -29,6 +29,8 @@ mod extras;
 mod popout;
 mod teams;
 
+use teams::TeamRows;
+
 /// A running sync engine and what the window last heard from it.
 pub struct Live {
     sync: SyncHandle,
@@ -39,6 +41,10 @@ pub struct Live {
     /// The server's address, for message links.
     server: String,
     sections: HashMap<String, Arc<[SidebarSection]>>,
+    /// Each team's channel rows for the quick switcher, with the sections
+    /// they came from: rebuilt only when that team's sidebar changes
+    /// (#793).
+    switcher_rows: std::cell::RefCell<HashMap<String, TeamRows>>,
     presence: HashMap<String, Presence>,
     /// The signed-in user's id and username.
     me: (String, String),
@@ -656,6 +662,7 @@ impl Live {
                 teams: Vec::new(),
                 server: account.server.clone(),
                 sections: HashMap::new(),
+                switcher_rows: Default::default(),
                 presence: HashMap::new(),
                 me: (account.user_id.clone(), account.username.clone()),
                 prefs: matty_notify::UserPrefs::from_props(&account.username, "", &HashMap::new()),
