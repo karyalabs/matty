@@ -163,8 +163,10 @@ def segment(tmp: Path, idx: int, run: Path, keys: list[str], labels: dict, resul
     filters.append(f"[card][{n}:v]overlay=x=0:y={label_y - 6}:eof_action=repeat[clk]")
     sp = speed if name == "live" else 1.0
     filters.append(f"[clk]{'setpts=PTS/' + str(sp) + ',' if sp != 1 else ''}trim=duration={dur / sp:.3f},fps=60,format=yuv420p[out]")
+    # -t caps the output too: one looped or padded input must never let a
+    # segment run on (a 37s sidebar segment once grew to 16 GB).
     cmd = ["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", "[out]",
-           *encoder(), str(out)]
+           "-t", f"{dur / sp:.3f}", *encoder(), str(out)]
     subprocess.run(cmd, check=True)
     return out
 
