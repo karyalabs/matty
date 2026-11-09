@@ -18,7 +18,14 @@
 //! Only pictures off screen go. A pass first redraws every window, so each
 //! picture on screen, in any pane, says it is still wanted; what did not
 //! is dropped from the cache and the GPU atlas. A picture scrolled back to
-//! decodes again from its bytes, which the app still holds.
+//! decodes again from its bytes.
+//!
+//! The encoded bytes of what sync fetched (file images, outside images) do
+//! not stay with the app either (#789): [`hold`] keeps them in a cache of
+//! [`ENCODED_BUDGET`], least recently used first out, and hands back a
+//! handle without bytes for the models and views to carry. When a picture
+//! must decode again after its bytes left, it asks for them once more, and
+//! sync reads them from its media cache on disk.
 //!
 //! Avatars and emoji are small and stay with GPUI.
 
@@ -41,6 +48,9 @@ pub const BUDGET: usize = 128 << 20;
 pub const LOW_WATER: usize = 80 << 20;
 /// A picture not drawn for this long goes at the next idle pass.
 pub const IDLE: Duration = Duration::from_secs(60);
+/// Encoded bytes [`hold`] keeps, so a picture scrolled back to decodes
+/// without asking sync for its bytes again.
+pub const ENCODED_BUDGET: usize = 48 << 20;
 /// How often idle passes run while pictures are kept.
 const IDLE_PASS: Duration = Duration::from_secs(30);
 /// How long a pass waits after redrawing for the windows to draw.
@@ -99,6 +109,42 @@ pub fn source(image: &Arc<Image>, fit: Fit) -> ImageSource {
     })
 }
 
+/// Asks for a held picture's bytes again; they come back through [`hold`].
+pub type Refetch = std::rc::Rc<dyn Fn()>;
+
+/// Keeps `image`'s encoded bytes here, within [`ENCODED_BUDGET`], and
+/// returns a handle without them: the same id and format, for [`source`]
+/// and anything that compares images. When the bytes have left and the
+/// picture must decode again, `refetch` asks for them; passing them to
+/// `hold` again brings them back. SVGs keep their bytes: GPUI draws them.
+pub fn hold(image: Arc<Image>, refetch: Refetch) -> Arc<Image> {
+    if image.format == ImageFormat::Svg || image.bytes.is_empty() {
+        return image;
+    }
+    let handle = Arc::new(Image {
+        format: image.format,
+        bytes: Vec::new(),
+        id: image.id,
+    });
+    let woken = STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        store.refetch.insert(image.id, refetch);
+        store.hold(image)
+    });
+    if let Some(woken) = woken {
+        let _ = woken.try_send(());
+    }
+    handle
+}
+
+/// The encoded bytes behind `image`: its own, or held ones for a handle.
+pub fn bytes(image: &Arc<Image>) -> Option<Arc<Image>> {
+    if !image.bytes.is_empty() {
+        return Some(image.clone());
+    }
+    STORE.with(|store| store.borrow_mut().held_bytes(image.id))
+}
+
 /// How many bytes of decoded pixels are kept now.
 pub fn kept_bytes() -> usize {
     STORE.with(|store| store.borrow().kept)
@@ -125,12 +171,64 @@ thread_local! {
 #[derive(Default)]
 struct Store {
     entries: HashMap<Key, Entry>,
+    /// Encoded bytes by image id, with when each was last used.
+    held: HashMap<u64, (Arc<Image>, Instant)>,
+    /// Their size in bytes.
+    held_size: usize,
+    /// How to ask for each held picture's bytes again.
+    refetch: HashMap<u64, Refetch>,
+    /// Pictures whose bytes were asked for again: their arrival wakes the
+    /// task that decodes them.
+    awaited: HashMap<u64, async_channel::Sender<()>>,
     /// Bytes of decoded pixels in `Ready` entries.
     kept: usize,
     /// A pass is on its way.
     passing: bool,
     /// Idle passes are scheduled.
     idling: bool,
+}
+
+impl Store {
+    /// Keeps `image`'s bytes, letting the least recently used go past
+    /// [`ENCODED_BUDGET`]. Returns who waits for them.
+    fn hold(&mut self, image: Arc<Image>) -> Option<async_channel::Sender<()>> {
+        let id = image.id;
+        let size = image.bytes.len();
+        if let Some((old, _)) = self.held.insert(id, (image, Instant::now())) {
+            self.held_size -= old.bytes.len();
+        }
+        self.held_size += size;
+        if self.held_size > ENCODED_BUDGET {
+            let mut by_age: Vec<(Instant, u64)> = self
+                .held
+                .iter()
+                .map(|(id, (_, used))| (*used, *id))
+                .collect();
+            by_age.sort_unstable();
+            for (_, old) in by_age {
+                if self.held_size <= ENCODED_BUDGET || old == id {
+                    break;
+                }
+                if let Some((image, _)) = self.held.remove(&old) {
+                    self.held_size -= image.bytes.len();
+                }
+            }
+        }
+        // Handles nobody holds any more need no way back.
+        if self.refetch.len() > 4 * self.held.len().max(256) {
+            let live: HashSet<u64> = self.entries.keys().map(|(id, _)| *id).collect();
+            let held = &self.held;
+            self.refetch
+                .retain(|id, _| held.contains_key(id) || live.contains(id));
+        }
+        self.awaited.remove(&id)
+    }
+
+    fn held_bytes(&mut self, id: u64) -> Option<Arc<Image>> {
+        let (image, used) = self.held.get_mut(&id)?;
+        *used = Instant::now();
+        Some(image.clone())
+    }
 }
 
 struct Entry {
@@ -148,6 +246,8 @@ struct Entry {
 enum State {
     /// Not decoded: never drawn yet, or let go.
     Idle,
+    /// Its bytes were let go and are asked for again.
+    Fetching,
     Decoding,
     Ready(Arc<RenderImage>, usize),
     Failed,
@@ -170,7 +270,7 @@ fn load(
                     "the image could not be decoded".into(), // i18n-ignore: a log message
                 ))));
             }
-            State::Decoding => {
+            State::Decoding | State::Fetching => {
                 entry.waiting.insert(window.current_view());
                 return None;
             }
@@ -180,16 +280,69 @@ fn load(
             entry.state = State::Failed;
             return None;
         };
-        entry.state = State::Decoding;
         entry.waiting.insert(window.current_view());
-        Some(Err(image))
+        if !image.bytes.is_empty() {
+            entry.state = State::Decoding;
+            return Some(Err(Start::Decode(image)));
+        }
+        if let Some(held) = store.held_bytes(key.0) {
+            store.entries.get_mut(&key)?.state = State::Decoding;
+            return Some(Err(Start::Decode(held)));
+        }
+        let Some(refetch) = store.refetch.get(&key.0).cloned() else {
+            store.entries.get_mut(&key)?.state = State::Failed;
+            return None;
+        };
+        store.entries.get_mut(&key)?.state = State::Fetching;
+        if store.awaited.contains_key(&key.0) {
+            return None;
+        }
+        let (woken, wake) = async_channel::bounded(1);
+        store.awaited.insert(key.0, woken);
+        Some(Err(Start::Fetch(refetch, wake)))
     });
     match start? {
         Ok(result) => Some(result),
-        Err(image) => {
+        Err(Start::Decode(image)) => {
             decode_in_background(key, image, cx);
             None
         }
+        Err(Start::Fetch(refetch, wake)) => {
+            refetch();
+            cx.spawn(async move |cx| {
+                if wake.recv().await.is_ok() {
+                    cx.update(|cx| fetched(key.0, cx));
+                }
+            })
+            .detach();
+            None
+        }
+    }
+}
+
+/// What [`load`] starts once the store is let go.
+enum Start {
+    Decode(Arc<Image>),
+    Fetch(Refetch, async_channel::Receiver<()>),
+}
+
+/// Bytes asked for again arrived: every fit of that picture waiting for
+/// them may decode now, so the views that drew it draw again.
+fn fetched(id: u64, cx: &mut App) {
+    let waiting: Vec<EntityId> = STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        store
+            .entries
+            .iter_mut()
+            .filter(|((key_id, _), entry)| *key_id == id && matches!(entry.state, State::Fetching))
+            .flat_map(|(_, entry)| {
+                entry.state = State::Idle;
+                entry.waiting.drain().collect::<Vec<_>>()
+            })
+            .collect()
+    });
+    for view in waiting {
+        cx.notify(view);
     }
 }
 
@@ -539,6 +692,47 @@ mod tests {
             store.entries[&(2, Fit::Tile)].state,
             State::Ready(..)
         ));
+    }
+
+    #[test]
+    fn held_pictures_hand_out_handles_without_bytes() {
+        let image = png(20, 20);
+        let handle = hold(image.clone(), std::rc::Rc::new(|| {}));
+        assert!(handle.bytes.is_empty());
+        assert_eq!((handle.id, handle.format), (image.id, image.format));
+        assert_eq!(bytes(&handle).unwrap().bytes, image.bytes);
+    }
+
+    #[test]
+    fn held_bytes_stay_within_their_budget_oldest_out_first() {
+        let mut store = Store::default();
+        let big = |n: u8| {
+            Arc::new(Image::from_bytes(
+                ImageFormat::Png,
+                vec![n; ENCODED_BUDGET / 3 + 1],
+            ))
+        };
+        let (a, b, c) = (big(1), big(2), big(3));
+        store.hold(a.clone());
+        store.hold(b.clone());
+        // Using `a` makes `b` the oldest.
+        assert!(store.held_bytes(a.id).is_some());
+        store.hold(c.clone());
+        assert!(store.held_size <= ENCODED_BUDGET);
+        assert!(store.held_bytes(b.id).is_none());
+        assert!(store.held_bytes(a.id).is_some());
+        assert!(store.held_bytes(c.id).is_some());
+    }
+
+    #[test]
+    fn bytes_asked_for_again_wake_who_waits() {
+        let mut store = Store::default();
+        let image = png(2, 2);
+        let (woken, wake) = async_channel::bounded(1);
+        store.awaited.insert(image.id, woken);
+        store.hold(image).unwrap().try_send(()).unwrap();
+        assert!(wake.try_recv().is_ok());
+        assert!(store.awaited.is_empty());
     }
 
     #[test]

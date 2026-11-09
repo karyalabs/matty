@@ -50,7 +50,11 @@ fn items(role: Role, cx: &gpui_kit::App) -> Option<Vec<SelectItem>> {
     let default = role.default_family();
     let first = SelectItem::new(default, t!("prefs-font-default", family = default));
     let rest: Vec<SharedString> = match role {
-        Role::Interface => families.names().to_vec(),
+        // Listed with the monospace ones, by `fonts::scan`.
+        Role::Interface => {
+            families.mono()?;
+            families.names().to_vec()
+        }
         Role::Code => families.mono()?.iter().cloned().collect(),
     };
     Some(
