@@ -4098,6 +4098,34 @@ mod tests {
         );
     }
 
+    /// Sync's bounded window (#786): an older page on top drops the newest
+    /// posts at the bottom, and a newer page drops the oldest; both patch,
+    /// so the transcript keeps the reader's place.
+    #[test]
+    fn a_page_dropped_from_either_end_patches() {
+        let old = [shown("b", "two"), shown("c", "three"), shown("d", "four")];
+        let new = [shown("a", "one"), shown("b", "two"), shown("c", "three")];
+        assert_eq!(
+            patch(&old, &new),
+            Some(ChannelUpdate::Patch {
+                removed: vec!["d".into()],
+                prepended: vec![shown("a", "one")],
+                updated: vec![],
+                appended: vec![],
+            })
+        );
+        let new = [shown("c", "three"), shown("d", "four"), shown("e", "five")];
+        assert_eq!(
+            patch(&old, &new),
+            Some(ChannelUpdate::Patch {
+                removed: vec!["b".into()],
+                prepended: vec![],
+                updated: vec![],
+                appended: vec![shown("e", "five")],
+            })
+        );
+    }
+
     #[test]
     fn older_history_goes_on_top() {
         let old = [shown("c", "three"), shown("d", "four")];

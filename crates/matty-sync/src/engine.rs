@@ -2527,6 +2527,30 @@ impl Engine {
                 roots_only,
             ) {
                 Ok(window) => {
+                    // A page dropped earlier to keep the snapshot bounded
+                    // comes back from the store, without the server.
+                    let older = matches!(page, Page::Older);
+                    match stored_page(
+                        self.store.conn(),
+                        &channel_id,
+                        history,
+                        &window,
+                        older,
+                        roots_only,
+                    ) {
+                        Ok(Some(latest)) => {
+                            if latest {
+                                self.reach_latest(&channel_id);
+                            }
+                            self.bound(&channel_id, older);
+                            let history = &self.history[&channel_id];
+                            dirty.direct.push(history.change(&channel_id, false));
+                            dirty.channels.insert(channel_id);
+                            return;
+                        }
+                        Ok(None) => {}
+                        Err(error) => tracing::error!(%error, "could not read stored posts"),
+                    }
                     let post = match page {
                         Page::Older => window.first(),
                         _ => window.last(),
@@ -3155,7 +3179,7 @@ impl Engine {
         };
         let fetched: Vec<_> = list.posts.into_values().collect();
         let mut latest = false;
-        match (page, history.anchor.as_mut()) {
+        match (&page, history.anchor.as_mut()) {
             (Page::Older, anchor) => {
                 history.at_start = list.prev_post_id.is_empty();
                 match anchor {
@@ -3181,12 +3205,14 @@ impl Engine {
             }
             (_, None) => {}
         }
+        let older = matches!(page, Page::Older);
         let tx = self.store.conn_mut().transaction()?;
         posts::insert_posts(&tx, &fetched)?;
         tx.commit()?;
         if latest {
             self.reach_latest(&channel_id);
         }
+        self.bound(&channel_id, older);
         let history = &self.history[&channel_id];
         dirty.direct.push(history.change(&channel_id, false));
         dirty.channels.insert(channel_id);
@@ -3206,6 +3232,7 @@ impl Engine {
         let Some((from, _)) = history.anchor.take() else {
             return;
         };
+        history.stored_newer = None;
         // Everything from `from` on now joins the newest post.
         if let Some(floor) = self.floors.get_mut(channel_id) {
             *floor = (*floor).min(from - 1);
@@ -3219,6 +3246,31 @@ impl Engine {
         )
         .map_or(0, |window| window.len());
         history.extra = shown.saturating_sub(POSTS_WINDOW);
+    }
+
+    /// Keeps the open channel's snapshot within [`LOADED_POSTS`] after it
+    /// grew at its top (`grew_older`) or bottom: the posts past the cap at
+    /// the other end leave it, and [`History`] notes that the store still
+    /// has them.
+    fn bound(&mut self, channel_id: &str, grew_older: bool) {
+        let roots_only = self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.collapsed_threads);
+        let floor = self.floors.get(channel_id).copied();
+        let Some(history) = self.history.get_mut(channel_id) else {
+            return;
+        };
+        match snapshot(
+            self.store.conn(),
+            channel_id,
+            Some(history),
+            floor,
+            roots_only,
+        ) {
+            Ok(window) => trim(history, &window, grew_older),
+            Err(error) => tracing::error!(%error, "could not read a posts snapshot"),
+        }
     }
 
     fn write_loaded(&mut self, result: Loaded, dirty: &mut Dirty) -> Result<(), StoreError> {
@@ -3395,11 +3447,16 @@ impl Engine {
                 let to = fetched.iter().map(|p| p.create_at).max().unwrap_or(0);
                 history.at_start = before.prev_post_id.is_empty();
                 history.anchor = Some((from, to));
+                // A window somewhere else: what was dropped around the old
+                // one is no longer next to it.
+                history.stored_older = None;
+                history.stored_newer = None;
                 let tx = self.store.conn_mut().transaction()?;
                 posts::insert_posts(&tx, &fetched)?;
                 tx.commit()?;
                 if after.next_post_id.is_empty() {
                     self.reach_latest(&channel_id);
+                    self.bound(&channel_id, false);
                 }
                 let history = &self.history[&channel_id];
                 dirty.direct.push(history.change(&channel_id, false));
@@ -4610,6 +4667,11 @@ fn image_key(file_id: &str, size: ImageSize) -> String {
 /// Posts per page of history (PLAN §4.2).
 const HISTORY_PAGE: u32 = 60;
 
+/// The most posts an open channel's snapshot holds, about ten pages around
+/// the reader (#786): enough to scroll through, few enough that a long
+/// read back through history does not pile up in memory.
+const LOADED_POSTS: usize = 10 * HISTORY_PAGE as usize;
+
 /// Posts an older page adds from the store when there is no server (the
 /// web demo).
 const OFFLINE_PAGE: usize = HISTORY_PAGE as usize;
@@ -4650,6 +4712,11 @@ struct ListPages {
 }
 
 /// How far back an open channel's snapshot reaches.
+///
+/// The snapshot never holds more than [`LOADED_POSTS`] posts (#786): a page
+/// that takes it past that drops as many from the far end, which stay
+/// stored, and paging back that way reads them from the store again before
+/// asking the server.
 #[derive(Debug, Default)]
 struct History {
     /// Posts beyond [`POSTS_WINDOW`].
@@ -4661,6 +4728,14 @@ struct History {
     loading: bool,
     /// The channel's first post is loaded.
     at_start: bool,
+    /// Posts dropped from the top: the store holds every post from this
+    /// creation time up to the snapshot's first, and whether the channel's
+    /// first post is among them.
+    stored_older: Option<(i64, bool)>,
+    /// Posts dropped from the bottom: the store holds every post after the
+    /// snapshot's last up to this creation time, or to the newest post
+    /// (`Some(None)`).
+    stored_newer: Option<Option<i64>>,
 }
 
 impl History {
@@ -4671,6 +4746,104 @@ impl History {
             at_end: self.anchor.is_none(),
             failed,
         }
+    }
+}
+
+/// Drops the posts past [`LOADED_POSTS`] from `window`, the snapshot
+/// `history` describes, at the end away from where it grew.
+fn trim(history: &mut History, window: &[matty_api::models::Post], grew_older: bool) {
+    if window.len() <= LOADED_POSTS {
+        return;
+    }
+    if grew_older {
+        let from = window[0].create_at;
+        let to = window[LOADED_POSTS - 1].create_at;
+        // The store keeps what the old window reached: the newest post, or
+        // the end of a stretch away from it.
+        let reached = history.anchor.map(|(_, to)| to);
+        history.stored_newer = Some(history.stored_newer.unwrap_or(reached));
+        history.anchor = Some((from, to));
+    } else {
+        let cut = window.len() - LOADED_POSTS;
+        history.stored_older = Some(
+            history
+                .stored_older
+                .unwrap_or((window[0].create_at, history.at_start)),
+        );
+        history.at_start = false;
+        match history.anchor.as_mut() {
+            Some((from, _)) => *from = window[cut].create_at,
+            None => history.extra = LOADED_POSTS - POSTS_WINDOW,
+        }
+    }
+}
+
+/// The page asked for from the posts [`trim`] dropped, when the store
+/// still has them: `Some(true)` when it reached the newest post,
+/// `Some(false)` for any other page served, `None` when the server must
+/// answer.
+fn stored_page(
+    conn: &rusqlite::Connection,
+    channel_id: &str,
+    history: &mut History,
+    window: &[matty_api::models::Post],
+    older: bool,
+    roots_only: bool,
+) -> Result<Option<bool>, StoreError> {
+    let page = HISTORY_PAGE as usize;
+    if older {
+        let (Some((limit, start)), Some(first)) = (history.stored_older, window.first()) else {
+            return Ok(None);
+        };
+        let mut posts = posts::posts_window(
+            conn,
+            channel_id,
+            Window::Before(first.create_at),
+            page,
+            roots_only,
+        )?;
+        posts.retain(|post| post.create_at >= limit);
+        if posts.len() < page {
+            history.stored_older = None;
+            history.at_start = start;
+        }
+        if posts.is_empty() {
+            return Ok(start.then_some(false));
+        }
+        match history.anchor.as_mut() {
+            Some((from, _)) => *from = posts.iter().map(|p| p.create_at).fold(*from, i64::min),
+            None => history.extra += posts.len(),
+        }
+        Ok(Some(false))
+    } else {
+        let (Some(limit), Some(last), Some((_, to))) =
+            (history.stored_newer, window.last(), history.anchor.as_mut())
+        else {
+            history.stored_newer = None;
+            return Ok(None);
+        };
+        let mut posts = posts::posts_window(
+            conn,
+            channel_id,
+            Window::After(last.create_at),
+            page,
+            roots_only,
+        )?;
+        if let Some(limit) = limit {
+            posts.retain(|post| post.create_at <= limit);
+        }
+        *to = posts.iter().map(|p| p.create_at).fold(*to, i64::max);
+        let end = posts.len() < page;
+        if end {
+            history.stored_newer = None;
+        }
+        Ok(match (end, limit) {
+            // The rest of the stored stretch is on the server.
+            (true, Some(_)) if posts.is_empty() => None,
+            (true, Some(_)) => Some(false),
+            (true, None) => Some(true),
+            (false, _) => Some(false),
+        })
     }
 }
 

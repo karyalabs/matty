@@ -278,3 +278,126 @@ async fn jumping_back_to_the_latest_leaves_the_history_window() {
     let shown = next(&changes, |c| matches!(c, ChangeSet::Posts { .. })).await;
     assert_eq!(ids(&shown), ["p3", "p4", "p5", "p6", "p7", "p8", "p9"]);
 }
+
+/// A channel of `count` posts, `q0000` the oldest, served page by page as
+/// the server would: `before` and `after` another post, newest first.
+struct Pages(usize);
+
+impl Pages {
+    fn id(i: usize) -> String {
+        format!("q{i:04}")
+    }
+
+    fn list(&self, range: std::ops::Range<usize>) -> Value {
+        let posts: serde_json::Map<String, Value> = range
+            .clone()
+            .map(|i| (Self::id(i), post(&Self::id(i), 1_000 + i as i64 * 10)))
+            .collect();
+        let order: Vec<String> = range.clone().rev().map(Self::id).collect();
+        json!({
+            "order": order,
+            "posts": posts,
+            "prev_post_id": if range.start == 0 { String::new() } else { Self::id(range.start - 1) },
+            "next_post_id": if range.end >= self.0 { String::new() } else { Self::id(range.end) },
+        })
+    }
+}
+
+impl wiremock::Respond for Pages {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let param = |key: &str| {
+            request
+                .url
+                .query_pairs()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v[1..].parse::<usize>().unwrap())
+        };
+        let range = match (param("before"), param("after")) {
+            (Some(at), _) => at.saturating_sub(60)..at,
+            (_, Some(at)) => at + 1..(at + 61).min(self.0),
+            _ => self.0 - 60..self.0,
+        };
+        ResponseTemplate::new(200).set_body_json(self.list(range))
+    }
+}
+
+fn pages_asked(requests: &[wiremock::Request], key: &str) -> usize {
+    requests
+        .iter()
+        .filter(|r| r.url.path() == "/api/v4/channels/c1/posts")
+        .filter(|r| r.url.query_pairs().any(|(k, _)| k == key))
+        .count()
+}
+
+/// Reading far back keeps at most ten pages loaded (#786): the newest posts
+/// leave the snapshot, and paging back down reads them from the store
+/// instead of the server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_read_back_keeps_a_bounded_window() {
+    let server = server().await;
+    let all = 1_200;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v4/users/{ME}/channels/c1/posts/unread")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(Pages(all).list(all - 60..all)))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/channels/c1/posts"))
+        .respond_with(Pages(all))
+        .mount(&server)
+        .await;
+    let (sync, changes) = open(&server);
+    next(
+        &changes,
+        |c| matches!(c, ChangeSet::Posts { posts, .. } if posts.len() == 60),
+    )
+    .await;
+
+    // Fifteen pages up: 960 posts read, never more than 600 held.
+    let mut shown = Vec::new();
+    for _ in 0..15 {
+        sync.send(Command::LoadOlder {
+            channel_id: "c1".into(),
+        });
+        shown = ids(&next(&changes, |c| matches!(c, ChangeSet::Posts { .. })).await);
+        assert!(shown.len() <= 600, "{} posts loaded", shown.len());
+    }
+    assert_eq!(shown.len(), 600);
+    assert_eq!(shown.first().unwrap(), &Pages::id(all - 960));
+    assert_eq!(shown.last().unwrap(), &Pages::id(all - 361));
+    let asked_older = pages_asked(&server.received_requests().await.unwrap(), "before");
+    assert_eq!(asked_older, 15);
+
+    // Back down to the newest post, all from the store.
+    let mut at_end = false;
+    for _ in 0..10 {
+        sync.send(Command::LoadNewer {
+            channel_id: "c1".into(),
+        });
+        let history = next(&changes, |c| matches!(c, ChangeSet::History { .. })).await;
+        if matches!(history, ChangeSet::History { at_end: true, .. }) {
+            at_end = true;
+            break;
+        }
+        shown = ids(&next(&changes, |c| matches!(c, ChangeSet::Posts { .. })).await);
+        assert!(shown.len() <= 600, "{} posts loaded", shown.len());
+    }
+    assert!(at_end);
+    shown = ids(&next(&changes, |c| matches!(c, ChangeSet::Posts { .. })).await);
+    assert_eq!(shown.last().unwrap(), &Pages::id(all - 1));
+    assert_eq!(shown.len(), 600);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(pages_asked(&requests, "after"), 0);
+
+    // And up again: the top that was dropped on the way down comes back
+    // from the store too.
+    sync.send(Command::LoadOlder {
+        channel_id: "c1".into(),
+    });
+    shown = ids(&next(&changes, |c| matches!(c, ChangeSet::Posts { .. })).await);
+    assert_eq!(shown.first().unwrap(), &Pages::id(all - 660));
+    assert!(shown.len() <= 600);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(pages_asked(&requests, "before"), asked_older);
+}
