@@ -9,6 +9,46 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.16] - 2026-11-09
+
+The performance round from the beta.15 audit (#784): idle CPU, memory and
+latency, with no change to what is on screen.
+
+### Added
+
+- The sign-in screen is laid out like the official clients (#779).
+
+### Changed
+
+- Memory stays bounded while reading back through history: posts beyond
+  the window around the view are let go and loaded again when scrolled
+  to (#786).
+- Images drop their encoded bytes once decoded, and the lightbox decodes
+  at the window's size; a memory-pressure warning flushes decoded images
+  (#789, #794).
+- Starting up: the launch server's sync begins before the window opens,
+  and the system font list is gathered off the UI thread (#791).
+
+### Fixed
+
+- Presence and unread changes that alter nothing on screen no longer
+  rebuild the sidebar, the switcher or the directory (#787).
+- Each message body's Markdown source is made once, not every frame
+  (#788).
+- Transcript rows extend on append instead of being rebuilt, and
+  profiles are looked up by name (#790).
+- Idle repaints are gone: image passes wait for a frame, the caret stops
+  blinking when idle, and the macOS sleep check runs less often (#795).
+- Spinners and skeletons redraw 12 times a second instead of every frame
+  (#792).
+- The quick switcher gathers and lowercases its rows once per sidebar
+  change, and does no row work in the switch frame or on an unchanged
+  reopen (#793).
+- The caret returns to the composer after a quick-switcher pick, so
+  typing and Shift+Up work right away (#782).
+- The add-reaction button on a message's reactions row shows only on
+  hover, so a row of reactions costs nothing while idle (#796).
+
 ## [0.1.0-beta.15] - 2026-11-09
 
 Fixes from the first benchmark against the official desktop app (#764).
@@ -240,6 +280,7 @@ The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
 [Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.14...HEAD
+[0.1.0-beta.16]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.13
