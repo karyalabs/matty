@@ -122,19 +122,62 @@ fn server_target(url: &str, server: &str, teams: Option<&[&str]>) -> Option<Link
 /// gpuicn entity chips, and every click, chip or link, handed to
 /// `on_link` with its URL. A body taller than about 600 px collapses
 /// behind Show more, as in Mattermost (#682).
+///
+/// `body` is a post's stored text: its Markdown source is worked out once
+/// per body and custom emoji list (see [`cached_source`]), not every frame.
 pub fn message_body(
     id: impl Into<ElementId>,
-    body: &str,
+    body: &SharedString,
     image_sizes: &[(SharedString, u32, u32)],
     on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
     on_link_menu: Option<LinkMenu>,
     cx: &App,
 ) -> ShowMore {
     let id = id.into();
+    let source = cached_source(body, cx);
     ShowMore::new(
         (id.clone(), "more"),
-        markdown_body(id, body, image_sizes, on_link, on_link_menu, cx),
+        markdown_from_source(id, source, image_sizes, on_link, on_link_menu, cx),
     )
+}
+
+/// How many bodies' sources [`cached_source`] keeps before starting over:
+/// a few screens of every open view.
+const SOURCE_CACHE_LIMIT: usize = 4096;
+
+/// Message bodies' Markdown sources, by body text.
+#[derive(Default)]
+struct SourceCache {
+    /// The custom emoji list the sources were made with: its identity and
+    /// generation.
+    emoji: (usize, u64),
+    sources: std::collections::HashMap<SharedString, SharedString>,
+}
+
+thread_local! {
+    static SOURCES: std::cell::RefCell<SourceCache> = std::cell::RefCell::default();
+}
+
+/// [`body_source`] for a stored body, made once per body text and custom
+/// emoji list (#788): a hash lookup a frame instead of the fence, emoji
+/// and line-break passes. The same `SharedString` comes back each frame,
+/// so the text view recognizes a long one by pointer.
+fn cached_source(body: &SharedString, cx: &App) -> SharedString {
+    let custom = cx.try_global::<crate::emoji::CustomEmoji>();
+    let emoji = custom.map_or((0, 0), crate::emoji::CustomEmoji::identity);
+    SOURCES.with_borrow_mut(|cache| {
+        if cache.emoji != emoji || cache.sources.len() >= SOURCE_CACHE_LIMIT {
+            cache.emoji = emoji;
+            cache.sources.clear();
+        }
+        if let Some(source) = cache.sources.get(body) {
+            return source.clone();
+        }
+        let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
+        let source: SharedString = body_source(body, &is_custom).into();
+        cache.sources.insert(body.clone(), source.clone());
+        source
+    })
 }
 
 /// Opens a menu for a link right-clicked in a message, at the pointer.
@@ -142,7 +185,8 @@ pub type LinkMenu = std::sync::Arc<
     dyn Fn(&SharedString, gpui_kit::Point<gpui_kit::Pixels>, &mut Window, &mut App) + Send + Sync,
 >;
 
-/// The Markdown view of [`message_body`], without the Show more clip.
+/// The Markdown view of [`message_body`], without the Show more clip, for
+/// text that changes as it is typed (the composer's preview).
 pub fn markdown_body(
     id: impl Into<ElementId>,
     body: &str,
@@ -151,9 +195,21 @@ pub fn markdown_body(
     on_link_menu: Option<LinkMenu>,
     cx: &App,
 ) -> MarkdownView {
-    let custom = cx.try_global::<crate::emoji::CustomEmoji>().cloned();
-    let is_custom = |name: &str| custom.as_ref().is_some_and(|known| known.contains(name));
-    let source = body_source(body, &is_custom);
+    let custom = cx.try_global::<crate::emoji::CustomEmoji>();
+    let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
+    let source = body_source(body, &is_custom).into();
+    markdown_from_source(id, source, image_sizes, on_link, on_link_menu, cx)
+}
+
+/// The Markdown view of a message whose source [`body_source`] made.
+fn markdown_from_source(
+    id: impl Into<ElementId>,
+    source: SharedString,
+    image_sizes: &[(SharedString, u32, u32)],
+    on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
+    on_link_menu: Option<LinkMenu>,
+    cx: &App,
+) -> MarkdownView {
     // Table cells and headings are views of their own; they get the same
     // plugins and link handling as the message around them.
     let blocks = {
@@ -487,6 +543,29 @@ mod tests {
         );
     }
 
+    /// #788: a stored body's source is made once and handed back as the
+    /// same string, until the custom emoji list changes.
+    #[gpui_kit::test]
+    fn a_bodys_source_is_made_once(cx: &mut gpui_kit::TestAppContext) {
+        let emoji = crate::emoji::CustomEmoji::default();
+        cx.update(|cx| cx.set_global(emoji.clone()));
+        // Long enough to live on the heap rather than inline.
+        let body: SharedString = format!("hi :partyparrot: {}", "and more ".repeat(8)).into();
+        let (first, second) = cx.update(|cx| (cached_source(&body, cx), cached_source(&body, cx)));
+        assert!(first.starts_with("hi :partyparrot: and more"));
+        assert_eq!(
+            first.as_ptr(),
+            second.as_ptr(),
+            "the same string, not a copy"
+        );
+        emoji.set(&[matty_api::models::Emoji {
+            name: "partyparrot".into(),
+            ..Default::default()
+        }]);
+        let third = cx.update(|cx| cached_source(&body, cx));
+        assert!(third.starts_with("hi ![:partyparrot:](emoji:partyparrot) and more"));
+    }
+
     /// A message body drawing one Markdown image, for the tests below.
     struct Body;
 
@@ -499,7 +578,7 @@ mod tests {
             use gpui_kit::{ParentElement as _, Styled as _};
             gpui_kit::div().w(gpui_kit::px(800.)).child(message_body(
                 "body",
-                "![chart](https://cdn.example.com/chart.png)",
+                &"![chart](https://cdn.example.com/chart.png)".into(),
                 &[("https://cdn.example.com/chart.png".into(), 1200, 600)],
                 |_, _, _| {},
                 None,
