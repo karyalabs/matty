@@ -7,6 +7,7 @@
 mod ast;
 mod autolink;
 mod entities;
+mod flavor;
 mod html;
 mod parse;
 mod plain;
@@ -14,6 +15,7 @@ mod source;
 
 pub use ast::{Alignment, Block, Document, Inline, ListItem};
 pub use entities::{SPECIAL_MENTIONS, link_entities};
+pub use flavor::{close_fences_with_trailing_text, hard_line_breaks};
 pub use html::to_html;
 pub use parse::{MAX_DEPTH, parse, parse_with};
 pub use plain::to_plain;

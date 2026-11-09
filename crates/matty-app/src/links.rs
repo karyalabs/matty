@@ -14,7 +14,8 @@ use crate::ui::{
     collapsible::ShowMore,
     dialog::{DialogHandle, dialog_description, dialog_popup, dialog_title},
     markdown::{
-        CustomEmoji as CustomEmojiImages, EntityLinks, MarkdownImages, MarkdownView, markdown,
+        CustomEmoji as CustomEmojiImages, EntityLinks, MarkdownBlocks, MarkdownImages,
+        MarkdownView, markdown, markdown_with,
     },
     theme::UiTheme,
 };
@@ -153,9 +154,39 @@ pub fn markdown_body(
     let custom = cx.try_global::<crate::emoji::CustomEmoji>().cloned();
     let is_custom = |name: &str| custom.as_ref().is_some_and(|known| known.contains(name));
     let source = body_source(body, &is_custom);
+    // Table cells and headings are views of their own; they get the same
+    // plugins and link handling as the message around them.
+    let blocks = {
+        let image_sizes = image_sizes.to_vec();
+        let on_link = on_link.clone();
+        let on_link_menu = on_link_menu.clone();
+        MarkdownBlocks::new().inline(move |id, source, _, cx| {
+            with_message_plugins(
+                markdown(id, source, cx),
+                &image_sizes,
+                on_link.clone(),
+                on_link_menu.clone(),
+            )
+        })
+    };
+    with_message_plugins(
+        markdown_with(id, source, blocks, cx),
+        image_sizes,
+        on_link,
+        on_link_menu,
+    )
+}
+
+/// `view` with a message's emoji, images, entity chips and link handling.
+fn with_message_plugins(
+    view: MarkdownView,
+    image_sizes: &[(SharedString, u32, u32)],
+    on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
+    on_link_menu: Option<LinkMenu>,
+) -> MarkdownView {
     let chip = on_link.clone();
     let image_link = on_link.clone();
-    markdown(id, source, cx)
+    view
         // Custom emoji as images sized to the text, from sync's media cache
         // (#153); until one lands, and for names the server does not know,
         // the text stays `:name:`.
@@ -196,15 +227,20 @@ pub fn markdown_body(
         })
 }
 
-/// `body` with its entities as links. Other clients send emoji as `:name:`
-/// text (#677): system ones become their glyph, the custom ones
-/// `is_custom` knows an image, and unknown names stay text.
+/// `body` with its entities as links, read the way Mattermost shows it:
+/// each typed line break stays a line break, and a code fence with text
+/// after it (```` ``` #783 ````) closes an otherwise unclosed block. Other
+/// clients send emoji as `:name:` text (#677): system ones become their
+/// glyph, the custom ones `is_custom` knows an image, and unknown names
+/// stay text.
 fn body_source(body: &str, is_custom: &dyn Fn(&str) -> bool) -> String {
-    matty_markdown::link_entities_and_emoji_in_source(
-        body,
+    let body = matty_markdown::close_fences_with_trailing_text(body);
+    let linked = matty_markdown::link_entities_and_emoji_in_source(
+        &body,
         &|name| crate::emoji::lookup(name).is_some() || is_custom(name),
         &|name| crate::emoji::lookup(name).map(|emoji| emoji.as_str().to_owned()),
-    )
+    );
+    matty_markdown::hard_line_breaks(&linked)
 }
 
 /// What to do with the channel a link named, once found.
