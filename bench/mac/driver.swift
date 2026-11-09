@@ -22,6 +22,29 @@ import Foundation
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
+// `driver disclaim EXE ARGS…` becomes EXE (same pid, via POSIX_SPAWN_SETEXEC)
+// as its own "responsible process", like an app opened from the Finder. Without
+// it macOS charges the app's privacy requests to whatever started run.py (a
+// terminal, an agent app); when that host's Info.plist lacks a usage string
+// the app asks for, TCC kills the app. Mattermost asks for Focus status at
+// launch and dies with SIGABRT that way. run.py launches both apps like this.
+if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "disclaim" {
+    let argv = Array(CommandLine.arguments.dropFirst(2))
+    var attr: posix_spawnattr_t?
+    posix_spawnattr_init(&attr)
+    posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETEXEC))
+    typealias SetDisclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+    if let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") {
+        _ = unsafeBitCast(sym, to: SetDisclaim.self)(&attr, 1)
+    } else {
+        fputs("disclaim: responsibility_spawnattrs_setdisclaim not found; launching as a plain child\n", stderr)
+    }
+    var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
+    let rc = posix_spawn(nil, argv[0], nil, &attr, &cargs, environ)
+    fputs("disclaim: could not start \(argv[0]): \(String(cString: strerror(rc)))\n", stderr)
+    exit(127)
+}
+
 let markerCells = 18 // [white] 16 bits of N, most significant first [black]
 
 final class MarkerView: NSView {

@@ -235,7 +235,12 @@ class App:
     def spawn(self) -> subprocess.Popen:
         env = {**os.environ, **self.env}
         log = open(self.profile / "app.log", "ab")
-        return subprocess.Popen(self.command(), env=env, stdout=log, stderr=log, start_new_session=True)
+        cmd = self.command()
+        if sys.platform == "darwin":
+            # The driver execs the app as its own responsible process (see
+            # "disclaim" in bench/mac/driver.swift); the pid stays the same.
+            cmd = [str(OUT / "driver"), "disclaim", *cmd]
+        return subprocess.Popen(cmd, env=env, stdout=log, stderr=log, start_new_session=True)
 
 
 class Matty(App):
