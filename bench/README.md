@@ -31,6 +31,12 @@ A run lands in `bench/out/runs/<timestamp>/`:
 video from the raw files, so the measuring can be improved later and old runs
 re-measured.
 
+On Apple silicon, run Docker with Rosetta: the Mattermost server image is
+amd64 only, and without Rosetta it runs under QEMU, which makes the import
+take an hour and slows every request during the run
+(`colima start --vz-rosetta --cpu 10 --memory 16`, or Docker Desktop's "Use
+Rosetta for x86/amd64 emulation").
+
 Before a run: quit your everyday Matty and Mattermost (the benchmark uses its
 own profiles in `bench/out/profiles/`, but two copies of an app fight over the
 keychain and single-instance locks), close other heavy apps, plug in power,
