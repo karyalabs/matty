@@ -42,8 +42,8 @@ fn match_mattermost_text_rendering() {
         .setInteger_forKey(0, &NSString::from_str("AppleFontSmoothing"));
 }
 
-/// Loads IBM Plex and the person's own font files, then lists the families
-/// this machine has.
+/// Loads IBM Plex and the person's own font files. The families this
+/// machine has are listed later, off the UI thread, by [`scan`] (#791).
 pub fn load(cx: &mut App) {
     #[cfg(target_os = "macos")]
     match_mattermost_text_rendering();
@@ -76,12 +76,7 @@ pub fn load(cx: &mut App) {
             tracing::warn!(path = %path.display(), %error, "could not load a font file");
         }
     }
-    let names = list(cx.text_system());
-    cx.set_global(Families {
-        names,
-        mono: None,
-        scanning: false,
-    });
+    cx.set_global(Families::default());
 }
 
 fn list(text_system: &TextSystem) -> Vec<SharedString> {
@@ -106,7 +101,7 @@ pub struct Families {
 impl Global for Families {}
 
 impl Families {
-    /// Every family, sorted.
+    /// Every family, sorted; empty until [`scan`] has listed them.
     pub fn names(&self) -> &[SharedString] {
         &self.names
     }
@@ -121,12 +116,28 @@ impl Families {
         self.scanning
     }
 
-    /// Whether this machine has `family`.
-    pub fn has(&self, family: &str) -> bool {
-        self.names
-            .binary_search_by(|name| name.as_ref().cmp(family))
-            .is_ok()
+    /// Whether this machine has `family`, from the list once [`scan`] has
+    /// made it.
+    fn listed(&self, family: &str) -> Option<bool> {
+        self.mono.as_ref()?;
+        Some(
+            self.names
+                .binary_search_by(|name| name.as_ref().cmp(family))
+                .is_ok(),
+        )
     }
+}
+
+/// Whether this machine has `family`: the list once there is one, before
+/// that the text system's answer for that one family.
+fn has(family: &str, cx: &App) -> bool {
+    families(cx).listed(family).unwrap_or_else(|| {
+        let text_system = cx.text_system();
+        let id = text_system.resolve_font(&font(SharedString::from(family.to_owned())));
+        text_system
+            .get_font_for_id(id)
+            .is_some_and(|resolved| resolved.family.as_ref() == family)
+    })
 }
 
 /// The families on this machine; empty before [`load`].
@@ -165,30 +176,34 @@ fn is_monospace(text_system: &TextSystem, family: &SharedString) -> bool {
     }
 }
 
-/// Finds the monospace families in the background, once, and calls `done`
-/// when it knows. Loading every family takes a moment on a machine with
-/// many, so the code font menu shows "Loading…" until then.
+/// Lists the families and finds the monospace ones in the background,
+/// once, and calls `done` when it knows. Asking the system for every
+/// family, and loading each, takes a moment on a machine with many, so
+/// neither happens at launch and the font menus show "Loading…" until then.
 pub fn scan(cx: &mut App, done: impl FnOnce(&mut App) + 'static) {
     let families = families(cx);
     if families.mono.is_some() || families.scanning || !cx.has_global::<Families>() {
         return;
     }
-    let names = families.names.clone();
     cx.global_mut::<Families>().scanning = true;
     let text_system: Arc<TextSystem> = cx.text_system().clone();
     cx.spawn(async move |cx| {
-        let mono = cx
+        let (names, mono) = cx
             .background_executor()
             .spawn(async move {
-                names
-                    .into_iter()
+                let names = list(&text_system);
+                let mono = names
+                    .iter()
                     .filter(|name| is_monospace(&text_system, name))
-                    .collect::<BTreeSet<_>>()
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                (names, mono)
             })
             .await;
         cx.update(|cx| {
             if cx.has_global::<Families>() {
                 let families = cx.global_mut::<Families>();
+                families.names = names;
                 families.mono = Some(mono);
                 families.scanning = false;
             }
@@ -210,10 +225,9 @@ pub struct Chosen {
 
 /// What [`Chosen`] `settings` asks for.
 pub fn chosen(settings: &Settings, cx: &App) -> Chosen {
-    let families = families(cx);
     let mut missing = Vec::new();
     let mut pick = |wanted: &Option<String>, default: &'static str| match wanted {
-        Some(family) if families.has(family) => SharedString::from(family.clone()),
+        Some(family) if has(family, cx) => SharedString::from(family.clone()),
         Some(family) => {
             missing.push(SharedString::from(family.clone()));
             default.into()
@@ -311,10 +325,24 @@ mod tests {
     fn a_missing_family_falls_back_to_plex() {
         let families = Families {
             names: vec!["Fira Code".into(), SANS.into()],
-            mono: None,
+            mono: Some(BTreeSet::new()),
             scanning: false,
         };
-        assert!(families.has("Fira Code"));
-        assert!(!families.has("Comic Sans"));
+        assert_eq!(families.listed("Fira Code"), Some(true));
+        assert_eq!(families.listed("Comic Sans"), Some(false));
+        // Before the scan the list has nothing to say.
+        assert_eq!(Families::default().listed("Fira Code"), None);
+    }
+
+    /// Before the families are listed, a chosen family is looked up on its
+    /// own (#791): Plex, which Matty loads, is there; a made-up one is not.
+    #[gpui_kit::test]
+    fn a_family_is_found_before_the_list(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            load(cx);
+            assert!(families(cx).names().is_empty());
+            assert!(has(SANS, cx));
+            assert!(!has("No Such Family Anywhere", cx));
+        });
     }
 }

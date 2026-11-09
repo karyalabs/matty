@@ -177,6 +177,7 @@ const PREVIEW_SERVER: &str = "https://chat.example.com";
 type Retry = Box<dyn Fn(&mut Window, &mut gpui_kit::App)>;
 
 mod background;
+pub(crate) use background::start_early;
 mod drafts;
 mod font_menus;
 mod other_servers;

@@ -248,8 +248,11 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     ui::theme::init(cx);
     i18n::install_builtin(cx);
     style::install(style::Preset::default(), ThemeMode::Light, cx);
-    fonts::load(cx);
     let settings = SettingsStore::init(settings::default_path(), cx);
+    // The cache opens on the sync thread while the rest of the app and the
+    // window set up (#791).
+    main_window::start_early(cx);
+    fonts::load(cx);
     if let Some(logs) = logs {
         follow_log_level(&settings, logs, cx);
     }
