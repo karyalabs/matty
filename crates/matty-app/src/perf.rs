@@ -413,3 +413,59 @@ mod tests {
         assert_eq!(events(&lines, "first_paint").len(), 1);
     }
 }
+
+/// Writes GPUI's own frame and input-latency histograms (its `profiler`
+/// feature) to `<MATTY_PERF_LOG>.gpui.jsonl` twice a second, cumulative, so
+/// the last line covers the whole run. These are measured inside
+/// `Window::draw`, so they also count frames that redraw only part of the
+/// window, which [`PerfRoot`] cannot see under GPUI Fast.
+#[cfg(feature = "gpui-profiler")]
+pub fn start_gpui_profile(window: &Window, cx: &App) {
+    let Some(path) = std::env::var_os(ENV).filter(|path| !path.is_empty()) else {
+        return;
+    };
+    let mut path = std::path::PathBuf::from(path).into_os_string();
+    path.push(".gpui.jsonl");
+    let Ok(file) = File::create(&path) else {
+        return;
+    };
+    let mut out = LineWriter::new(file);
+    let start = Instant::now();
+    window
+        .spawn(cx, async move |cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(500))
+                    .await;
+                let Ok(line) = cx.update(|window, _| {
+                    let frames = window.frame_duration_snapshot();
+                    let input = window.input_latency_snapshot();
+                    let ms = |h: &hdrhistogram::Histogram<u64>, q: f64| {
+                        h.value_at_quantile(q) as f64 / 1e6
+                    };
+                    let summary = |h: &hdrhistogram::Histogram<u64>| {
+                        serde_json::json!({
+                            "n": h.len(),
+                            "mean": h.mean() / 1e6,
+                            "p50": ms(h, 0.5),
+                            "p90": ms(h, 0.9),
+                            "p99": ms(h, 0.99),
+                            "max": h.max() as f64 / 1e6,
+                        })
+                    };
+                    serde_json::json!({
+                        "t": start.elapsed().as_secs_f64() * 1000.,
+                        "draw": summary(&frames.draw_duration_histogram),
+                        "dirty_to_present": summary(&frames.dirty_to_present_histogram),
+                        "input_latency": summary(&input.latency_histogram),
+                    })
+                }) else {
+                    break;
+                };
+                if writeln!(out, "{line}").is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+}
