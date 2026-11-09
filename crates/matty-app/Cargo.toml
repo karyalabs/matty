@@ -16,6 +16,7 @@ gpuicn.workspace = true
 gpui-kit.workspace = true
 gpui_platform.workspace = true
 gpui-icons.workspace = true
+hdrhistogram = { version = "7", default-features = false, optional = true }
 web-time.workspace = true
 dirs.workspace = true
 serde.workspace = true
@@ -92,3 +93,5 @@ tempfile.workspace = true
 [features]
 # Compiles Metal shaders at runtime so macOS builds need no Xcode Metal toolchain.
 runtime_shaders = ["gpui_platform/runtime_shaders"]
+# Perf runs: GPUI's own frame and input-latency histograms (perf.rs).
+gpui-profiler = ["gpui-kit/profiler", "dep:hdrhistogram"]
