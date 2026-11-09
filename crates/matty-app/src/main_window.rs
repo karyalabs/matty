@@ -4830,21 +4830,20 @@ impl Render for MainWindow {
 /// what it does natively, and these panes were about a fifth of a scroll
 /// frame. Theme and zoom changes refresh the window (`apply_theme`). The
 /// split's second pane, Threads and Drafts are drawn this way too, so a
-/// keystroke or scroll in one pane does not rebuild the others (#672); the
-/// channel caches its messages instead ([`channel_pane`]).
+/// keystroke or scroll in one pane does not rebuild the others (#672). The
+/// channel pane goes through [`channel_pane`].
 pub(crate) fn cached_pane<V: Render>(view: &Entity<V>) -> gpui_kit::AnyElement {
     view.clone()
         .cached(gpui_kit::StyleRefinement::default().size_full())
         .into_any_element()
 }
 
-/// The channel view, drawn every frame rather than cached: its messages
-/// are a cached view of their own ([`crate::channel::Transcript`]), and
-/// GPUI draws every view inside a cached view that draws again, so caching
-/// the pane too would lay the messages out on every keystroke in the
-/// composer. What is left (header, composer) is cheap to draw.
+/// The channel view, cached like the other panes. Its messages are also a
+/// cached view of their own ([`crate::channel::Transcript`]). Drawing the
+/// pane every frame instead (#819) made typing on the web stall more often
+/// on a Mac: about twice as many keys took over 100 ms to show (#818).
 pub(crate) fn channel_pane(view: &Entity<ChannelView>) -> gpui_kit::AnyElement {
-    view.clone().into_any_element()
+    cached_pane(view)
 }
 
 /// Opens or closes `handle` to match `wanted`, remembering in `shown`
