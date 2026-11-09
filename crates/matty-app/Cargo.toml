@@ -38,6 +38,8 @@ unic-langid.workspace = true
 skrifa.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+# Syntax-highlighted code blocks; gpuicn has no highlighter on the web.
+gpuicn = { workspace = true, features = ["syntect"] }
 matty-spell.workspace = true
 tracing-appender.workspace = true
 sys-locale.workspace = true
