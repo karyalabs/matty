@@ -73,11 +73,18 @@ impl MainWindow {
     ) {
         match event {
             // Another team's channel shows its team first (`show_channel`);
-            // with split view it opens in the focused pane.
-            SwitcherEvent::Open(id) => self.open_in_focused_pane(id.clone(), window, cx),
+            // with split view it opens in the focused pane. Either way the
+            // caret lands in its composer, as in the official clients: left
+            // to the dialog, focus would go back to whatever held it before
+            // Cmd+K, often nothing, and Up, Shift+Up and typing would miss.
+            SwitcherEvent::Open(id) => {
+                self.open_in_focused_pane(id.clone(), window, cx);
+                self.focus_composer_in_pane(window, cx);
+            }
             SwitcherEvent::Team(team) => self.switch_team(team.clone(), window, cx),
             SwitcherEvent::OpenOnServer { server, channel } => {
-                self.open_on_server(server, channel.clone(), window, cx)
+                self.open_on_server(server, channel.clone(), window, cx);
+                self.focus_composer_in_pane(window, cx);
             }
             SwitcherEvent::Search(query) => self.search(query.clone(), window, cx),
             SwitcherEvent::Forward { post, channel } => {

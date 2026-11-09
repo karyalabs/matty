@@ -114,3 +114,65 @@ fn shortcuts_keep_working_after_focus_is_lost(cx: &mut gpui_kit::TestAppContext)
     });
     assert!(options > 0, "Cmd/Ctrl+K did not open the quick switcher");
 }
+
+/// The labels of everything drawn now.
+fn labels(cx: &mut VisualTestContext) -> Vec<String> {
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, _| {
+        use gpui_kit::test::TestQueryExt as _;
+        window
+            .elements()
+            .into_iter()
+            .filter_map(|element| element.label().map(str::to_owned))
+            .collect()
+    })
+}
+
+/// A channel picked in the quick switcher opens with the caret in its
+/// composer, as in the official clients, so Shift+Up right after it
+/// replies to the last message: the benchmark's large-thread step pressed
+/// it and Matty, with focus handed back to the window, did nothing.
+#[gpui_kit::test]
+fn a_switcher_pick_focuses_the_composer_for_shift_up(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    // Nothing in the window holds focus, as after launch or a closed menu.
+    cx.update(|window, cx| window.blur(cx));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+
+    let quick_switcher = if cfg!(target_os = "macos") {
+        "cmd-k"
+    } else {
+        "ctrl-k"
+    };
+    cx.simulate_keystrokes(quick_switcher);
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_input("random");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        is_open(&mut cx, "random"),
+        "the switcher did not open random"
+    );
+    let contexts = cx.update(|window, _| format!("{:?}", window.context_stack()));
+    assert!(
+        contexts.contains("Composer"),
+        "focus is not in the composer: {contexts}"
+    );
+
+    assert!(!labels(&mut cx).iter().any(|label| label == "Reply"));
+    cx.simulate_keystrokes("shift-up");
+    cx.run_until_parked();
+    assert!(
+        labels(&mut cx).iter().any(|label| label == "Reply"),
+        "Shift+Up did not open the last message's thread"
+    );
+}
