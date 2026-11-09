@@ -203,6 +203,26 @@ func windows(_ pid: pid_t) -> [CGRect] {
 
 func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
+/// The app under test ("target PID"). Input goes to whichever app is in
+/// front, so before each input the driver checks the target still is and
+/// brings it back if a notification or another app took the focus; "steals"
+/// reports how often that happened since the last ask, so a run can say so.
+var targetPid: pid_t = 0
+var steals = 0
+
+func ensureFront() {
+    guard targetPid > 0,
+          NSWorkspace.shared.frontmostApplication?.processIdentifier != targetPid,
+          let app = NSRunningApplication(processIdentifier: targetPid) else { return }
+    steals += 1
+    let thief = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+    fputs("focus: \(thief) was in front; bringing \(targetPid) back\n", stderr)
+    app.activate(options: [.activateAllWindows])
+    for _ in 0..<50 where NSWorkspace.shared.frontmostApplication?.processIdentifier != targetPid {
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+    }
+}
+
 func handle(_ raw: String) -> String {
     var words = raw.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
     guard !words.isEmpty else { return "err empty" }
@@ -211,6 +231,7 @@ func handle(_ raw: String) -> String {
         words.removeFirst()
         if words.isEmpty { return "ok \(now())" }
     }
+    if ["key", "char", "type", "move", "click", "scroll"].contains(words[0]) { ensureFront() }
     let t = now()
     let args = Array(words.dropFirst())
     func num(_ i: Int) -> Double { i < args.count ? Double(args[i]) ?? 0 : 0 }
@@ -276,6 +297,11 @@ func handle(_ raw: String) -> String {
     case "windows":
         let list = windows(pid_t(num(0)))
         return "ok " + list.map { "\(Int($0.minX)),\(Int($0.minY)),\(Int($0.width)),\(Int($0.height))" }.joined(separator: " ")
+    case "target":
+        targetPid = pid_t(num(0))
+    case "steals":
+        defer { steals = 0 }
+        return "ok \(steals)"
     case "front":
         NSRunningApplication(processIdentifier: pid_t(num(0)))?.activate(options: [.activateAllWindows])
     case "sleep":

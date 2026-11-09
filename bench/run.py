@@ -253,6 +253,36 @@ class Matty(App):
         if os.environ.get("MATTY_PERF_LOG_BENCH"):
             self.env["MATTY_PERF_LOG"] = str(self.profile / "perf.log")
 
+    def prepare(self, server: str):
+        if not MAC:
+            return
+        # macOS finds the default keychain through HOME, so with the bench's
+        # own HOME, Matty could not keep its session ("A default keychain could
+        # not be found") and opened signed out on every launch. Give that HOME
+        # a keychain of its own, apart from your login keychain, never locked.
+        kc = self.home / "Library" / "Keychains" / "bench.keychain-db"
+        env = {**os.environ, "HOME": str(self.home)}
+
+        def security(*a: str, env=env) -> str:
+            return subprocess.run(["security", *a], env=env, check=True, capture_output=True, text=True).stdout
+
+        # Your own default keychain and search list, to prove they are untouched.
+        mine = security("default-keychain", "-d", "user", env=None), security("list-keychains", "-d", "user", env=None)
+        if not kc.exists():
+            kc.parent.mkdir(parents=True, exist_ok=True)
+            security("create-keychain", "-p", "bench", str(kc))
+        security("list-keychains", "-d", "user", "-s", str(kc))
+        security("default-keychain", "-d", "user", "-s", str(kc))
+        security("unlock-keychain", "-p", "bench", str(kc))
+        security("set-keychain-settings", str(kc))  # no auto-lock
+        if (security("default-keychain", "-d", "user", env=None),
+                security("list-keychains", "-d", "user", env=None)) != mine:
+            paths = [p.strip().strip('"') for p in mine[1].splitlines() if p.strip()]
+            security("list-keychains", "-d", "user", "-s", *paths, env=None)
+            security("default-keychain", "-d", "user", "-s", mine[0].strip().strip('"'), env=None)
+            sys.exit("macOS applied the bench keychain to your own account instead of the bench HOME; "
+                     f"restored your settings:\n{mine[0]}{mine[1]}")
+
     def command(self):
         if self.path.suffix == ".app":
             exe = self.path / "Contents" / "MacOS"
@@ -546,6 +576,7 @@ class Session:
     # Process control.
     def launch(self) -> None:
         self.proc = self.app.spawn()
+        self.driver.cmd(f"target {self.proc.pid}")
         self.sampler = Sampler(self.proc.pid, self.dir / "samples.jsonl")
         self.sampler.scenario = self.scenario
         self.sampler.start()
@@ -625,6 +656,15 @@ class Session:
     def end(self) -> None:
         self.mark("end")
         self.wait(0.4)
+        if MAC:
+            stolen = int(self.driver.cmd("steals") or 0)
+            if stolen:
+                # The driver gave the focus back each time, but the recording
+                # shows the other app in between: rerun this scenario.
+                print(f"  WARNING: another app took the focus {stolen}x during {self.scenario}")
+                self.events.write(json.dumps({"name": "focus-stolen", "scenario": self.scenario,
+                                              "count": stolen}) + "\n")
+                self.events.flush()
         if self.recorder:
             self.recorder.stop()
             self.recorder = None
@@ -670,6 +710,8 @@ def run_app(app: App, driver, run_dir: Path, server: dict, args) -> None:
     s.do(f"front {s.proc.pid}")
     s.wait(1)
     s.switch_to("Town Square", mark=False, settle=4)
+    if MAC:
+        check_signed_in(app, s.rect, s.dir / "warmup.png")
     s.quit()
     s.wait(3)
 
@@ -857,6 +899,29 @@ def load_server(args) -> dict:
     except Exception:
         sys.exit(f"{server['url']} does not answer: bench/server up")
     return server
+
+
+def check_signed_in(app: App, rect, shot: Path) -> None:
+    """Stops the run when the app is not where setup left it (signed in, on
+    Town Square): the warm-up screenshot is compared, coarsely, with setup's
+    signed-in.png. A sign-in screen differs from Town Square by far more than
+    new posts do."""
+    ref = app.profile / "signed-in.png"
+    x, y, w, h = rect
+    subprocess.run(["screencapture", "-x", "-R", f"{x},{y},{w},{h}", str(shot)], check=False)
+    if not ref.exists() or not shot.exists():
+        print(f"  (no {ref.name} to compare with; check {shot} yourself)")
+        return
+    from PIL import Image, ImageChops, ImageStat
+
+    def small(p: Path):
+        return Image.open(p).convert("L").resize((64, 40))
+
+    diff = ImageStat.Stat(ImageChops.difference(small(ref), small(shot))).mean[0]
+    print(f"  {app.label}: warm-up screen vs signed-in.png differ by {diff:.0f}/255")
+    if diff > 35:
+        sys.exit(f"{app.label} does not look signed in on Town Square (see {shot} and {ref}). "
+                 f"Run `bench/run.py setup` again, then the run.")
 
 
 def setup(args, driver) -> None:
