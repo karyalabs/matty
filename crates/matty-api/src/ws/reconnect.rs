@@ -267,7 +267,15 @@ enum Ended {
     Stop,
 }
 
-/// How often the client checks whether the computer slept.
+/// How often the client checks whether the computer slept. On macOS the
+/// sync engine hears AppKit's wake notification and asks for a redial at
+/// once, so this is only a slow fallback there and the client wakes the
+/// CPU no more often than its 30 s ping does (#795).
+#[cfg(target_os = "macos")]
+const WAKE_CHECK: Duration = Duration::from_secs(60);
+/// How often the client checks whether the computer slept: elsewhere this
+/// check is how a wake is noticed at all.
+#[cfg(not(target_os = "macos"))]
 const WAKE_CHECK: Duration = Duration::from_secs(5);
 
 /// Wall-clock time beyond the monotonic clock's that counts as a sleep.
