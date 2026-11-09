@@ -13,6 +13,8 @@ pub mod attachments;
 pub mod avatars;
 pub mod badge;
 pub mod bookmarks;
+#[cfg(target_family = "wasm")]
+mod browser_decode;
 pub mod categories;
 pub mod channel;
 pub mod channel_settings;

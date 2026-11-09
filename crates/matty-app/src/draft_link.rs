@@ -33,6 +33,11 @@ impl DraftLink {
         link
     }
 
+    /// The link the draft previews, if any.
+    pub fn url(&self) -> Option<&SharedString> {
+        self.link.as_ref().map(|(url, _)| url)
+    }
+
     /// Whether the draft has a link to preview at all.
     pub fn has_link(&self) -> bool {
         self.link.is_some()

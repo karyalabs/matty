@@ -396,6 +396,25 @@ fn fetched(id: u64, cx: &mut App) {
 }
 
 fn decode_in_background(key: Key, image: Arc<Image>, side: u32, cx: &mut App) {
+    // In the browser "background" is the page's only thread: the browser's
+    // own decoder, on a worker, keeps scrolling smooth.
+    #[cfg(target_family = "wasm")]
+    if crate::browser_decode::handles(image.format)
+        && let Some(answer) = crate::browser_decode::decode(&image.bytes, image.format, side)
+    {
+        cx.spawn(async move |cx| {
+            let decoded = match answer.recv().await {
+                Ok(Ok(picture)) => RgbaImage::from_raw(picture.width, picture.height, picture.bgra)
+                    .map(|buffer| RenderImage::new(vec![Frame::new(buffer)]))
+                    .ok_or_else(|| "the decoder sent back too few pixels".to_string()), // i18n-ignore: a log message
+                Ok(Err(error)) => Err(error),
+                Err(error) => Err(error.to_string()),
+            };
+            cx.update(|cx| landed(key, decoded, cx));
+        })
+        .detach();
+        return;
+    }
     let decoding = cx
         .background_executor()
         .spawn(async move { decode(&image, side) });

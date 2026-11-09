@@ -1263,6 +1263,10 @@ pub struct ChannelView {
     model: Option<Rc<ChannelModel>>,
     rows: Rc<Vec<Row>>,
     list: Entity<MessageListState>,
+    /// The messages, drawn as a view of their own so that typing, which
+    /// redraws the composer and this view, does not lay them out again.
+    /// Made at the first render, when this view's entity exists.
+    transcript: Option<Entity<Transcript>>,
     composer: Entity<ComposerState>,
     /// One menu for every post: its items are set when it opens.
     menu: Entity<MenuState>,
@@ -1713,9 +1717,10 @@ impl ChannelView {
                         let send_on = SettingsStore::global(cx).read(cx).get().send_on;
                         follow_send_key(composer, send_on, cx);
                         let text = composer.read(cx).value(cx);
+                        let chrome = this.composer_chrome();
                         this.draft_len = text.chars().count();
                         this.draft_changed(&text, cx);
-                        this.slash.edited(&text);
+                        let slash_changed = this.slash.edited(&text);
                         // A restored draft is not the user typing.
                         if !this.draft.is_saved(&text) {
                             this.schedule_draft_save(cx);
@@ -1723,7 +1728,13 @@ impl ChannelView {
                                 cx.emit(ChannelEvent::Typing { root: None });
                             }
                         }
-                        cx.notify();
+                        // The composer draws its own text. This view only
+                        // draws again when what it shows around the
+                        // composer changed: a notify here would lay the
+                        // whole transcript out again on every keystroke.
+                        if slash_changed || this.composer_chrome() != chrome {
+                            cx.notify();
+                        }
                     }
                     ComposerEvent::Submit(text) => this.send(text.clone(), window, cx),
                     ComposerEvent::Autocomplete {
@@ -1770,6 +1781,7 @@ impl ChannelView {
             directory: std::sync::Arc::default(),
             people: PeopleAsk::default(),
             tray: UploadTray::new("upload"),
+            transcript: None,
             lightbox: cx.new(|_| LightboxState::new([])),
             lightbox_handle: DialogHandle::new(false),
             lightbox_items: Vec::new(),
@@ -2499,6 +2511,21 @@ impl ChannelView {
         self.model
             .as_ref()
             .map_or(DEFAULT_MAX_POST_SIZE, |channel| channel.max_post_size)
+    }
+
+    /// What this view draws around the composer that depends on the
+    /// draft: whether it is empty (the key context), whether it can be
+    /// sent, the length counter while it shows, and the link it previews.
+    fn composer_chrome(&self) -> (bool, bool, Option<usize>, Option<SharedString>) {
+        let max = self.max_post_size();
+        let counter =
+            (self.draft_len > max || self.draft_len + max / 10 >= max).then_some(self.draft_len);
+        (
+            self.draft_len == 0,
+            self.can_send(),
+            counter,
+            self.link.url().cloned(),
+        )
     }
 
     fn can_send(&self) -> bool {
@@ -5421,12 +5448,6 @@ fn empty_text(connected: bool) -> (SharedString, SharedString) {
 impl Render for ChannelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.composer_cap = style::composer_cap(window);
-        if let Some(model) = &self.model {
-            self.action_menus
-                .sync(&model.posts, window, cx, |_, choice, cx| {
-                    cx.emit(ChannelEvent::PostAction(choice))
-                });
-        }
         let theme = UiTheme::read(cx).clone();
         let root = div()
             .key_context(actions::CHANNEL_VIEW)
@@ -5452,19 +5473,14 @@ impl Render for ChannelView {
         let Some(channel) = self.model.clone() else {
             return root.child(Self::empty(self.connected, cx));
         };
-        // Back at the end, everything has been seen.
-        if self.unseen > 0 && !self.list.read(cx).is_scrolled_up() {
-            self.unseen = 0;
-        }
-        let body = if channel.loading && channel.posts.is_empty() {
-            Self::loading(cx).into_any_element()
-        } else if channel.posts.is_empty() && channel.offline {
-            Self::offline_channel(&channel, cx).into_any_element()
-        } else if channel.posts.is_empty() {
-            Self::empty_channel(&channel, cx).into_any_element()
-        } else {
-            self.transcript(&channel, cx).into_any_element()
-        };
+        let transcript = self
+            .transcript
+            .get_or_insert_with(|| {
+                let channel = cx.entity();
+                cx.new(|cx| Transcript::new(channel, cx))
+            })
+            .clone();
+        let body = transcript.cached(gpui_kit::StyleRefinement::default().size_full());
         // Files dropped anywhere on the view go to its composer (#150).
         let overlay = crate::attachments::drop_overlay(
             "channel.drop",
@@ -5501,6 +5517,63 @@ impl Render for ChannelView {
             .child(self.convert_dialog(window, cx))
             .child(self.lightbox(window, cx))
             .child(self.schedule_dialog.clone())
+    }
+}
+
+/// A [`ChannelView`]'s messages as a view of their own, drawn from the
+/// channel view's state. GPUI reuses a cached view's last frame until that
+/// view is notified, so this one follows every notify of the channel view,
+/// but not the composer redrawing itself as the user types (#818).
+pub struct Transcript {
+    channel: gpui_kit::WeakEntity<ChannelView>,
+    _follow: gpui_kit::Subscription,
+}
+
+impl Transcript {
+    fn new(channel: Entity<ChannelView>, cx: &mut Context<Self>) -> Self {
+        Self {
+            _follow: cx.observe(&channel, |_, _, cx| cx.notify()),
+            channel: channel.downgrade(),
+        }
+    }
+}
+
+impl Render for Transcript {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(channel) = self.channel.upgrade() else {
+            return div().into_any_element();
+        };
+        channel.update(cx, |this, cx| this.transcript_body(window, cx))
+    }
+}
+
+impl ChannelView {
+    /// What [`Transcript`] draws: the messages, or what stands in for them.
+    fn transcript_body(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let Some(channel) = self.model.clone() else {
+            return div().into_any_element();
+        };
+        self.action_menus
+            .sync(&channel.posts, window, cx, |_, choice, cx| {
+                cx.emit(ChannelEvent::PostAction(choice))
+            });
+        // Back at the end, everything has been seen.
+        if self.unseen > 0 && !self.list.read(cx).is_scrolled_up() {
+            self.unseen = 0;
+        }
+        if channel.loading && channel.posts.is_empty() {
+            Self::loading(cx).into_any_element()
+        } else if channel.posts.is_empty() && channel.offline {
+            Self::offline_channel(&channel, cx).into_any_element()
+        } else if channel.posts.is_empty() {
+            Self::empty_channel(&channel, cx).into_any_element()
+        } else {
+            self.transcript(&channel, cx).into_any_element()
+        }
     }
 }
 
