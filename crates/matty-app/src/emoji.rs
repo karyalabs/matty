@@ -231,7 +231,11 @@ fn base_name(name: &str) -> String {
 /// global the views read while rendering. [`crate::live::Live`] fills it
 /// from sync.
 #[derive(Clone, Default)]
-pub struct CustomEmoji(Rc<RefCell<HashMap<String, (String, String)>>>);
+pub struct CustomEmoji(
+    Rc<RefCell<HashMap<String, (String, String)>>>,
+    /// Bumped by each [`Self::set`], for caches made from the list.
+    Rc<std::cell::Cell<u64>>,
+);
 
 impl Global for CustomEmoji {}
 
@@ -242,6 +246,13 @@ impl CustomEmoji {
             .iter()
             .map(|one| (one.name.clone(), (one.id.clone(), one.creator_id.clone())))
             .collect();
+        self.1.set(self.1.get() + 1);
+    }
+
+    /// Which list this is and how often it was replaced: two equal
+    /// identities saw the same emoji.
+    pub fn identity(&self) -> (usize, u64) {
+        (Rc::as_ptr(&self.0) as usize, self.1.get())
     }
 
     /// The id of the custom emoji called `name`.
