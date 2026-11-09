@@ -87,6 +87,7 @@ impl Live {
             teams: self.teams.clone(),
             server: self.server.clone(),
             sections: self.sections.clone(),
+            switcher_rows: Default::default(),
             presence: self.presence.clone(),
             me: self.me.clone(),
             prefs: self.prefs.clone(),

@@ -61,8 +61,8 @@ pub struct Elsewhere {
 }
 
 /// A channel the switcher may list, with where it comes from.
-struct Place<'a> {
-    row: &'a ChannelRow,
+struct Place {
+    row: ChannelRow,
     value: SharedString,
     /// The sidebar category, or the team or server it is in.
     home: SharedString,
@@ -71,151 +71,233 @@ struct Place<'a> {
     note: Option<SharedString>,
     /// 0 for the shown team, then each other team, then other servers.
     team_order: usize,
+    /// The name, the handle and the note, lowercase, for matching.
+    keys: Keys,
 }
 
-impl Place<'_> {
+struct Keys {
+    name: String,
+    handle: Option<String>,
+    note: Option<String>,
+}
+
+impl Place {
+    fn new(
+        row: &ChannelRow,
+        value: SharedString,
+        home: SharedString,
+        note: Option<SharedString>,
+        team_order: usize,
+    ) -> Self {
+        let keys = Keys {
+            name: row.name.to_lowercase(),
+            handle: row.handle.as_ref().map(|handle| handle.to_lowercase()),
+            note: note.as_ref().map(|note| note.to_lowercase()),
+        };
+        Self {
+            row: row.clone(),
+            value,
+            home,
+            note,
+            team_order,
+            keys,
+        }
+    }
+
     fn unread(&self) -> bool {
         self.row.mentions > 0 || (self.row.unread && !self.row.muted)
     }
 }
 
-/// The rows for `query`, ranked, with the mention count of each by value.
-/// A row from another team or server names it as its description.
+/// Everything the switcher may list, gathered and lowercased once per
+/// sidebar or other-team change, so a keystroke only matches and ranks
+/// (#793).
+pub(super) struct Places {
+    places: Vec<Place>,
+    /// The other teams' ids and names, for their own rows.
+    teams: Vec<(SharedString, SharedString)>,
+    /// Whether there are other servers to search.
+    servers: bool,
+    all_servers: bool,
+}
+
+impl Places {
+    pub(super) fn new(model: &SidebarModel, elsewhere: &Elsewhere, all_servers: bool) -> Self {
+        let mut places = Vec::new();
+        for category in &model.categories {
+            for row in &category.rows {
+                places.push(Place::new(
+                    row,
+                    row.id.clone(),
+                    category.name.clone(),
+                    None,
+                    0,
+                ));
+            }
+        }
+        for (index, team) in elsewhere.teams.iter().enumerate() {
+            for row in team.rows.iter().filter(|row| is_channel(row)) {
+                places.push(Place::new(
+                    row,
+                    row.id.clone(),
+                    team.name.clone(),
+                    Some(team.name.clone()),
+                    index + 1,
+                ));
+            }
+        }
+        if all_servers {
+            let after = elsewhere.teams.len() + 1;
+            for (index, server) in elsewhere.servers.iter().enumerate() {
+                for (team, row) in &server.channels {
+                    places.push(Place::new(
+                        row,
+                        format!("{SERVER_PREFIX}{index}:{}", row.id).into(),
+                        server.name.clone(),
+                        Some(team.clone()),
+                        after + index,
+                    ));
+                }
+            }
+        }
+        Self {
+            places,
+            teams: elsewhere
+                .teams
+                .iter()
+                .map(|team| (team.id.clone(), team.name.clone()))
+                .collect(),
+            servers: !elsewhere.servers.is_empty(),
+            all_servers,
+        }
+    }
+
+    /// The rows for `query`, ranked, with the mention count of each by
+    /// value. A row from another team or server names it as its
+    /// description. `recent` is the channels opened lately, the latest
+    /// first; `selected` the one on screen.
+    pub(super) fn items(
+        &self,
+        selected: Option<&SharedString>,
+        recent: &[SharedString],
+        query: &str,
+    ) -> (Vec<CommandItem>, Vec<(SharedString, usize)>) {
+        let typed = query.trim();
+        let query = typed.to_lowercase();
+        let all_servers = self.all_servers;
+        let places = &self.places;
+        let recent: Vec<&SharedString> = recent
+            .iter()
+            .filter(|id| selected != Some(*id))
+            .take(RECENT)
+            .collect();
+        // Only this server's channels count as opened lately.
+        let opened = |place: &Place| -> Option<usize> {
+            if place.value.starts_with(SERVER_PREFIX) {
+                return None;
+            }
+            recent.iter().position(|id| **id == place.row.id)
+        };
+
+        let mut ranked: Vec<(Rank, usize)> = Vec::new();
+        for (index, place) in places.iter().enumerate() {
+            let Some(matched) = match_rank(&query, place) else {
+                continue;
+            };
+            let elsewhere_server = place.value.starts_with(SERVER_PREFIX);
+            let opened = opened(place);
+            // Rows of other servers keep to their own groups below this
+            // server's, whatever they match.
+            let first = if elsewhere_server {
+                Bucket::Server
+            } else if place.unread() {
+                Bucket::Unread
+            } else if opened.is_some() {
+                Bucket::Recent
+            } else {
+                Bucket::Rest
+            };
+            ranked.push((
+                Rank {
+                    server: elsewhere_server,
+                    matched: if query.is_empty() { 0 } else { matched },
+                    first,
+                    team_order: place.team_order,
+                    opened: opened.unwrap_or(usize::MAX),
+                    index,
+                },
+                index,
+            ));
+        }
+        ranked.sort_by_key(|(rank, _)| rank.key(query.is_empty()));
+
+        let mut items = Vec::new();
+        let mut trailing = Vec::new();
+        for (rank, index) in ranked {
+            let place = &places[index];
+            let group: SharedString = match rank.first {
+                Bucket::Server => place.home.clone(),
+                _ if !query.is_empty() => t!("switcher-group-matches"),
+                Bucket::Unread => t!("switcher-group-unread"),
+                Bucket::Recent => t!("switcher-group-recent"),
+                Bucket::Rest => place.home.clone(),
+            };
+            items.push(item(place, group));
+            if place.row.mentions > 0 {
+                trailing.push((place.value.clone(), place.row.mentions));
+            }
+        }
+        if all_servers && self.servers && !items.iter().any(is_server) {
+            items.push(
+                CommandItem::new(NO_SERVER_MATCH, t!("switcher-no-server-match"))
+                    .group(t!("switcher-group-servers"))
+                    .icon(LucideIcon::Server)
+                    .disabled(true),
+            );
+        }
+        for (id, name) in &self.teams {
+            let item = CommandItem::new(format!("{TEAM_PREFIX}{id}"), name.clone())
+                .group(t!("switcher-group-teams"))
+                .icon(LucideIcon::Building2)
+                .keywords([t!("switcher-keyword-team")]);
+            let found = query.is_empty()
+                || std::iter::once(&item.label)
+                    .chain(item.keywords.iter())
+                    .filter_map(|text| matches(&query, &text.to_lowercase()))
+                    .min()
+                    .is_some();
+            if found {
+                items.push(item);
+            }
+        }
+        if !all_servers && !query.is_empty() && self.servers {
+            items.push(
+                CommandItem::new(
+                    ALL_SERVERS,
+                    t!("switcher-search-servers", query = typed.to_string()),
+                )
+                .group(t!("switcher-group-servers"))
+                .icon(LucideIcon::Server),
+            );
+        }
+        (items, trailing)
+    }
+}
+
+/// The rows for `query`, gathering the places first: [`Places`] for one
+/// query only.
+#[cfg(test)]
 pub(super) fn items(
     model: &SidebarModel,
     elsewhere: &Elsewhere,
     query: &str,
     all_servers: bool,
 ) -> (Vec<CommandItem>, Vec<(SharedString, usize)>) {
-    let typed = query.trim();
-    let query = typed.to_lowercase();
-    let mut places: Vec<Place> = Vec::new();
-    for category in &model.categories {
-        for row in &category.rows {
-            places.push(Place {
-                row,
-                value: row.id.clone(),
-                home: category.name.clone(),
-                note: None,
-                team_order: 0,
-            });
-        }
-    }
-    for (index, team) in elsewhere.teams.iter().enumerate() {
-        for row in team.rows.iter().filter(|row| is_channel(row)) {
-            places.push(Place {
-                row,
-                value: row.id.clone(),
-                home: team.name.clone(),
-                note: Some(team.name.clone()),
-                team_order: index + 1,
-            });
-        }
-    }
-    if all_servers {
-        let after = elsewhere.teams.len() + 1;
-        for (index, server) in elsewhere.servers.iter().enumerate() {
-            for (team, row) in &server.channels {
-                places.push(Place {
-                    row,
-                    value: format!("{SERVER_PREFIX}{index}:{}", row.id).into(),
-                    home: server.name.clone(),
-                    note: Some(team.clone()),
-                    team_order: after + index,
-                });
-            }
-        }
-    }
-    let recent: Vec<&SharedString> = elsewhere
-        .recent
-        .iter()
-        .filter(|id| model.selected.as_ref() != Some(*id))
-        .take(RECENT)
-        .collect();
-    // Only this server's channels count as opened lately.
-    let opened = |place: &Place| -> Option<usize> {
-        if place.value.starts_with(SERVER_PREFIX) {
-            return None;
-        }
-        recent.iter().position(|id| **id == place.row.id)
-    };
-
-    let mut ranked: Vec<(Rank, usize)> = Vec::new();
-    for (index, place) in places.iter().enumerate() {
-        let Some(matched) = match_rank(&query, place) else {
-            continue;
-        };
-        let elsewhere_server = place.value.starts_with(SERVER_PREFIX);
-        let opened = opened(place);
-        // Rows of other servers keep to their own groups below this
-        // server's, whatever they match.
-        let first = if elsewhere_server {
-            Bucket::Server
-        } else if place.unread() {
-            Bucket::Unread
-        } else if opened.is_some() {
-            Bucket::Recent
-        } else {
-            Bucket::Rest
-        };
-        ranked.push((
-            Rank {
-                server: elsewhere_server,
-                matched: if query.is_empty() { 0 } else { matched },
-                first,
-                team_order: place.team_order,
-                opened: opened.unwrap_or(usize::MAX),
-                index,
-            },
-            index,
-        ));
-    }
-    ranked.sort_by_key(|(rank, _)| rank.key(query.is_empty()));
-
-    let mut items = Vec::new();
-    let mut trailing = Vec::new();
-    for (rank, index) in ranked {
-        let place = &places[index];
-        let group: SharedString = match rank.first {
-            Bucket::Server => place.home.clone(),
-            _ if !query.is_empty() => t!("switcher-group-matches"),
-            Bucket::Unread => t!("switcher-group-unread"),
-            Bucket::Recent => t!("switcher-group-recent"),
-            Bucket::Rest => place.home.clone(),
-        };
-        items.push(item(place, group));
-        if place.row.mentions > 0 {
-            trailing.push((place.value.clone(), place.row.mentions));
-        }
-    }
-    if all_servers && !elsewhere.servers.is_empty() && !items.iter().any(is_server) {
-        items.push(
-            CommandItem::new(NO_SERVER_MATCH, t!("switcher-no-server-match"))
-                .group(t!("switcher-group-servers"))
-                .icon(LucideIcon::Server)
-                .disabled(true),
-        );
-    }
-    for team in &elsewhere.teams {
-        let item = CommandItem::new(format!("{TEAM_PREFIX}{}", team.id), team.name.clone())
-            .group(t!("switcher-group-teams"))
-            .icon(LucideIcon::Building2)
-            .keywords([t!("switcher-keyword-team")]);
-        if query.is_empty() || matches(&query, &item.label, &item.keywords).is_some() {
-            items.push(item);
-        }
-    }
-    if !all_servers && !query.is_empty() && !elsewhere.servers.is_empty() {
-        items.push(
-            CommandItem::new(
-                ALL_SERVERS,
-                t!("switcher-search-servers", query = typed.to_string()),
-            )
-            .group(t!("switcher-group-servers"))
-            .icon(LucideIcon::Server),
-        );
-    }
-    (items, trailing)
+    Places::new(model, elsewhere, all_servers).items(
+        model.selected.as_ref(),
+        &elsewhere.recent,
+        query,
+    )
 }
 
 fn is_server(item: &CommandItem) -> bool {
@@ -278,50 +360,46 @@ fn match_rank(query: &str, place: &Place) -> Option<u8> {
     if query.is_empty() {
         return Some(0);
     }
-    let handle: Vec<SharedString> = place.row.handle.iter().cloned().collect();
+    let keys = &place.keys;
     // A team's name finds its rows only by a word or a run of letters, as
     // its letters scattered would find most rows,
-    let team = place
+    let team = keys
         .note
-        .as_ref()
-        .and_then(|note| matches(query, note, &[]))
+        .as_deref()
+        .and_then(|note| matches(query, note))
         .filter(|rank| *rank < 2)
         // and ranks below a row whose own name matches as well.
         .map(|rank| rank + 1);
-    matches(query, &place.row.name, &handle)
-        .into_iter()
+    std::iter::once(keys.name.as_str())
+        .chain(keys.handle.as_deref())
+        .filter_map(|text| matches(query, text))
         .chain(team)
         .min()
 }
 
-/// How well `query` (lowercase) finds a row: 0 when the name or a word in
-/// it starts with it, 1 when it holds it, 2 when it holds its letters in
-/// order, as the palette's own filter allows; `None` when it does not.
-fn matches(query: &str, label: &str, keywords: &[SharedString]) -> Option<u8> {
-    std::iter::once(label)
-        .chain(keywords.iter().map(|keyword| keyword.as_ref()))
-        .filter_map(|text| {
-            let text = text.to_lowercase();
-            let word_start = text
-                .split(|c: char| !c.is_alphanumeric())
-                .any(|word| word.starts_with(query));
-            if text.starts_with(query) || word_start {
-                Some(0)
-            } else if text.contains(query) {
-                Some(1)
-            } else {
-                let mut chars = text.chars();
-                query
-                    .chars()
-                    .all(|wanted| chars.any(|c| c == wanted))
-                    .then_some(2)
-            }
-        })
-        .min()
+/// How well `query` finds `text`, both lowercase: 0 when the text or a
+/// word in it starts with it, 1 when it holds it, 2 when it holds its
+/// letters in order, as the palette's own filter allows; `None` when it
+/// does not.
+fn matches(query: &str, text: &str) -> Option<u8> {
+    let word_start = text
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|word| word.starts_with(query));
+    if text.starts_with(query) || word_start {
+        Some(0)
+    } else if text.contains(query) {
+        Some(1)
+    } else {
+        let mut chars = text.chars();
+        query
+            .chars()
+            .all(|wanted| chars.any(|c| c == wanted))
+            .then_some(2)
+    }
 }
 
 fn item(place: &Place, group: SharedString) -> CommandItem {
-    let row = place.row;
+    let row = &place.row;
     let icon = match row.kind {
         ChannelKind::Public => LucideIcon::Hash,
         ChannelKind::Private => LucideIcon::Lock,

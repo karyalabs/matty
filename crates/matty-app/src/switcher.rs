@@ -99,6 +99,10 @@ pub struct Switcher {
     focus_field: bool,
     /// The sidebar changed while closed: the rows wait for the next open.
     stale: bool,
+    /// What the rows are drawn from, gathered once for a sidebar, the
+    /// other teams and servers, and whether it lists other servers'
+    /// channels and whether it is forwarding (#793).
+    places: Option<((bool, bool), places::Places)>,
     _subscription: Subscription,
 }
 
@@ -154,6 +158,7 @@ impl Switcher {
             forwarding: None,
             focus_field: false,
             stale: false,
+            places: None,
             _subscription: subscription,
         };
         switcher.refresh(cx);
@@ -207,7 +212,16 @@ impl Switcher {
         } else {
             &self.elsewhere
         };
-        let (mut items, trailing) = places::items(&self.model, elsewhere, &query, self.all_servers);
+        let key = (self.forwarding.is_some(), self.all_servers);
+        if self.places.as_ref().is_none_or(|(built, _)| *built != key) {
+            let places = places::Places::new(&self.model, elsewhere, self.all_servers);
+            self.places = Some((key, places));
+        }
+        let Some((_, places)) = &self.places else {
+            return;
+        };
+        let (mut items, trailing) =
+            places.items(self.model.selected.as_ref(), &elsewhere.recent, &query);
         if matches!(self.forwarding, Some(Pick::AddTo(_))) {
             only_channels(&self.model, &mut items);
         }
@@ -240,6 +254,7 @@ impl Switcher {
     /// the switcher is open; closed, the next opening builds them (#787).
     pub fn set_model(&mut self, model: &SidebarModel, cx: &mut Context<Self>) {
         self.model = model.clone();
+        self.places = None;
         if self.handle.is_open() {
             self.refresh(cx);
         } else {
@@ -254,6 +269,9 @@ impl Switcher {
         // (#793).
         if self.elsewhere == elsewhere && !self.stale {
             return;
+        }
+        if self.elsewhere.teams != elsewhere.teams || self.elsewhere.servers != elsewhere.servers {
+            self.places = None;
         }
         self.elsewhere = elsewhere;
         self.refresh(cx);

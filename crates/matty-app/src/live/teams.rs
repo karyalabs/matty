@@ -3,10 +3,16 @@
 //! sidebar, so switching paints from what is already here and only asks
 //! sync for the new team's Threads list.
 
+use std::sync::Arc;
+
 use gpui_kit::SharedString;
-use matty_sync::Command;
+use matty_sync::{Command, SidebarSection};
 
 use super::{Live, Update};
+use crate::sidebar::{ChannelKind, ChannelRow};
+
+/// A team's switcher rows and the sidebar sections they were built from.
+pub(super) type TeamRows = (Arc<[SidebarSection]>, Arc<[ChannelRow]>);
 
 impl Live {
     /// Makes `team` the shown one: the old team's Threads list stops
@@ -78,23 +84,33 @@ impl Live {
             .map(|team| crate::switcher::TeamChannels {
                 id: team.id.clone().into(),
                 name: team.display_name.clone().into(),
-                rows: self
-                    .sections
-                    .get(&team.id)
-                    .map(|sections| self.categories(sections))
-                    .unwrap_or_default()
-                    .into_iter()
-                    .flat_map(|category| category.rows)
-                    .filter(|row| {
-                        matches!(
-                            row.kind,
-                            crate::sidebar::ChannelKind::Public
-                                | crate::sidebar::ChannelKind::Private
-                        )
-                    })
-                    .collect(),
+                rows: self.switcher_rows(&team.id).to_vec(),
             })
             .collect()
+    }
+
+    /// `team_id`'s channels, as the switcher lists them, built again only
+    /// when its sidebar has changed since last time (#793). Channel rows
+    /// read nothing but the sections, so these are the same while those
+    /// are.
+    fn switcher_rows(&self, team_id: &str) -> Arc<[ChannelRow]> {
+        let Some(sections) = self.sections.get(team_id) else {
+            return Arc::from([]);
+        };
+        let mut cache = self.switcher_rows.borrow_mut();
+        if let Some((from, rows)) = cache.get(team_id)
+            && Arc::ptr_eq(from, sections)
+        {
+            return rows.clone();
+        }
+        let rows: Arc<[ChannelRow]> = self
+            .categories(sections)
+            .into_iter()
+            .flat_map(|category| category.rows)
+            .filter(|row| matches!(row.kind, ChannelKind::Public | ChannelKind::Private))
+            .collect();
+        cache.insert(team_id.to_string(), (sections.clone(), rows.clone()));
+        rows
     }
 
     /// Opens `channel_id` once some team's sidebar holds it, as after
@@ -261,6 +277,25 @@ mod tests {
             .map(|row| (row.id.as_ref(), row.unread, row.mentions))
             .collect();
         assert_eq!(rows, vec![("design", true, 3)], "no direct messages");
+    }
+
+    #[test]
+    fn the_switchers_rows_are_built_again_only_when_that_sidebar_changes() {
+        let mut live = live();
+        sidebars(&mut live);
+        live.apply(&teams());
+        let first = live.switcher_rows("t2");
+        assert!(Arc::ptr_eq(&first, &live.switcher_rows("t2")));
+        live.apply(&ChangeSet::Sidebar {
+            team_id: "t2".into(),
+            sections: Arc::from(vec![section("c", vec![channel("motion", "O", 0, 0)])]),
+        });
+        let ids: Vec<_> = live.other_teams()[0]
+            .rows
+            .iter()
+            .map(|row| row.id.to_string())
+            .collect();
+        assert_eq!(ids, ["motion"]);
     }
 
     #[test]
