@@ -19,7 +19,10 @@ pub fn watch(cx: &mut App) {
     .detach();
 }
 
+// `DispatchSource::new` in `dispatch2` is unsafe too, so the source is
+// made through the C calls directly, the app's only unsafe code.
 #[cfg(target_os = "macos")]
+#[expect(unsafe_code, reason = "dispatch has no safe memory-pressure source")]
 mod platform {
     use std::ffi::c_void;
     use std::sync::OnceLock;

@@ -68,7 +68,9 @@ pub enum Fit {
     /// The lightbox: the whole window, at the window's own size in
     /// pixels when it first draws the picture (#794), and never past
     /// [`Fit::max_side`] so a huge original cannot take hundreds of
-    /// megabytes.
+    /// megabytes. The size holds until the picture is let go, so a window
+    /// grown afterwards draws it scaled up; [`FULL_MIN_SIDE`] keeps that
+    /// sharp enough.
     Full,
 }
 
