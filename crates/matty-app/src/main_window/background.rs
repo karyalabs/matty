@@ -61,6 +61,46 @@ impl Watches {
     }
 }
 
+/// The launch server's engine, started by [`start_early`] before the main
+/// window exists, so opening its database and running migrations overlap
+/// the window's setup (#791). The window takes it the first time it shows
+/// that server.
+struct EarlySync {
+    key: String,
+    sync: matty_sync::SyncHandle,
+}
+
+impl gpui_kit::Global for EarlySync {}
+
+/// Starts the engine of the server the window will open at launch.
+pub(crate) fn start_early(cx: &mut gpui_kit::App) {
+    if crate::preview::enabled() || cx.has_global::<EarlySync>() {
+        return;
+    }
+    let Some(account) = crate::settings::SettingsStore::global(cx)
+        .update(cx, |settings, cx| settings.launch_server(cx))
+    else {
+        return;
+    };
+    let path = crate::live::database_path(&account);
+    match matty_sync::spawn_at(path, crate::live::media_dir(&account)) {
+        Ok(sync) => cx.set_global(EarlySync {
+            key: account.data_key(),
+            sync,
+        }),
+        // The window tries again and says so.
+        Err(error) => tracing::warn!(%error, "could not start sync early"),
+    }
+}
+
+/// The engine [`start_early`] started for `key`, once.
+fn take_early(key: &str, cx: &mut gpui_kit::App) -> Option<matty_sync::SyncHandle> {
+    if cx.try_global::<EarlySync>()?.key != key {
+        return None;
+    }
+    Some(cx.remove_global::<EarlySync>().sync)
+}
+
 impl MainWindow {
     /// A [`Live`] for `account` over its running engine, or a new engine.
     /// With `true`, the engine had already started and the window has been
@@ -75,7 +115,11 @@ impl MainWindow {
         self.watches.idle.remove(&key);
         if self.watches.get(&key).is_none() {
             let path = crate::live::database_path(account);
-            match matty_sync::spawn_at(path, crate::live::media_dir(account)) {
+            let started = match take_early(&key, cx) {
+                Some(sync) => Ok(sync),
+                None => matty_sync::spawn_at(path, crate::live::media_dir(account)),
+            };
+            match started {
                 Ok(sync) => self.follow(sync, account, cx),
                 Err(error) => {
                     tracing::error!(%error, "could not start sync");
