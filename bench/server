@@ -3,6 +3,7 @@
 
     bench/server up                 start, wait for /api/v4/system/ping
     bench/server import [ZIP]       load bench/out/corpus/corpus.zip (bench/corpus.py makes it)
+    bench/server wait               follow the latest import job to the end (after an interrupted import)
     bench/server status             what is loaded
     bench/server down               stop, keeping data
     bench/server reset              delete all data and start fresh
@@ -33,9 +34,18 @@ def sh(args: list[str], **kw) -> subprocess.CompletedProcess:
 
 
 def mmctl(*args: str, capture: bool = False) -> str:
-    out = subprocess.run([*COMPOSE, "exec", "-T", "mattermost", "mmctl", "--local", *args],
-                         check=True, text=True, capture_output=capture)
-    return out.stdout if capture else ""
+    # The server image is amd64 only; under emulation on Apple silicon mmctl
+    # now and then segfaults (exit 139). Retrying the same call is safe for
+    # everything this script asks of it.
+    for attempt in range(5):
+        out = subprocess.run([*COMPOSE, "exec", "-T", "mattermost", "mmctl", "--local", *args],
+                             text=True, capture_output=capture)
+        if out.returncode == 0:
+            return out.stdout if capture else ""
+        if out.returncode != 139 or attempt == 4:
+            raise subprocess.CalledProcessError(out.returncode, out.args, out.stdout, out.stderr)
+        time.sleep(2)
+    return ""
 
 
 def wait_ping(limit: float = 240) -> None:
@@ -70,22 +80,32 @@ def import_zip(path: Path) -> None:
     job = json.loads(mmctl("import", "process", names[-1], "--extract-content=false", "--json", capture=True))
     job_id = job["id"] if isinstance(job, dict) else job[0]["id"]
     print(f"import job {job_id} started; this takes a while for the full corpus")
-    t0 = time.time()
-    while True:
-        time.sleep(5)
-        info = json.loads(mmctl("import", "job", "show", job_id, "--json", capture=True))
-        info = info[0] if isinstance(info, list) else info
-        status = info.get("status")
-        line = info.get("data", {}).get("line_number", "")
-        print(f"  {status} line {line} ({time.time() - t0:.0f}s)", flush=True)
-        if status == "success":
-            break
-        if status in ("error", "canceled", "cancel_requested"):
-            sys.exit(f"import failed: {json.dumps(info.get('data'), indent=2)}")
+    wait_job(job_id)
     manifest = path.with_name("manifest.json")
     if manifest.exists():
         m = json.loads(manifest.read_text())
         post_import(m)
+
+
+def wait_job(job_id: str | None) -> None:
+    """Follow an import job (the latest one when no id is given) to the end.
+    The job runs inside the server, so this can be stopped and run again."""
+    if job_id is None:
+        jobs = json.loads(mmctl("import", "job", "list", "--json", capture=True) or "[]")
+        if not jobs:
+            sys.exit("no import job found")
+        job_id = max(jobs, key=lambda j: j.get("create_at", 0))["id"]
+    t0 = time.time()
+    while True:
+        info = json.loads(mmctl("import", "job", "show", job_id, "--json", capture=True))
+        info = info[0] if isinstance(info, list) else info
+        status = info.get("status")
+        print(f"  {status} ({time.time() - t0:.0f}s)", flush=True)
+        if status == "success":
+            return
+        if status in ("error", "canceled", "cancel_requested"):
+            sys.exit(f"import failed: {json.dumps(info.get('data'), indent=2)}")
+        time.sleep(15)
 
 
 def api(method: str, path: str, body=None, token: str | None = None, want_headers=False):
@@ -132,6 +152,11 @@ def main() -> None:
         sh([*COMPOSE, "down", "--volumes"])
         sh([*COMPOSE, "up", "-d"])
         wait_ping()
+    elif cmd == "wait":
+        wait_job(sys.argv[2] if len(sys.argv) > 2 else None)
+        manifest = HERE / "out" / "corpus" / "manifest.json"
+        if manifest.exists():
+            post_import(json.loads(manifest.read_text()))
     elif cmd == "import":
         import_zip(Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "out" / "corpus" / "corpus.zip")
     elif cmd == "status":
