@@ -9,6 +9,25 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.18] - 2026-11-10
+
+A new sidebar and a full-height window with no title bar.
+
+### Changed
+
+- The sidebar follows the classic layout: the team header with a tile for
+  each other team and server, a "Jump to…" row (Ctrl K / ⌘K), fixed rows
+  for Unreads, Threads, Mentions, Drafts and Saved, sentence-case section
+  headers with an unread count when collapsed, "Show unread only" in each
+  section's menu, "N unread above/below" pills, and a footer with the
+  account, Do not disturb, Help and Settings (#839).
+- The main window has no title bar on any platform. The pane headers hold
+  Toggle sidebar, Back and Forward, drag the window, and carry the window
+  controls where the platform does not draw its own. While the sidebar is
+  hidden, its toggle shows unreads and the window's left edge slides it in
+  (#839).
+- Matty is built on gpuicn 0.11.1 (#839).
+
 ## [0.1.0-beta.17] - 2026-11-10
 
 Matty on the web starts faster and keeps up while typing, and the app
@@ -303,7 +322,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.17...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.18...HEAD
+[0.1.0-beta.18]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.15
