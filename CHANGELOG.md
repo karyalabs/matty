@@ -9,6 +9,25 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.19] - 2026-11-10
+
+Peek at an unread channel from the sidebar without opening it.
+
+### Added
+
+- Hovering an unread channel row in the sidebar for a moment, or pressing
+  Space on a focused row, opens a peek card with the channel's three newest
+  posts and **Mark read** and **Open** buttons. Escape closes it and returns
+  focus to the row; muted, read and selected rows never peek (#843).
+
+### Changed
+
+- Matty is built on gpuicn 0.11.3 (#841, #843).
+- The README has current screenshots, the supported platforms and the
+  benchmark numbers (#846, #847).
+- Releases publish faster: release PRs skip CI, the Windows build reuses
+  CI's nightly cache and the web bundle builds alongside the apps (#845).
+
 ## [0.1.0-beta.18] - 2026-11-10
 
 A new sidebar and a full-height window with no title bar.
@@ -322,7 +341,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.18...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.19...HEAD
+[0.1.0-beta.19]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.16
