@@ -15,9 +15,7 @@
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
-<p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-light.png" alt="Matty showing the #general channel"></picture>
-</p>
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-light.png" alt="Matty showing the #general channel" width="100%"></picture></a>
 
 Matty is written in Rust on [GPUI](https://www.gpui.rs), the GPU-accelerated
 UI framework behind Zed, with the
@@ -26,7 +24,7 @@ process with no browser engine inside. It opens in a fraction of a second,
 switches channels without a spinner, and keeps working offline.
 
 > **Status: beta.** New betas ship about once a week for every platform, and
-> the web app updates with each one. The plan of record is
+> Matty on the web updates with each one. The plan of record is
 > [docs/PLAN.md](docs/PLAN.md), and work is tracked in
 > [GitHub issues](https://github.com/karyalabs/matty/issues). Matty is an
 > unofficial client, not made or endorsed by Mattermost, Inc.
@@ -45,15 +43,31 @@ More on each, including checksums, is under [Install](#install).
 
 ## A tour
 
-| | |
-| --- | --- |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png" alt="A peek card over the sidebar showing unread messages in town-square"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png" alt="A thread open beside its channel"></picture> |
-| **Peek before you switch.** Rest on an unread channel to read what is new, then mark it read or open it. | **Threads beside the channel.** Reply and follow without losing your place. |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png" alt="The quick switcher listing unread channels across teams"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png" alt="The Threads view with a thread open"></picture> |
-| **Jump anywhere.** Ctrl K (⌘K on a Mac) finds any channel or person, across teams and servers, unreads first. | **All your threads in one view,** with an Unread filter and the thread open next to the list. |
+**Peek before you switch.** Rest on an unread channel to read what is new,
+then mark it read or open it.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png" alt="The Appearance settings with the style gallery and accent colors" width="720"></picture>
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png" alt="A peek card over the sidebar showing unread messages in town-square" width="100%"></picture></a>
+</p>
+
+**Threads beside the channel.** Reply and follow without losing your place.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png" alt="A thread open beside its channel" width="100%"></picture></a>
+</p>
+
+**Jump anywhere.** Ctrl K (⌘K on a Mac) finds any channel or person, across
+teams and servers, unreads first.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png" alt="The quick switcher listing unread channels across teams" width="100%"></picture></a>
+</p>
+
+**All your threads in one view,** with an Unread filter and the thread open
+next to the list.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png" alt="The Threads view with a thread open" width="100%"></picture></a>
 </p>
 
 **Make it yours.** Pick a built-in style (Graphite is the default), follow
@@ -61,7 +75,12 @@ your Mattermost theme, or build your own from an accent color, greys and
 corner shape. Bring your own fonts, then share the style as a file or a
 snippet a teammate can paste.
 
-The screenshots follow your GitHub theme, light or dark. They come from the
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png" alt="The Appearance settings with the style gallery and accent colors" width="720"></picture></a>
+</p>
+
+The screenshots follow your GitHub theme, light or dark, and open at full
+size when clicked. They come from the
 preview fixtures (`MATTY_PREVIEW=1`, see [Building](#building)).
 
 ## Why it is fast
@@ -167,10 +186,16 @@ getting patches. CI tests against Mattermost 12.0, 11.7, 10.11 and 10.5.
 
 ### Known limitations
 
-- Webapp plugins (Boards, Playbooks and other plugin UIs) can't run in a
-  native client. Their posts show a card with "Open in browser".
-- Calls isn't supported; call posts open in the browser.
-- The System Console isn't in Matty; use the web app.
+These parts of Mattermost are not in Matty yet. For each, Matty hands you
+over to Mattermost's own web interface on your server.
+
+- **Plugin screens** such as Boards and Playbooks. Their posts show a card
+  with "Open in browser", which opens that post on your Mattermost server.
+- **Calls.** A call post opens the call on your Mattermost server in the
+  browser.
+- **The System Console,** where admins manage the server. Matty has no admin
+  screens, so open your server's address in a browser and use Mattermost's
+  System Console there.
 
 ### Reporting problems
 
