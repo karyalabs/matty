@@ -52,6 +52,16 @@ Artifacts are kept for 7 days.
 `linux` also runs a test of the Linux notification backend against a
 stand-in notification service, on a private `dbus-daemon` the test starts.
 
+A release PR (`docs/releasing.md`) runs none of the jobs, in the pull
+request or the queue, when its only change is the version in `Cargo.toml`
+and `Cargo.lock` and the `CHANGELOG.md` entry (`scripts/ci/release-only`
+decides): master already checked that tree, and Release builds every
+platform from it. A release PR that changes anything else is checked as
+usual.
+
+The `windows` job's release build of `matty.exe` runs nightly only; the
+`windows installer` job builds one whenever the Windows packaging changes.
+
 ## Each commit is checked once
 
 The merge queue squashes a pull request onto the latest master, runs T2 on
@@ -67,6 +77,8 @@ run either, since the draft's own pushes already checked that commit.
 The jobs on GitHub's runners save their Rust cache only from master, which
 is now the nightly run (and the rare push outside the queue); every other
 run restores the newest master cache.
+The Release workflow's Windows build restores the `windows installer` job's
+cache (shared key `windows-release`) and saves nothing itself.
 
 ## Runners
 

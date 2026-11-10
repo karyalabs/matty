@@ -22,6 +22,12 @@ green master, plus a hotfix beta when a release-blocking fix lands.
    demo.karyalabs.dev/matty.
 3. Nothing else is pushed by hand: no tags.
 
+The release PR's CI and merge queue check nothing when only the version and
+the changelog changed ([CI.md](CI.md)), so it lands in about a minute. The
+Release workflow builds macOS, Linux, Windows and the web bundle side by
+side; the deploy after publishing only uploads the web bundle. Windows, on
+GitHub's runners, is the longest build; it restores CI's nightly cache.
+
 Every step skips work already done, so after a failure, fix master and run
 **Release** by hand with "Publish the release" ticked; it finishes the
 same version from the latest master. A version that is already released
