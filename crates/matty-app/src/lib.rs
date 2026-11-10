@@ -565,6 +565,8 @@ fn open_main_window(cx: &mut App) {
             apply_theme(window, cx);
             let main = cx.new(|cx| main_window::MainWindow::new(window, cx));
             track_main_window(&main, window, cx);
+            #[cfg(feature = "gpui-profiler")]
+            perf::start_gpui_profile(window, cx);
             cx.new(|cx| perf::PerfRoot::new(main, cx))
         })
         .map(|_| ())
