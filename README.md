@@ -43,37 +43,41 @@ More on each, including checksums, is under [Install](#install).
 
 ## A tour
 
-<table>
-<tr>
-<td width="50%" valign="top">
-<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png" alt="A peek card over the sidebar showing unread messages in town-square" width="100%"></picture></a>
-<br><b>Peek before you switch.</b> Rest on an unread channel to read what is new, then mark it read or open it.
-</td>
-<td width="50%" valign="top">
-<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png" alt="A thread open beside its channel" width="100%"></picture></a>
-<br><b>Threads beside the channel.</b> Reply and follow without losing your place.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png" alt="The quick switcher listing unread channels across teams" width="100%"></picture></a>
-<br><b>Jump anywhere.</b> Ctrl K (⌘K on a Mac) finds any channel or person, across teams and servers, unreads first.
-</td>
-<td width="50%" valign="top">
-<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png" alt="The Threads view with a thread open" width="100%"></picture></a>
-<br><b>All your threads in one view,</b> with an Unread filter and the thread open next to the list.
-</td>
-</tr>
-</table>
+**Peek before you switch.** Rest on an unread channel to read what is new,
+then mark it read or open it.
 
 <p align="center">
-<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png" alt="The Appearance settings with the style gallery and accent colors" width="720"></picture></a>
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png" alt="A peek card over the sidebar showing unread messages in town-square" width="100%"></picture></a>
+</p>
+
+**Threads beside the channel.** Reply and follow without losing your place.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png" alt="A thread open beside its channel" width="100%"></picture></a>
+</p>
+
+**Jump anywhere.** Ctrl K (⌘K on a Mac) finds any channel or person, across
+teams and servers, unreads first.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png" alt="The quick switcher listing unread channels across teams" width="100%"></picture></a>
+</p>
+
+**All your threads in one view,** with an Unread filter and the thread open
+next to the list.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png" alt="The Threads view with a thread open" width="100%"></picture></a>
 </p>
 
 **Make it yours.** Pick a built-in style (Graphite is the default), follow
 your Mattermost theme, or build your own from an accent color, greys and
 corner shape. Bring your own fonts, then share the style as a file or a
 snippet a teammate can paste.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png" alt="The Appearance settings with the style gallery and accent colors" width="720"></picture></a>
+</p>
 
 The screenshots follow your GitHub theme, light or dark, and open at full
 size when clicked. They come from the
