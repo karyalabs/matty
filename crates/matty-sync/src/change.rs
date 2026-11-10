@@ -276,6 +276,15 @@ pub enum ChangeSet {
         /// The files that matched, on the first page only (#207).
         files: Arc<[matty_api::models::FileInfo]>,
     },
+    /// A channel's newest posts, oldest first: the answer to
+    /// [`Command::Peek`](crate::Command::Peek). Their authors come ahead in
+    /// [`ChangeSet::Users`].
+    Peeked {
+        /// The channel.
+        channel_id: String,
+        /// Up to three posts.
+        posts: Arc<[Post]>,
+    },
     /// A listing of posts outside their channel: the answer to
     /// [`Command::LoadListing`](crate::Command::LoadListing). Their authors
     /// come ahead in [`ChangeSet::Users`].

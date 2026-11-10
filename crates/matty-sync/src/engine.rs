@@ -64,6 +64,14 @@ pub enum Command {
         /// The channel.
         channel_id: String,
     },
+    /// The newest posts of a channel the user is about to peek at from the
+    /// sidebar, without opening it: [`ChangeSet::Peeked`](crate::ChangeSet::Peeked)
+    /// answers from the cache at once, or once the latest page arrives
+    /// when the cache has none. Only the latest ask is answered.
+    Peek {
+        /// The channel.
+        channel_id: String,
+    },
     /// Adds, edits, deletes or moves a channel bookmark (#226);
     /// [`ChangeSet::Bookmarks`](crate::ChangeSet::Bookmarks) follows, or a
     /// [`ChangeSet::Failed`](crate::ChangeSet::Failed).
@@ -791,6 +799,10 @@ impl std::fmt::Debug for Command {
                 .debug_struct("Prefetch")
                 .field("channel_id", channel_id)
                 .finish(),
+            Self::Peek { channel_id } => f
+                .debug_struct("Peek")
+                .field("channel_id", channel_id)
+                .finish(),
             Self::Bookmark(command) => f.debug_tuple("Bookmark").field(command).finish(),
             Self::App(command) => f.debug_tuple("App").field(command).finish(),
             Self::SignOut => f.write_str("SignOut"),
@@ -1305,6 +1317,9 @@ pub(crate) struct Engine {
     /// [`Command::Prefetch`]), shown the moment it does: the header would
     /// otherwise read 0 members until its own fetch answers.
     early_stats: std::collections::BTreeMap<String, Arc<ChannelStats>>,
+    /// A channel peeked at ([`Command::Peek`]) whose posts are still on
+    /// their way.
+    peeking: Option<String>,
     session: Option<Session>,
     loaded: mpsc::UnboundedSender<Loaded>,
     loaded_inbox: Option<mpsc::UnboundedReceiver<Loaded>>,
@@ -1357,6 +1372,7 @@ impl Engine {
             asked_users: BTreeSet::new(),
             sent_channels: std::collections::BTreeMap::new(),
             early_stats: std::collections::BTreeMap::new(),
+            peeking: None,
             session: None,
             loaded,
             loaded_inbox: Some(loaded_inbox),
@@ -1528,6 +1544,26 @@ impl Engine {
                         } else {
                             to_prefetch = Some(channel_id);
                         }
+                    }
+                }
+                Message::Command(Command::Peek { channel_id }) => {
+                    let posts = peek_posts(&tx, &channel_id)?;
+                    if posts.is_empty() {
+                        self.peeking = Some(channel_id.clone());
+                        // As a prefetch: before the account loads, it waits.
+                        if let Some(session) = &mut self.session {
+                            if session.user_id.is_empty() {
+                                session.prefetch = Some(channel_id);
+                            } else {
+                                to_prefetch = Some(channel_id);
+                            }
+                        }
+                    } else {
+                        self.peeking = None;
+                        dirty.direct.push(ChangeSet::Peeked {
+                            channel_id,
+                            posts: Arc::from(posts),
+                        });
                     }
                 }
                 Message::Command(Command::ShowCache) => {
@@ -4179,6 +4215,16 @@ impl Engine {
                 .push(ChangeSet::Scheduled(self.scheduled.snapshot()));
         }
         let mut changes = dirty.direct;
+        if let Some(channel_id) = self.peeking.take() {
+            match peek_posts(self.store.conn(), &channel_id) {
+                Ok(posts) if !posts.is_empty() => changes.push(ChangeSet::Peeked {
+                    channel_id,
+                    posts: Arc::from(posts),
+                }),
+                Ok(_) => self.peeking = Some(channel_id),
+                Err(error) => tracing::error!(%error, "could not read a peeked channel"),
+            }
+        }
         // "Loaded" goes after the sidebars and unreads it may share a batch
         // with, so whoever waits for it has them.
         let loaded = changes
@@ -4363,6 +4409,7 @@ impl Engine {
         for change in changes {
             match change {
                 ChangeSet::Posts { posts, .. }
+                | ChangeSet::Peeked { posts, .. }
                 | ChangeSet::ReplyRoots { roots: posts, .. }
                 | ChangeSet::Thread { posts, .. }
                 | ChangeSet::Listing { posts, .. } => {
@@ -5075,4 +5122,14 @@ fn publish_drafts(conn: &Db, dirty: &mut Dirty) -> Result<(), StoreError> {
         });
     }
     Ok(())
+}
+
+/// How many posts a sidebar peek shows ([`Command::Peek`]).
+const PEEK_POSTS: usize = 3;
+
+/// A channel's newest posts for a peek, oldest first; under Collapsed
+/// Reply Threads only roots, as the channel shows them.
+fn peek_posts(conn: &Db, channel_id: &str) -> Result<Vec<matty_api::models::Post>, StoreError> {
+    let roots_only = cached_crt(conn)?;
+    posts::posts_window(conn, channel_id, Window::Latest, PEEK_POSTS, roots_only)
 }
