@@ -8,10 +8,10 @@ silently**: a pin change is its own pull request that updates this table.
 | Dependency | Pin | Source of truth | Checked |
 | --- | --- | --- | --- |
 | Rust toolchain | 1.99.1 (`rust-toolchain.toml`; MSRV 1.98) | gpuicn `release-pins.toml` `[rust]` | 2026-11-03, Claude for Arya |
-| gpuicn | `=0.10.4` (tag `v0.10.4`), crate mode, `syntect` on native | crates.io `gpuicn` | 2026-11-09, Claude for Arya |
-| GPUI Kit | `gpui-kit =0.9.0` (`7591a35`) | gpuicn `release-pins.toml` `[gpui_kit]` | 2026-11-03, Claude for Arya |
-| GPUI runtime | `gpui-pre-platform =0.3.11` (`gpui-pre` `f816e1f`) | gpuicn `release-pins.toml` `[gpui]` | 2026-11-03, Claude for Arya |
-| gpui-icons | `=0.6.0` (Lucide 1.63.0) | gpuicn `release-pins.toml` `[gpui_icons]` | 2026-11-03, Claude for Arya |
+| gpuicn | `=0.11.0` (tag `v0.11.0`), crate mode, `syntect` on native | crates.io `gpuicn` | 2026-11-10, Claude for Arya |
+| GPUI Kit | `gpui-kit =0.9.1` (`39ab849`) | gpuicn `release-pins.toml` `[gpui_kit]` | 2026-11-10, Claude for Arya |
+| GPUI runtime | `gpui-pre-platform =0.3.12` (`gpui-pre` `d2a4fb6`) | gpuicn `release-pins.toml` `[gpui]` | 2026-11-10, Claude for Arya |
+| gpui-icons | `=0.7.0` (Lucide 1.63.0) | gpuicn `release-pins.toml` `[gpui_icons]` | 2026-11-10, Claude for Arya |
 | IBM Plex Sans and Mono fonts | Google Fonts static instances (Plex Sans v23, Plex Mono v20; Mono Medium given the typographic family name "IBM Plex Mono" so it joins its family), `crates/matty-app/assets/fonts` | Google Fonts API, OFL | 2026-11-07, Claude for Arya |
 | Web toolchain | `nightly-2026-08-17` with `rust-src` (atomics, `-Z build-std`), wasm-bindgen CLI = Cargo.lock's `wasm-bindgen`, binaryen 132 | gpuicn `release-pins.toml` `[wasm]`; `scripts/web` | 2026-11-04, Claude for Arya |
 
