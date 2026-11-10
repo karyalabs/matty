@@ -1,99 +1,164 @@
-# Matty
+<p align="center">
+  <img src="packaging/icons/matty-icon.svg" width="96" alt="Matty icon">
+</p>
 
-A native [Mattermost](https://mattermost.com) desktop client, written in Rust
-on [GPUI](https://www.gpui.rs) with the [gpuicn](https://github.com/karyalabs/gpuicn)
-component library. The goal is a client that opens instantly, switches
-channels without a spinner, and stays usable offline.
+<h1 align="center">Matty</h1>
 
-> **Status: beta.** Matty is under active development toward its first
-> milestone (M1). Beta builds for macOS are on
-> [GitHub Releases](https://github.com/karyalabs/matty/releases) (see
-> [Install](#install)). The plan of record is
+<p align="center">
+  A fast, native <a href="https://mattermost.com">Mattermost</a> client for macOS, Linux, Windows and the web.
+</p>
+
+<p align="center">
+  <a href="https://github.com/karyalabs/matty/releases"><b>Download</b></a> ·
+  <a href="https://karyalabs.dev/matty/"><b>Open in your browser</b></a> ·
+  <a href="https://demo.karyalabs.dev/matty/"><b>Try the demo</b></a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/channel-light.png" alt="Matty showing the #general channel"></picture>
+</p>
+
+Matty is written in Rust on [GPUI](https://www.gpui.rs), the GPU-accelerated
+UI framework behind Zed, with the
+[gpuicn](https://github.com/karyalabs/gpuicn) component library. It is one
+process with no browser engine inside. It opens in a fraction of a second,
+switches channels without a spinner, and keeps working offline.
+
+> **Status: beta.** New betas ship about once a week for every platform, and
+> the web app updates with each one. The plan of record is
 > [docs/PLAN.md](docs/PLAN.md), and work is tracked in
-> [GitHub issues](https://github.com/karyalabs/matty/issues).
+> [GitHub issues](https://github.com/karyalabs/matty/issues). Matty is an
+> unofficial client, not made or endorsed by Mattermost, Inc.
 
-![Matty showing #general in light mode](docs/screenshots/readme/channel-light.png)
+## Get Matty
 
-## Screenshots
+| Platform | How |
+| --- | --- |
+| **macOS** 13 or later, Apple silicon and Intel | `Matty-<version>.dmg` from [Releases](https://github.com/karyalabs/matty/releases). Signed and notarized, and it updates itself. |
+| **Linux** x86_64 | `.deb`, `.rpm`, AppImage or tarball from [Releases](https://github.com/karyalabs/matty/releases). |
+| **Windows** x86_64 | The `.msi` from [Releases](https://github.com/karyalabs/matty/releases). It installs for you alone, with no administrator prompt. |
+| **Web** | <https://karyalabs.dev/matty/> for your own server, after a one-time [server setting](docs/web.md#what-the-server-needs). |
+| **Just looking** | <https://demo.karyalabs.dev/matty/> opens a sample workspace in your browser. No account, no server. |
+
+More on each, including checksums, is under [Install](#install).
+
+## A tour
 
 | | |
 | --- | --- |
-| ![A thread open next to its channel](docs/screenshots/readme/thread-light.png) | ![The quick switcher](docs/screenshots/readme/switcher-dark.png) |
-| Threads open beside the channel, with Follow and replies in place. | The quick switcher jumps to any channel or person. |
-| ![The Threads view](docs/screenshots/readme/threads-dark.png) | ![The status menu with Do not disturb durations](docs/screenshots/readme/status-light.png) |
-| Collapsed reply threads get their own view, with an Unread filter. | Set your status, with Do not disturb for a while or until a time. |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/peek-light.png" alt="A peek card over the sidebar showing unread messages in town-square"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/thread-light.png" alt="A thread open beside its channel"></picture> |
+| **Peek before you switch.** Rest on an unread channel to read what is new, then mark it read or open it. | **Threads beside the channel.** Reply and follow without losing your place. |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/switcher-light.png" alt="The quick switcher listing unread channels across teams"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png" alt="The Threads view with a thread open"></picture> |
+| **Jump anywhere.** Ctrl K (⌘K on a Mac) finds any channel or person, across teams and servers, unreads first. | **All your threads in one view,** with an Unread filter and the thread open next to the list. |
 
-<details>
-<summary>The same views in the other theme</summary>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png" alt="The Appearance settings with the style gallery and accent colors" width="720"></picture>
+</p>
 
-| | |
-| --- | --- |
-| ![Channel, dark](docs/screenshots/readme/channel-dark.png) | ![Thread, dark](docs/screenshots/readme/thread-dark.png) |
-| ![Switcher, light](docs/screenshots/readme/switcher-light.png) | ![Threads, light](docs/screenshots/readme/threads-light.png) |
-| ![Status menu, dark](docs/screenshots/readme/status-dark.png) | |
+**Make it yours.** Pick a built-in style (Graphite is the default), follow
+your Mattermost theme, or build your own from an accent color, greys and
+corner shape. Bring your own fonts, then share the style as a file or a
+snippet a teammate can paste.
 
-</details>
+The screenshots follow your GitHub theme, light or dark. They come from the
+preview fixtures (`MATTY_PREVIEW=1`, see [Building](#building)).
 
-All screenshots are taken from the preview fixtures (`MATTY_PREVIEW=1`, see
-below) at 1200×800.
+## Why it is fast
+
+Measured on 9 November 2026 with the tools in [bench/](bench/README.md):
+Matty 0.1.0-beta.16 and Mattermost Desktop 6.3.2 ran the same scripted
+journey against the same local server holding 480,000 posts, on a MacBook
+Pro (M4 Max).
+
+| | Matty | Mattermost Desktop |
+| --- | ---: | ---: |
+| First window paint | 217 ms | 483 ms |
+| Memory after start | 199 MB | 832 MB |
+| Processes | 1 | 10 |
+| CPU while idle | 0.0 % | 2.9 % |
+| Switch channel (Alt+Up/Down, median) | 50 ms | 117 ms |
+| Open a thread with 3,000 replies | 117 ms | 300 ms |
+| CPU while scrolling 100,000 posts, both near 60 fps | 59 % | 110 % |
+| Memory after that scroll | 699 MB | 1,651 MB |
+| CPU at rest after the whole run | 0.8 % | 22.4 % |
+
+Of the measurements that differed by 10% or more, Matty was ahead on 29 and
+Mattermost Desktop on 9. Mattermost was ahead on typing latency in that run
+(17 ms against 33 ms from keypress to glyph) and uses less GPU memory. The
+move to the latest GPUI in beta.17 has since brought Matty's typing latency
+to 17 ms. This is one machine and one run, and the benchmark is in the
+repository so you can run it on yours.
 
 ## What works today
 
-- **Sign in** with a password or single sign-on (GitLab, Google, Office 365,
-  OpenID, SAML). Switch teams and servers from the
-  team name at the top of the sidebar.
-- **Sidebar** with your categories, favorites, unread and mention badges, an
-  Unreads filter, and direct and group messages with presence dots.
-- **Messages:** Markdown, code blocks, reactions, file and image attachments,
-  uploads and downloads, edit and delete, pin and save, copy text or a link,
-  and "Mark as unread". Messages are grouped and divided by day, and a
-  "New messages" line marks where you left off.
+- **Sign in** with a password, MFA or single sign-on (GitLab, Google,
+  Office 365, OpenID, SAML). Use several teams and servers, and switch from
+  the tiles at the top of the sidebar.
+- **Sidebar:** Unreads, Threads, Mentions, Drafts and Saved up top, then
+  your own categories with favorites, unread and mention badges, "Show
+  unread only", pills that point at unread channels above and below, and a
+  peek card on unread rows. The window is full height with no title bar,
+  and a hidden sidebar slides in from the left edge.
+- **Messages:** Markdown with highlighted code blocks and tables, reactions,
+  image and file attachments with a lightbox, uploads and downloads, edit
+  and delete, pin and save, copy text or a link, scheduled messages and
+  "Mark as unread". A "New messages" line marks where you left off.
 - **Threads:** collapsed reply threads, the Threads view, following, and a
-  thread pane next to the channel.
+  thread pane beside the channel.
 - **Finding things:** search, the quick switcher, recent mentions, saved and
-  pinned messages, and drafts.
-- **Offline first:** channels you've opened read from a local cache, and
+  pinned messages, channel files and drafts.
+- **Offline first:** channels you have opened read from a local cache, and
   messages you send while offline wait in an outbox and go out in order
   when you reconnect.
-- **Status:** online, away, offline, and Do not disturb with a duration.
-- **Settings** in its own window with search: theme (light, dark, system,
-  or your Mattermost theme), a gallery of styles with your own fonts and
-  colors, text size, 12 or 24-hour clock, Enter or Ctrl+Enter to send,
-  standard or compact messages, notifications, servers, and the keyboard
-  shortcuts.
-- **Keyboard and screen readers:** shortcuts for navigation and message
-  actions, one tab stop per list, and accessible names on every control.
+- **Status:** online, away, offline, custom status, and Do not disturb for a
+  while or until a time.
+- **Settings** in its own window, with search: appearance, text size, 12 or
+  24-hour clock, Enter or Ctrl+Enter to send, standard or compact messages,
+  notifications, servers and keyboard shortcuts.
+- **Keyboard and screen readers:** Mattermost's shortcuts for navigation and
+  message actions, one tab stop per list, and an accessible name on every
+  control.
 
-See the [M1 milestones](docs/PLAN.md) for the full list.
+The full scope by milestone is in [docs/PLAN.md](docs/PLAN.md), and each
+release is described in the [changelog](CHANGELOG.md).
 
 ## Install
 
-Matty is an unofficial client for Mattermost, not made or endorsed by
-Mattermost, Inc.
-
-**macOS 13 or later, Apple silicon or Intel.** Download
-`Matty-<version>.dmg` from
-[GitHub Releases](https://github.com/karyalabs/matty/releases), open it and
-drag Matty to Applications. Releases are signed and notarized, so macOS opens
-them without a warning. Builds are betas for now (the first is
-[0.1.0-beta.3](https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.3)),
-and GitHub marks them as pre-releases. Each release lists the files' SHA-256
-checksums in `SHA256SUMS`:
+Every build is on
+[GitHub Releases](https://github.com/karyalabs/matty/releases). They are
+betas for now, so GitHub marks them as pre-releases. Each release lists its
+files' SHA-256 checksums in `SHA256SUMS`:
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-Matty updates itself from signed releases, so you don't need to download it
-again. Your sign-in tokens stay in the keychain under "Matty" until you sign
-out or delete them in Keychain Access.
+**macOS.** Open `Matty-<version>.dmg` and drag Matty to Applications.
+Releases are signed and notarized, so macOS opens them without a warning,
+and Matty updates itself from signed releases. Your sign-in tokens stay in
+the keychain under "Matty" until you sign out. A Homebrew cask
+(`karyalabs/matty/matty`) arrives with the first stable release; it is not
+published for betas.
 
-**Homebrew: coming soon.** A cask (`karyalabs/matty/matty`) arrives with the
-first stable release; it isn't published for betas.
+**Linux.** Pick the package for your distribution:
 
-**From source:** see [Building](#building). Windows and Linux builds come
-later (M2); until then, build from source there too. Matty also builds for the
-browser; see [docs/web.md](docs/web.md).
+```sh
+sudo apt install ./matty_<version>_amd64.deb     # Debian, Ubuntu
+sudo dnf install ./matty-<version>.x86_64.rpm    # Fedora, RHEL
+chmod +x Matty-<version>-x86_64.AppImage && ./Matty-<version>-x86_64.AppImage
+```
+
+There is a plain tarball too. To update, install the newer package.
+
+**Windows.** Run `Matty-<version>-x86_64.msi`. It is not code signed yet,
+so SmartScreen may warn: choose **More info**, then **Run anyway**. To
+update, run the newer installer.
+
+**Web.** <https://karyalabs.dev/matty/> is the same app compiled to
+WebAssembly. A server admin has to allow that origin once, as
+[docs/web.md](docs/web.md) explains. <https://demo.karyalabs.dev/matty/> is
+a sample workspace that talks to no server.
 
 ### Supported servers
 
@@ -110,11 +175,10 @@ getting patches. CI tests against Mattermost 12.0, 11.7, 10.11 and 10.5.
 ### Reporting problems
 
 [Open an issue](https://github.com/karyalabs/matty/issues/new) with your
-Matty version (`/Applications/Matty.app/Contents/MacOS/matty --version`, or
-the commit you built from),
-your macOS version and your Mattermost server version. Settings → Advanced has
-a button that opens the logs folder. Logs leave out tokens and message text
-by default, but look before you attach one.
+Matty version (Settings → General shows it, and so does `matty --version`),
+your operating system and your Mattermost server version. Settings →
+Advanced has a button that opens the logs folder. Logs leave out tokens and
+message text by default, but look before you attach one.
 
 ## Building
 
@@ -125,8 +189,7 @@ Matty builds with the Rust toolchain pinned in `rust-toolchain.toml`
 cargo run -p matty
 ```
 
-macOS is the primary platform. Linux builds and runs too, and needs the X11,
-Wayland and fontconfig headers (on Debian or Ubuntu:
+Linux needs the X11, Wayland and fontconfig headers (on Debian or Ubuntu:
 `libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig-dev`).
 
 To try the interface without a server, run it with the preview fixtures:
@@ -143,14 +206,14 @@ URL schemes, so it can sit next to a release install:
 scripts/dev-bundle && open "target/Matty Dev.app"
 ```
 
-`scripts/release-bundle` builds the universal release bundle,
-`target/dist/Matty.app`, for Apple silicon and Intel. It needs both Rust
-targets: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
+The web build is `scripts/web serve`; see [docs/web.md](docs/web.md).
 
 ## Development
 
 - [docs/PLAN.md](docs/PLAN.md): goals, milestones and architecture.
 - [docs/DESIGN.md](docs/DESIGN.md): the visual design and its rules.
+- [docs/engineering-process.md](docs/engineering-process.md): how CI,
+  releases and the Karya Labs repositories fit together.
 - [docs/dev-server.md](docs/dev-server.md): a local Mattermost server in
   Docker for development and integration tests.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how pull requests work here, including
@@ -159,9 +222,10 @@ targets: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
 The workspace is split into crates: `matty-api` (REST and WebSocket client),
 `matty-store` (SQLite cache), `matty-sync` (the sync engine, with no GPUI
 dependency), `matty-markdown`, `matty-notify` (notification policy and
-platform backends) and `matty-app` (the GPUI interface). `matty` is the
-binary.
+platform backends), `matty-update` (the updater), `matty-app` (the GPUI
+interface) and `matty-web` (the browser build). `matty` is the binary.
 
 ## License
 
-[MIT](LICENSE). Matty is not affiliated with or endorsed by Mattermost, Inc.
+[MIT](LICENSE). Matty is a [Karya Labs](https://github.com/karyalabs)
+project and is not affiliated with or endorsed by Mattermost, Inc.
