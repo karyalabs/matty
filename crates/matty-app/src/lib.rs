@@ -18,6 +18,7 @@ mod browser_decode;
 pub mod categories;
 pub mod channel;
 pub mod channel_settings;
+pub mod chrome;
 pub mod clock;
 pub mod composer_draft;
 pub mod contrast;

@@ -2111,10 +2111,29 @@ impl Render for SidebarView {
         let (above, below) = out_of_view(&self.painted.borrow(), &self.scroll);
         self.pills.set((above, below));
         self.painted.borrow_mut().clear();
+        // The header is the window's top edge and drags it; on macOS a strip
+        // above it keeps the traffic lights clear of the team button.
+        let lights = f32::from(crate::ui::title_bar::traffic_light_inset(window)) > 0.;
+        let strip = lights.then(|| {
+            crate::ui::title_bar::window_drag_area(
+                "sidebar.lights.drag",
+                div().id("sidebar.lights").h(scaled(&theme, 28.)).w_full(),
+                window,
+                cx,
+            )
+        });
+        let header = self.header(cx);
+        let header = crate::ui::title_bar::window_drag_area(
+            "sidebar.header.drag",
+            div().id("sidebar.header").child(header),
+            window,
+            cx,
+        );
         let top = div()
             .flex()
             .flex_col()
-            .child(self.header(cx))
+            .children(strip)
+            .child(header)
             .child(self.jump_row(cx))
             .when(!self.model.loading, |top| top.child(self.fixed_entries(cx)));
         let mut sidebar = Sidebar::new("sidebar", t!("sidebar-channels"))

@@ -7,9 +7,9 @@
 
 use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::{
-    Action, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
-    ParentElement as _, Pixels, Render, SharedString, Styled as _, Window, div,
-    prelude::FluentBuilder as _, px,
+    AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
+    ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Window, div, prelude::FluentBuilder as _, px,
 };
 
 use crate::account::{Account, AccountEvent, AccountView};
@@ -267,6 +267,10 @@ pub struct MainWindow {
     /// channel.
     sidebar_drawer: DrawerHandle,
     sidebar_drawer_open: bool,
+    /// The hidden sidebar slid in over the content from the left edge
+    /// (spec §3), and the pending slide out after the pointer left it.
+    sidebar_peek: bool,
+    peek_hide: Option<gpui_kit::Task<()>>,
     sidebar_drawer_shown: bool,
     /// The Threads view stands in for the channel while the sidebar's
     /// Threads row is chosen.
@@ -1197,6 +1201,8 @@ impl MainWindow {
             right_drawer_shown: false,
             sidebar_drawer: DrawerHandle::new(false),
             sidebar_drawer_open: false,
+            sidebar_peek: false,
+            peek_hide: None,
             sidebar_drawer_shown: false,
             threads,
             toasts,
@@ -3659,85 +3665,98 @@ impl MainWindow {
         });
     }
 
-    /// The keystroke bound to the action with this label in the shortcut
-    /// sheet, formatted for the current platform.
-    /// A ghost icon button that dispatches `action`, with a tooltip naming
-    /// it and its shortcut when the keymap has one.
-    fn icon_button(
-        id: &'static str,
-        label: &'static str,
-        glyph: LucideIcon,
-        action: Box<dyn Action>,
-        enabled: bool,
+    /// Slides the hidden sidebar in, or out 200ms after the pointer left it
+    /// (spec §3).
+    fn peek_sidebar(&mut self, show: bool, cx: &mut Context<Self>) {
+        if show {
+            self.peek_hide = None;
+            if !self.sidebar_visible && !self.sidebar_peek {
+                self.sidebar_peek = true;
+                cx.notify();
+            }
+            return;
+        }
+        if !self.sidebar_peek || self.peek_hide.is_some() {
+            return;
+        }
+        self.peek_hide = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(200))
+                .await;
+            this.update(cx, |this, cx| {
+                this.peek_hide = None;
+                this.sidebar_peek = false;
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// While the docked sidebar is hidden: a 14px zone at the window's left
+    /// edge that peeks it, and the sidebar itself sliding in over the
+    /// content, which it does not resize.
+    fn sidebar_peek_overlay(
+        &mut self,
+        narrow: bool,
+        width: Pixels,
+        window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = UiTheme::read(cx);
-        let button = Button::new(id)
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::IconSm)
-            .aria_label(label)
-            .disabled(!enabled)
-            .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
-            .child(
-                lucide(glyph)
-                    .size(scaled(theme, metrics::ICON))
-                    .text_color(theme.colors.muted_foreground),
-            );
-        style::tipped(
-            SharedString::from(format!("{id}.tooltip")),
-            actions::tooltip_text(label, label),
-            button,
+    ) -> Option<gpui_kit::AnyElement> {
+        if self.sidebar_visible || narrow || self.login.is_some() {
+            self.sidebar_peek = false;
+            return None;
+        }
+        let theme = UiTheme::read(cx).clone();
+        let shown = crate::ui::theme::transition_value(
+            "main.sidebar.peek",
+            if self.sidebar_peek { 1. } else { 0. },
+            std::time::Duration::from_millis(140),
+            window,
+            cx,
+        );
+        let edge = div()
+            .id("main.sidebar.edge")
+            .absolute()
+            .left_0()
+            .top_0()
+            .bottom_0()
+            .w(px(14.))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if *hovered {
+                    this.peek_sidebar(true, cx)
+                }
+            }));
+        let panel = (shown > 0.001).then(|| {
+            div()
+                .id("main.sidebar.peek")
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(-width * (1. - shown))
+                .w(width)
+                .occlude()
+                .shadow_lg()
+                .border_r(style::hairline())
+                .border_color(theme.colors.sidebar_border)
+                .on_hover(
+                    cx.listener(|this, hovered: &bool, _, cx| this.peek_sidebar(*hovered, cx)),
+                )
+                .child(cached_pane(&self.sidebar))
+        });
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(edge)
+                .children(panel)
+                .into_any_element(),
         )
     }
 
-    /// DESIGN.md §4: navigation on the left, the quick switcher as a search
-    /// pill in the middle, mentions, saved, help and the user on the right.
-    fn title_bar(&self, narrow: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        // Signed out there is nothing to navigate: window controls only.
-        if self.login.is_some() {
-            return TitleBar::new()
-                .h(px(metrics::TITLE_BAR_HEIGHT))
-                .into_any_element();
-        }
-        let theme = UiTheme::read(cx).clone();
-        TitleBar::new()
-            .h(px(metrics::TITLE_BAR_HEIGHT))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(theme.space(1.))
-                    .flex_shrink_0()
-                    // The sidebar lives in a drawer at this width; this is
-                    // the pointer's way to it.
-                    .when(narrow, |group| {
-                        group.child(Self::icon_button(
-                            "titlebar.sidebar",
-                            "Toggle sidebar",
-                            LucideIcon::PanelLeft,
-                            Box::new(ToggleSidebar),
-                            true,
-                            cx,
-                        ))
-                    })
-                    .child(Self::icon_button(
-                        "titlebar.back",
-                        "Back",
-                        LucideIcon::ChevronLeft,
-                        Box::new(HistoryBack),
-                        self.history_at > 0,
-                        cx,
-                    ))
-                    .child(Self::icon_button(
-                        "titlebar.forward",
-                        "Forward",
-                        LucideIcon::ChevronRight,
-                        Box::new(HistoryForward),
-                        self.history_at + 1 < self.history.len(),
-                        cx,
-                    )),
-            )
-            .into_any_element()
+    /// Signed out there is nothing to navigate: a bar for the window
+    /// controls only.
+    fn title_bar(&self) -> impl IntoElement + use<> {
+        TitleBar::new().h(px(metrics::TITLE_BAR_HEIGHT))
     }
 
     /// Tells the sidebar which listing the right pane shows, so its
@@ -4601,6 +4620,7 @@ impl Render for MainWindow {
         };
         let narrow_sidebar = Self::narrow_sidebar(window);
         self.sync_sidebar_listing(cx);
+        self.sync_chrome(window, cx);
         let content = self.content(window, cx);
         let frame = if self.sidebar_visible && !narrow_sidebar {
             Resizable::new("main.sidebar-split", "Resize sidebar", sidebar_width)
@@ -4618,6 +4638,7 @@ impl Render for MainWindow {
         } else {
             content
         };
+        let peek = self.sidebar_peek_overlay(narrow_sidebar, sidebar_width, window, cx);
         let switcher_element = self.switcher.update(cx, |switcher, cx| {
             switcher.element(window, cx).into_any_element()
         });
@@ -4633,7 +4654,13 @@ impl Render for MainWindow {
                 } else {
                     this.sidebar_visible = !this.sidebar_visible;
                 }
+                // Clicking the toggle while peeking pins the sidebar.
+                this.sidebar_peek = false;
+                this.peek_hide = None;
                 cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &crate::chrome::PeekSidebar, _, cx| {
+                this.peek_sidebar(true, cx)
             }))
             .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.zoom(Some(ZOOM_STEP), cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom(Some(-ZOOM_STEP), cx)))
@@ -4734,7 +4761,10 @@ impl Render for MainWindow {
             .text_color(theme.colors.foreground)
             .font_family(theme.fonts.body.clone())
             .type_style(style::UI, &theme)
-            .child(self.title_bar(narrow_sidebar, cx))
+            // Signed in, the sidebar and the pane headers are the window's
+            // top edge (spec §1); the sign-in card keeps a bar for the
+            // window controls.
+            .children(self.login.is_some().then(|| self.title_bar()))
             .children(banner)
             .child(match &self.login {
                 Some(login) => div()
@@ -4750,11 +4780,13 @@ impl Render for MainWindow {
                     .flex_1()
                     .min_h_0()
                     .w_full()
+                    .relative()
                     .child(
                         selection_root("window.selection")
                             .flex()
                             .child(div().flex_1().min_w_0().h_full().child(frame)),
                     )
+                    .children(peek)
                     .into_any_element(),
             })
             .child(self.right_drawer(window, cx))

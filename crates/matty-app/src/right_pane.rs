@@ -441,6 +441,8 @@ enum LightboxItem {
 }
 
 pub struct RightPaneView {
+    /// Its part in the window's chrome (`crate::chrome`).
+    chrome: crate::chrome::PaneChrome,
     /// `style::composer_cap` as of the last render.
     composer_cap: gpui_kit::Pixels,
     content: Option<RightPaneContent>,
@@ -855,6 +857,7 @@ impl RightPaneView {
             ),
         ];
         Self {
+            chrome: Default::default(),
             composer_cap: px(320.),
             content: None,
             list,
@@ -2448,6 +2451,27 @@ impl RightPaneView {
             },
         ));
         items
+    }
+
+    /// The header as the window's top edge where this pane has a part in
+    /// the chrome (`crate::chrome`).
+    fn chromed_header(
+        &self,
+        window: &mut Window,
+        title: SharedString,
+        subtitle: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let header = self.header(title, subtitle, cx);
+        crate::chrome::frame("pane.header", self.chrome, header, window, cx)
+    }
+
+    /// Gives the pane its part in the window's chrome.
+    pub fn set_chrome(&mut self, chrome: crate::chrome::PaneChrome, cx: &mut Context<Self>) {
+        if self.chrome != chrome {
+            self.chrome = chrome;
+            cx.notify();
+        }
     }
 
     fn header(
@@ -4084,7 +4108,8 @@ impl Render for RightPaneView {
         }
         match self.content.clone() {
             Some(RightPaneContent::Thread(thread)) => root
-                .child(self.header(
+                .child(self.chromed_header(
+                    window,
                     t!("pane-thread"),
                     Some(match thread.channel_name.as_ref() {
                         name if name.contains(' ') => name.to_string().into(),
@@ -4094,7 +4119,7 @@ impl Render for RightPaneView {
                 ))
                 .child(div().flex_1().min_h_0().child(self.thread(&thread, cx))),
             Some(RightPaneContent::ChannelInfo(channel)) => root
-                .child(self.header(t!("pane-channel-info"), None, cx))
+                .child(self.chromed_header(window, t!("pane-channel-info"), None, cx))
                 .child(
                     div()
                         .flex_1()
@@ -4105,7 +4130,8 @@ impl Render for RightPaneView {
                 channel_name,
                 files,
             }) => root
-                .child(self.header(
+                .child(self.chromed_header(
+                    window,
                     t!("pane-files"),
                     Some(match channel_name.as_ref() {
                         name if name.contains(' ') => name.to_string().into(),
@@ -4118,7 +4144,8 @@ impl Render for RightPaneView {
                 channel_name,
                 posts,
             }) => root
-                .child(self.header(
+                .child(self.chromed_header(
+                    window,
                     t!("pane-pinned"),
                     Some(match channel_name.as_ref() {
                         name if name.contains(' ') => name.to_string().into(),
@@ -4138,7 +4165,7 @@ impl Render for RightPaneView {
                     cx,
                 )),
             Some(RightPaneContent::Saved(posts)) => root
-                .child(self.header(t!("pane-saved"), None, cx))
+                .child(self.chromed_header(window, t!("pane-saved"), None, cx))
                 .child(self.listing(
                     "right-pane.saved",
                     &posts,
@@ -4151,7 +4178,7 @@ impl Render for RightPaneView {
                     cx,
                 )),
             Some(RightPaneContent::Mentions(posts)) => root
-                .child(self.header(t!("pane-mentions"), None, cx))
+                .child(self.chromed_header(window, t!("pane-mentions"), None, cx))
                 .child(self.listing(
                     "right-pane.mentions",
                     &posts,
@@ -4164,7 +4191,7 @@ impl Render for RightPaneView {
                     cx,
                 )),
             Some(RightPaneContent::Unreads(posts)) => root
-                .child(self.header(t!("pane-unreads"), None, cx))
+                .child(self.chromed_header(window, t!("pane-unreads"), None, cx))
                 .child(self.listing(
                     "right-pane.unreads",
                     &posts,
@@ -4177,14 +4204,14 @@ impl Render for RightPaneView {
                     cx,
                 )),
             Some(RightPaneContent::Search(model)) => root
-                .child(self.header(t!("pane-search"), None, cx))
+                .child(self.chromed_header(window, t!("pane-search"), None, cx))
                 .child(self.search(&model, cx)),
             Some(RightPaneContent::Profile(profile)) => {
                 let (message_view, mention_view) =
                     (cx.entity().downgrade(), cx.entity().downgrade());
                 let (message_profile, username) = (profile.clone(), profile.username.clone());
-                root.child(self.header(t!("pane-profile"), None, cx)).child(
-                    div().flex_1().min_h_0().child(profile_pane(
+                root.child(self.chromed_header(window, t!("pane-profile"), None, cx))
+                    .child(div().flex_1().min_h_0().child(profile_pane(
                         &profile,
                         Box::new(move |_, cx| {
                             let event = RightPaneEvent::OpenDirect {
@@ -4209,17 +4236,16 @@ impl Render for RightPaneView {
                             },
                         ),
                         cx,
-                    )),
-                )
+                    )))
             }
             // Offline, a thread that is not cached never arrives (#163).
             None if self.offline => {
                 let (title, text) = crate::offline::pane_empty("thread");
-                root.child(self.header(t!("pane-thread"), None, cx))
+                root.child(self.chromed_header(window, t!("pane-thread"), None, cx))
                     .child(style::centered_empty(LucideIcon::WifiOff, title, text, cx))
             }
             None => root
-                .child(self.header(t!("pane-thread"), None, cx))
+                .child(self.chromed_header(window, t!("pane-thread"), None, cx))
                 .child(Self::empty(cx)),
         }
     }

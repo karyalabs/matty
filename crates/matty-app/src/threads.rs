@@ -87,6 +87,8 @@ pub enum ThreadsEvent {
 const LOAD_MORE_WITHIN: f32 = 240.;
 
 pub struct ThreadsView {
+    /// Its part in the window's chrome (`crate::chrome`).
+    chrome: crate::chrome::PaneChrome,
     model: ThreadsModel,
     selected: Option<SharedString>,
     unread_only: bool,
@@ -114,6 +116,7 @@ impl ThreadsView {
         .detach();
         let detail = cx.new(|cx| RightPaneView::new(me, window, cx));
         let mut this = Self {
+            chrome: Default::default(),
             model: ThreadsModel::default(),
             selected: None,
             unread_only: false,
@@ -258,6 +261,14 @@ impl ThreadsView {
         }
         cx.emit(ThreadsEvent::MarkAllRead);
         cx.notify();
+    }
+
+    /// Gives the view its part in the window's chrome.
+    pub fn set_chrome(&mut self, chrome: crate::chrome::PaneChrome, cx: &mut Context<Self>) {
+        if self.chrome != chrome {
+            self.chrome = chrome;
+            cx.notify();
+        }
     }
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -546,7 +557,10 @@ impl Render for ThreadsView {
             .flex_col()
             .border_r(style::hairline())
             .border_color(theme.colors.border)
-            .child(self.header(cx))
+            .child({
+                let header = self.header(cx);
+                crate::chrome::frame("threads.header", self.chrome, header, window, cx)
+            })
             .child(if rows.is_empty() {
                 self.empty(cx).into_any_element()
             } else {

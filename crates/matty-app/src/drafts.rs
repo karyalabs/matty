@@ -48,6 +48,8 @@ pub enum DraftsEvent {
 }
 
 pub struct DraftsView {
+    /// Its part in the window's chrome (`crate::chrome`).
+    chrome: crate::chrome::PaneChrome,
     model: DraftsModel,
     /// The Scheduled tab's list, where the server allows scheduling
     /// (#220).
@@ -61,6 +63,7 @@ impl EventEmitter<DraftsEvent> for DraftsView {}
 impl DraftsView {
     pub fn new(model: DraftsModel) -> Self {
         Self {
+            chrome: Default::default(),
             model,
             scheduled: None,
             scheduled_tab: false,
@@ -107,6 +110,14 @@ impl DraftsView {
     fn remove(&mut self, draft: &Draft, cx: &mut Context<Self>) {
         self.model.drafts.retain(|d| d != draft);
         cx.notify();
+    }
+
+    /// Gives the view its part in the window's chrome.
+    pub fn set_chrome(&mut self, chrome: crate::chrome::PaneChrome, cx: &mut Context<Self>) {
+        if self.chrome != chrome {
+            self.chrome = chrome;
+            cx.notify();
+        }
     }
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -314,7 +325,7 @@ impl DraftsView {
 }
 
 impl Render for DraftsView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = UiTheme::read(cx).clone();
         let drafts = self.model.drafts.clone();
         let root = div()
@@ -323,7 +334,10 @@ impl Render for DraftsView {
             .flex()
             .flex_col()
             .bg(theme.colors.background)
-            .child(self.header(cx));
+            .child({
+                let header = self.header(cx);
+                crate::chrome::frame("drafts.header", self.chrome, header, window, cx)
+            });
         if self.scheduled_tab
             && let Some(scheduled) = self.scheduled_tab(cx)
         {

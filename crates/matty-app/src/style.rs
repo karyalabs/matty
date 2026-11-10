@@ -375,7 +375,7 @@ impl<T: Styled> TypeStyleExt for T {}
 /// the theme's spacing unit through [`scaled`] so zoom applies.
 pub mod metrics {
     /// Sidebar, channel and right-pane headers.
-    pub const HEADER_HEIGHT: f32 = 48.;
+    pub const HEADER_HEIGHT: f32 = 46.;
     /// A sidebar row.
     pub const ROW_HEIGHT: f32 = 28.;
     /// Horizontal padding inside the channel view.
@@ -643,9 +643,9 @@ mod tests {
     #[test]
     fn scaled_follows_the_spacing_unit() {
         let mut t = theme(ThemeMode::Light);
-        assert_eq!(scaled(&t, metrics::HEADER_HEIGHT), px(48.));
+        assert_eq!(scaled(&t, metrics::HEADER_HEIGHT), px(46.));
         t.spacing.unit = px(5.);
-        assert_eq!(scaled(&t, metrics::HEADER_HEIGHT), px(60.));
+        assert_eq!(scaled(&t, metrics::HEADER_HEIGHT), px(57.5));
     }
 
     #[test]

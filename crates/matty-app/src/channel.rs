@@ -1257,6 +1257,8 @@ enum LightboxItem {
 }
 
 pub struct ChannelView {
+    /// Its part in the window's chrome (`crate::chrome`).
+    chrome: crate::chrome::PaneChrome,
     /// Shared with each frame's transcript rows, which read posts from it
     /// instead of copying the whole channel every frame; changes go through
     /// [`Rc::make_mut`].
@@ -1763,6 +1765,7 @@ impl ChannelView {
             ),
         ];
         let mut this = Self {
+            chrome: Default::default(),
             model: None,
             rows: Rc::new(rows),
             list,
@@ -4091,6 +4094,14 @@ impl ChannelView {
         })
     }
 
+    /// Gives the view its part in the window's chrome.
+    pub fn set_chrome(&mut self, chrome: crate::chrome::PaneChrome, cx: &mut Context<Self>) {
+        if self.chrome != chrome {
+            self.chrome = chrome;
+            cx.notify();
+        }
+    }
+
     fn header(&self, channel: &ChannelModel, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let muted = theme.colors.muted_foreground;
@@ -5493,7 +5504,10 @@ impl Render for ChannelView {
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 this.add_paths(paths.paths().iter().cloned(), cx)
             }))
-            .child(self.header(&channel, cx))
+            .child({
+                let header = self.header(&channel, cx);
+                crate::chrome::frame("channel.header", self.chrome, header, window, cx)
+            })
             .when(self.bookmarks.read(cx).shows(&channel.id), |view| {
                 view.child(self.bookmarks.clone())
             })
