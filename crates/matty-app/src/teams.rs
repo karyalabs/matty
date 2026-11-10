@@ -13,7 +13,7 @@ use gpui_kit::{
     StyledImage as _, Window, div, prelude::FluentBuilder as _, px,
 };
 
-use crate::style::{self, TypeStyleExt as _, metrics, scaled};
+use crate::style::{self, TypeStyleExt as _, scaled};
 use crate::t;
 use crate::ui::{
     badge::Badge,
@@ -394,55 +394,27 @@ impl TeamsModel {
         self.menu.update(cx, |menu, cx| menu.set_items(items, cx));
     }
 
-    /// The header button: the team's name, a chevron, and what waits in
-    /// other teams and servers.
-    pub fn header_button(&self, name: SharedString, disabled: bool, cx: &App) -> AnyElement {
+    /// The header button: the current team's tile and name and a chevron.
+    /// What waits elsewhere is on [`Self::header_tiles`].
+    pub fn header_button(&self, name: SharedString, disabled: bool, cx: &mut App) -> AnyElement {
         let theme = UiTheme::read(cx).clone();
-        let (mentions, unread) = self.elsewhere();
-        let label = if mentions > 0 || unread {
-            t!(
-                "teams-switch-elsewhere",
-                team = name.to_string(),
-                count = mentions
-            )
-        } else {
-            name.clone()
-        };
-        let badge = if mentions > 0 {
-            Some(
-                Badge::count(mentions, 99)
-                    .h(theme.space(4.))
-                    .min_w(theme.space(4.))
-                    .px(theme.space(1.))
-                    .text_size(theme.text(10.))
-                    .line_height(theme.text(10.))
-                    .bg(theme.colors.sidebar_primary)
-                    .text_color(theme.colors.sidebar_primary_foreground)
-                    .into_any_element(),
-            )
-        } else if unread {
-            Some(
-                div()
-                    .size(px(8.))
-                    .flex_shrink_0()
-                    .rounded_full()
-                    .bg(theme.colors.sidebar_foreground)
-                    .opacity(0.72)
-                    .into_any_element(),
-            )
-        } else {
-            None
-        };
+        let current = self
+            .current
+            .as_ref()
+            .and_then(|id| self.teams.iter().find(|team| &team.id == id))
+            .cloned()
+            .unwrap_or_else(|| Team::new("", name.clone()));
+        let tile = team_tile(&current, TILE, true, cx);
         let trigger = div()
             .flex()
             .items_center()
-            .gap(theme.space(1.5))
+            .gap(theme.space(2.))
             .min_w_0()
-            .child(div().truncate().child(name))
-            .children(badge)
+            .child(tile)
+            .child(div().truncate().child(name.clone()))
             .child(
                 lucide(LucideIcon::ChevronDown)
-                    .size(scaled(&theme, metrics::ICON_SMALL))
+                    .size(scaled(&theme, 13.))
                     .text_color(theme.colors.sidebar_muted_foreground()),
             );
         let style_theme = theme.clone();
@@ -454,7 +426,7 @@ impl TeamsModel {
                 tip.tooltip(move |_, cx| text_tooltip(t!("teams-switch"), cx))
             })
             .child(
-                Menu::new(&self.menu, label)
+                Menu::new(&self.menu, name)
                     .disabled(disabled)
                     .trigger(trigger)
                     .trigger_style_with(move |button| {
@@ -465,12 +437,257 @@ impl TeamsModel {
                             ButtonSize::Sm,
                             &style_theme,
                         )
-                        .px(style_theme.space(2.))
-                        .type_style(style::TITLE, &style_theme)
+                        .px(style_theme.space(1.5))
+                        .min_w_0()
+                        .type_style(HEADER_NAME, &style_theme)
                         .text_color(style_theme.colors.sidebar_foreground)
                     }),
             )
             .into_any_element()
+    }
+
+    /// What the header shows after the team button (spec §2.1): a tile per
+    /// other team of this server with its own badge, folding past three
+    /// into two tiles and a "+N" that opens the menu, then a round tile for
+    /// other servers when something waits there and no "+N" says so.
+    pub fn header_tiles(&self, this: &Entity<Self>, cx: &mut App) -> Vec<AnyElement> {
+        let others: Vec<(usize, Team)> = self
+            .teams
+            .iter()
+            .enumerate()
+            .filter(|(_, team)| self.current.as_ref() != Some(&team.id))
+            .map(|(index, team)| (index, team.clone()))
+            .collect();
+        let shown = if others.len() > 3 { 2 } else { others.len() };
+        let mut tiles = Vec::new();
+        for (index, team) in &others[..shown] {
+            let id = team.id.clone();
+            let mut tip = team.name.to_string();
+            match (team.mentions, team.unread) {
+                (0, false) => {}
+                (0, true) => tip.push_str(&format!(" · {}", t!("teams-tile-unread"))),
+                (n, _) => tip.push_str(&format!(" · {}", t!("teams-tile-mentions", count = n))),
+            }
+            if *index < 9 {
+                let keys = crate::actions::format_keys(
+                    &format!("cmd-alt-{}", index + 1),
+                    &format!("ctrl-alt-{}", index + 1),
+                );
+                tip.push_str(&format!(" · {keys}"));
+            }
+            let face = team_tile(team, TILE, false, cx);
+            let marked = tile_with_mark(face, team.mentions, team.unread, cx);
+            let button = tile_button(
+                gpui_kit::ElementId::Name(format!("sidebar.team-tile.{}", team.id).into()),
+                team.label(),
+                marked,
+                cx,
+            )
+            .on_click({
+                let this = this.downgrade();
+                move |_, _, cx| {
+                    this.update(cx, |this, cx| this.select(id.clone(), cx)).ok();
+                }
+            });
+            tiles.push(
+                style::tipped(
+                    gpui_kit::ElementId::Name(format!("sidebar.team-tile.{}.tip", team.id).into()),
+                    tip,
+                    button,
+                )
+                .into_any_element(),
+            );
+        }
+        let servers: Vec<&Server> = self
+            .servers
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| self.current_server != Some(*index))
+            .map(|(_, server)| server)
+            .collect();
+        let hidden = &others[shown..];
+        if !hidden.is_empty() {
+            let waiting = hidden
+                .iter()
+                .any(|(_, team)| team.unread || team.mentions > 0)
+                || servers
+                    .iter()
+                    .any(|server| server.unread || server.mentions > 0);
+            let theme = UiTheme::read(cx).clone();
+            let face = div()
+                .size(scaled(&theme, TILE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(scaled(&theme, 6.))
+                .bg(theme.colors.secondary)
+                .text_color(theme.colors.secondary_foreground)
+                .text_size(theme.text(10.5))
+                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                .child(format!("+{}", hidden.len()))
+                .into_any_element();
+            let marked = tile_with_mark(face, 0, waiting, cx);
+            let label = t!("teams-more", count = hidden.len());
+            let menu = self.menu.clone();
+            let button = tile_button("sidebar.team-tile.more", label.clone(), marked, cx)
+                .on_click(move |_, window, cx| menu.update(cx, |menu, cx| menu.open(window, cx)));
+            tiles.push(
+                style::tipped("sidebar.team-tile.more.tip", label, button).into_any_element(),
+            );
+        } else {
+            let mentions: usize = servers.iter().map(|server| server.mentions).sum();
+            let unread = servers.iter().any(|server| server.unread);
+            if mentions > 0 || unread {
+                let name = servers
+                    .iter()
+                    .find(|server| server.mentions > 0 || server.unread)
+                    .map(|server| server.name.clone())
+                    .unwrap_or_default();
+                let theme = UiTheme::read(cx).clone();
+                let face = div()
+                    .size(scaled(&theme, TILE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(theme.colors.secondary)
+                    .text_color(theme.colors.secondary_foreground)
+                    .text_size(theme.text(9.5))
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .child(initials(&name).to_uppercase())
+                    .into_any_element();
+                let marked = tile_with_mark(face, mentions, unread, cx);
+                let label = if mentions > 0 {
+                    t!(
+                        "teams-server-mentions",
+                        server = name.to_string(),
+                        count = mentions
+                    )
+                } else {
+                    t!("teams-server-unread", server = name.to_string())
+                };
+                let menu = self.menu.clone();
+                let button = tile_button("sidebar.server-tile", label.clone(), marked, cx)
+                    .on_click(move |_, window, cx| {
+                        menu.update(cx, |menu, cx| menu.open(window, cx))
+                    });
+                tiles.push(
+                    style::tipped("sidebar.server-tile.tip", label, button).into_any_element(),
+                );
+            }
+        }
+        tiles
+    }
+}
+
+/// A header tile's side (spec §2.1).
+const TILE: f32 = 22.;
+
+/// The team name in the sidebar header: 15.5px SemiBold (spec §2.1).
+const HEADER_NAME: style::TypeStyle = style::TypeStyle {
+    size: 15.5,
+    line: 22.,
+    weight: gpui_kit::FontWeight::SEMIBOLD,
+};
+
+/// A ghost button around a header tile, with no padding of its own.
+fn tile_button(
+    id: impl Into<gpui_kit::ElementId>,
+    label: SharedString,
+    face: AnyElement,
+    cx: &App,
+) -> crate::ui::button::Button {
+    let theme = UiTheme::read(cx);
+    crate::ui::button::Button::new(id)
+        .variant(ButtonVariant::Ghost)
+        .size(ButtonSize::IconSm)
+        .aria_label(label)
+        .w(scaled(theme, TILE + 2.))
+        .h(scaled(theme, TILE + 2.))
+        .p(px(1.))
+        .rounded(scaled(theme, 7.))
+        .child(face)
+}
+
+/// `face` with a mention pill or an unread dot at its top-right corner,
+/// ringed in the sidebar colour so it reads against the tile.
+fn tile_with_mark(face: AnyElement, mentions: usize, unread: bool, cx: &App) -> AnyElement {
+    let theme = UiTheme::read(cx);
+    let ring = theme.colors.sidebar;
+    let mark = if mentions > 0 {
+        Some(
+            Badge::count(mentions, 99)
+                .h(scaled(theme, 15.))
+                .min_w(scaled(theme, 15.))
+                .px(px(3.))
+                .text_size(theme.text(9.5))
+                .line_height(theme.text(9.5))
+                .bg(theme.colors.sidebar_primary)
+                .text_color(theme.colors.sidebar_primary_foreground)
+                .border_2()
+                .border_color(ring)
+                .absolute()
+                .top(scaled(theme, -6.))
+                .right(scaled(theme, -7.))
+                .into_any_element(),
+        )
+    } else if unread {
+        Some(
+            div()
+                .absolute()
+                .top(scaled(theme, -3.))
+                .right(scaled(theme, -3.))
+                .size(scaled(theme, 10.))
+                .rounded_full()
+                .bg(theme.colors.sidebar_foreground)
+                .border_2()
+                .border_color(ring)
+                .into_any_element(),
+        )
+    } else {
+        None
+    };
+    div()
+        .relative()
+        .flex_shrink_0()
+        .child(face)
+        .children(mark)
+        .into_any_element()
+}
+
+/// A team's tile of `side` px: its icon, or its initials, on `primary` for
+/// the current team and `secondary` for the others.
+pub(crate) fn team_tile(team: &Team, side: f32, current: bool, cx: &mut App) -> AnyElement {
+    let theme = UiTheme::read(cx).clone();
+    let (bg, fg) = if current {
+        (theme.colors.primary, theme.colors.primary_foreground)
+    } else {
+        (theme.colors.secondary, theme.colors.secondary_foreground)
+    };
+    let radius = scaled(&theme, side * 0.28);
+    let square = div()
+        .size(scaled(&theme, side))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(radius)
+        .bg(bg)
+        .text_color(fg)
+        .text_size(theme.text(side * 0.45))
+        .font_weight(gpui_kit::FontWeight::SEMIBOLD);
+    match team.icon_image(cx) {
+        Some(icon) => square
+            .child(
+                gpui_kit::img(icon)
+                    .size_full()
+                    .rounded(radius)
+                    .object_fit(gpui_kit::ObjectFit::Cover),
+            )
+            .into_any_element(),
+        None => square
+            .child(team.initials().to_uppercase())
+            .into_any_element(),
     }
 }
 

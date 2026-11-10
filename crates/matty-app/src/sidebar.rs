@@ -3,6 +3,8 @@
 //! are `primary` pills, muted rows fade, and direct messages show presence.
 
 use gpui_icons::{LucideIcon, lucide};
+use gpui_kit::base::ElementExt as _;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
@@ -22,6 +24,50 @@ use crate::ui::{
     theme::{UiTheme, transition_value},
     toggle::{Toggle, ToggleSize},
 };
+
+/// A right-pane listing the fixed rows open; the row shows selected while
+/// its listing is the right pane's content (spec §2.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Listing {
+    Unreads,
+    Mentions,
+    Saved,
+}
+
+/// The hover group of a category header: its + and options show while
+/// the pointer is over it.
+const SECTION_GROUP: &str = "sidebar-section";
+
+/// Section names: sentence case, 12px Medium (spec §2.4).
+const SECTION: style::TypeStyle = style::TypeStyle {
+    size: 12.,
+    line: 16.,
+    weight: gpui_kit::FontWeight::MEDIUM,
+};
+
+/// "· 2 unread" after a collapsed section's name, and the unread pill.
+const SECTION_NOTE: style::TypeStyle = style::TypeStyle {
+    size: 11.5,
+    line: 16.,
+    weight: gpui_kit::FontWeight::NORMAL,
+};
+
+/// An unread row's place in the tree's scrolling content, in px from its
+/// top, as last painted: what the "N unread below" pill counts.
+#[derive(Clone, Debug)]
+struct PaintedRow {
+    top: f32,
+    bottom: f32,
+}
+
+/// What the pill points at: how many unread rows are out of view that way
+/// and the nearest one's place.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OutOfView {
+    count: usize,
+    /// The content offset to scroll to so the nearest such row shows.
+    target: f32,
+}
 
 /// A user's presence, as Mattermost reports it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -364,6 +410,11 @@ impl SidebarModel {
             .collect()
     }
 
+    /// Unread channels that are not muted: the Unreads row's count.
+    pub fn unread_count(&self) -> usize {
+        self.rows().filter(|row| row.unread && !row.muted).count()
+    }
+
     /// The channels the unread digest lists, in sidebar order: unread
     /// ones that are not muted, and any with a mention (#223).
     pub fn digest_ids(&self) -> Vec<SharedString> {
@@ -411,6 +462,53 @@ pub enum EntryCount {
     Mentions(usize),
 }
 
+/// The sidebar header's height (spec §2.1).
+const SIDEBAR_HEADER: f32 = 46.;
+/// What the bottom of the tree keeps clear for the unread pill.
+const PILL_ROOM: f32 = 30.;
+
+/// The unread rows painted out of view above and below the tree's
+/// visible part, from last frame's places and this frame's offset.
+fn out_of_view(
+    painted: &[PaintedRow],
+    scroll: &gpui_kit::ScrollHandle,
+) -> (Option<OutOfView>, Option<OutOfView>) {
+    let viewport = scroll.bounds().size.height;
+    let height = f32::from(viewport);
+    if height <= 0. {
+        return (None, None);
+    }
+    let top = -f32::from(scroll.offset().y);
+    let bottom = top + height;
+    let margin = 8.;
+    let mut above: Option<OutOfView> = None;
+    let mut below: Option<OutOfView> = None;
+    for row in painted.iter() {
+        if row.bottom <= top + 0.5 {
+            let target = (row.top - margin).max(0.);
+            above = Some(match above {
+                // Rows come in tree order: the last one above is nearest.
+                Some(seen) => OutOfView {
+                    count: seen.count + 1,
+                    target,
+                },
+                None => OutOfView { count: 1, target },
+            });
+        } else if row.top >= bottom - 0.5 {
+            // The pill and the bottom padding sit over the last 30px.
+            let target = row.bottom + margin + PILL_ROOM - height;
+            below = Some(match below {
+                Some(seen) => OutOfView {
+                    count: seen.count + 1,
+                    ..seen
+                },
+                None => OutOfView { count: 1, target },
+            });
+        }
+    }
+    (above, below)
+}
+
 /// A stable element id from a prefix and a server id.
 fn element_id(prefix: &str, id: &SharedString) -> gpui_kit::ElementId {
     gpui_kit::ElementId::Name(format!("{prefix}.{id}").into())
@@ -430,6 +528,12 @@ pub const CHANNELS_ID: &str = "channels";
 pub const DIRECT_ID: &str = "direct";
 /// The `selected` id that marks the Drafts row.
 pub const DRAFTS_ID: &str = "~drafts";
+/// The Unreads row's element id; it opens a listing, not a place.
+const UNREADS_ID: &str = "~unreads";
+/// The Mentions row's element id.
+const MENTIONS_ID: &str = "~mentions";
+/// The Saved row's element id.
+const SAVED_ID: &str = "~saved";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SidebarEvent {
@@ -512,6 +616,16 @@ pub struct SidebarView {
     row_menu: Entity<MenuState>,
     /// The Unreads filter is on: only rows that need reading show.
     unreads_only: bool,
+    /// The listing the right pane shows, for the fixed rows' selection.
+    listing: Option<Listing>,
+    /// The signed-in user, drawn in the footer.
+    account: Option<Entity<crate::account::AccountView>>,
+    /// The tree's scroll position, for the unread pills.
+    scroll: gpui_kit::ScrollHandle,
+    /// The unread rows as last painted, keyed by their tree order.
+    painted: std::rc::Rc<std::cell::RefCell<Vec<PaintedRow>>>,
+    /// The pills this frame drew; a paint that finds them stale redraws.
+    pills: std::rc::Rc<std::cell::Cell<(Option<OutOfView>, Option<OutOfView>)>>,
 }
 
 impl EventEmitter<SidebarEvent> for SidebarView {}
@@ -566,7 +680,42 @@ impl SidebarView {
             menu,
             row_menu,
             unreads_only: false,
+            listing: None,
+            account: None,
+            scroll: gpui_kit::ScrollHandle::new(),
+            painted: Default::default(),
+            pills: Default::default(),
         }
+    }
+
+    /// Which right-pane listing is open, for the fixed rows.
+    pub fn set_listing(&mut self, listing: Option<Listing>, cx: &mut Context<Self>) {
+        if self.listing != listing {
+            self.listing = listing;
+            cx.notify();
+        }
+    }
+
+    /// The signed-in user the footer shows; the footer redraws as they
+    /// change presence or status.
+    pub fn set_account(
+        &mut self,
+        account: Entity<crate::account::AccountView>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.observe(&account, |_, _, cx| cx.notify()).detach();
+        self.account = Some(account);
+        cx.notify();
+    }
+
+    /// The listing the fixed rows show selected.
+    pub fn listing(&self) -> Option<Listing> {
+        self.listing
+    }
+
+    /// Whether the Unreads filter is on.
+    pub fn unreads_only(&self) -> bool {
+        self.unreads_only
     }
 
     /// Turns the Unreads filter on or off (`Cmd+Shift+U` or the header
@@ -791,7 +940,14 @@ impl SidebarView {
             })
         };
         let (id, name) = (category.id.clone(), category.name.clone());
-        let mut items = Vec::new();
+        let mut items = vec![
+            MenuItem::new("sidebar.category.unreads", t!("sidebar-show-unread-only"))
+                .checked(self.unreads_only)
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(Box::new(crate::actions::UnreadsFilter), cx)
+                }),
+            MenuItem::separator(),
+        ];
         if custom {
             items.push(emit(
                 "sidebar.category.rename",
@@ -986,79 +1142,324 @@ impl SidebarView {
             )
     }
 
+    /// Spec §2.1: the team button, then a tile per other team (and one
+    /// for another server with something waiting).
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        let team = match &self.switcher {
-            Some(switcher) => switcher
-                .read(cx)
-                .header_button(self.team_name.clone(), false, cx),
-            None => self.plain_team_button(&theme).into_any_element(),
+        let (team, tiles) = match &self.switcher {
+            Some(switcher) => {
+                let name = self.team_name.clone();
+                let entity = switcher.clone();
+                switcher.update(cx, |model, cx| {
+                    (
+                        model.header_button(name, false, cx),
+                        model.header_tiles(&entity, cx),
+                    )
+                })
+            }
+            None => (
+                self.plain_team_button(&theme).into_any_element(),
+                Vec::new(),
+            ),
         };
+        div()
+            .h(scaled(&theme, SIDEBAR_HEADER))
+            .px(theme.space(2.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(theme.space(2.))
+            .child(div().min_w_0().flex().child(team))
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap(scaled(&theme, 5.))
+                    .pr(theme.space(1.))
+                    .children(tiles),
+            )
+    }
+
+    /// Spec §2.2: a search field look-alike that opens the quick switcher,
+    /// and the New menu.
+    fn jump_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
         let loading = self.model.loading;
+        let platform = crate::actions::Platform::current();
+        let height = scaled(&theme, 30.);
+        let keys = crate::actions::shortcut_for("Quick switcher").unwrap_or_default();
+        let jump = Button::new("sidebar.jump")
+            .variant(ButtonVariant::Outline)
+            .size(ButtonSize::Sm)
+            .aria_label(t!("sidebar-jump-label", keys = keys.to_string()))
+            .on_click(|_, window, cx| {
+                window.dispatch_action(Box::new(crate::actions::QuickSwitcher), cx)
+            })
+            .flex_1()
+            .min_w_0()
+            .h(height)
+            .pl(theme.space(2.5))
+            .pr(theme.space(1.5))
+            .gap(theme.space(2.))
+            .rounded(scaled(&theme, 7.))
+            .justify_start()
+            .bg(theme.colors.background)
+            .text_color(theme.colors.muted_foreground)
+            .font_weight(gpui_kit::FontWeight::NORMAL)
+            .child(
+                lucide(LucideIcon::Search)
+                    .size(scaled(&theme, metrics::ICON_SMALL))
+                    .text_color(theme.colors.muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_left()
+                    .child(t!("sidebar-jump")),
+            )
+            .child(crate::ui::kbd::Kbd::new(match platform {
+                crate::actions::Platform::MacOs => "⌘K",     // i18n-ignore
+                crate::actions::Platform::Other => "Ctrl K", // i18n-ignore
+            }));
         let button_theme = theme.clone();
         let compose = Menu::new(&self.menu, t!("sidebar-new"))
             .trigger(
                 lucide(LucideIcon::SquarePen)
                     .size(scaled(&theme, metrics::ICON))
-                    .text_color(theme.colors.sidebar_muted_foreground()),
+                    .text_color(theme.colors.muted_foreground),
             )
             .trigger_style_with(move |button| {
                 style_button(
                     button.aria_label(t!("sidebar-new-label")).disabled(loading),
                     false,
-                    ButtonVariant::Ghost,
+                    ButtonVariant::Outline,
                     ButtonSize::IconSm,
                     &button_theme,
                 )
+                .size(scaled(&button_theme, 30.))
+                .rounded(scaled(&button_theme, 7.))
+                .bg(button_theme.colors.background)
             });
-        let on = self.unreads_only;
-        let filter = Toggle::new("sidebar.unreads")
-            .size(ToggleSize::Sm)
-            .pressed(on)
-            .disabled(loading)
-            .aria_label(t!("sidebar-unreads-filter"))
-            .on_change({
-                let view = cx.weak_entity();
-                move |&on, _, cx| {
-                    view.update(cx, |this, cx| this.set_unreads_only(on, cx))
-                        .ok();
-                }
-            })
-            .child(
-                lucide(LucideIcon::ListFilter)
-                    .size(scaled(&theme, metrics::ICON))
-                    .text_color(if on {
-                        theme.colors.sidebar_foreground
-                    } else {
-                        theme.colors.sidebar_muted_foreground()
-                    }),
-            );
-        let filter_tip = if on {
-            t!("sidebar-show-all")
-        } else {
-            t!("sidebar-show-unreads")
-        };
         div()
-            .h(scaled(&theme, metrics::HEADER_HEIGHT) - theme.space(4.))
+            .px(scaled(&theme, 10.))
+            .pb(theme.space(2.))
             .flex()
             .items_center()
-            .justify_between()
-            .child(team)
+            .gap(theme.space(1.5))
+            .child(jump)
+            .child(style::tipped(
+                "sidebar.compose.tip",
+                t!("sidebar-new-label"),
+                compose,
+            ))
+    }
+
+    /// Spec §2.6: the account button, Do not disturb, Help and Settings.
+    fn footer(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let dnd = self
+            .account
+            .as_ref()
+            .is_some_and(|account| account.read(cx).account().presence == Presence::Dnd);
+        let icon = |glyph: LucideIcon, theme: &UiTheme| {
+            lucide(glyph)
+                .size(scaled(theme, metrics::ICON))
+                .text_color(theme.colors.sidebar_muted_foreground())
+        };
+        let account = self.account.clone();
+        let dnd_button = Toggle::new("sidebar.dnd")
+            .size(ToggleSize::Sm)
+            .pressed(dnd)
+            .disabled(account.is_none())
+            .aria_label(t!("sidebar-dnd"))
+            .on_change(move |&on, _, cx| {
+                if let Some(account) = &account {
+                    let presence = if on { Presence::Dnd } else { Presence::Online };
+                    account.update(cx, |account, cx| account.set_presence(presence, None, cx));
+                }
+            })
+            .when(dnd, |toggle| {
+                toggle
+                    .bg(theme.colors.sidebar_accent)
+                    .text_color(theme.colors.sidebar_accent_foreground)
+            })
+            .child(icon(
+                if dnd {
+                    LucideIcon::BellOff
+                } else {
+                    LucideIcon::Bell
+                },
+                &theme,
+            ));
+        let action_button = |id: &'static str,
+                             label: SharedString,
+                             glyph: LucideIcon,
+                             action: Box<dyn gpui_kit::Action>,
+                             theme: &UiTheme| {
+            Button::new(id)
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::IconSm)
+                .w(scaled(theme, 28.))
+                .h(scaled(theme, 28.))
+                .aria_label(label)
+                .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
+                .child(icon(glyph, theme))
+        };
+        let narrow = crate::settings::SettingsStore::try_global(cx)
+            .is_some_and(|store| store.read(cx).get().sidebar_width < 232.);
+        div()
+            .h(scaled(&theme, 48.))
+            .w_full()
+            .flex()
+            .items_center()
+            .gap(theme.space(0.5))
+            .pl(theme.space(2.))
+            .pr(theme.space(2.))
+            .border_t_1()
+            .border_color(theme.colors.sidebar_border)
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .flex()
-                    .items_center()
-                    .gap(theme.space(0.5))
-                    .child(style::tipped("sidebar.unreads.tip", filter_tip, filter))
-                    .child(style::tipped(
-                        "sidebar.compose.tip",
-                        t!("sidebar-new-label"),
-                        compose,
-                    )),
+                    .children(self.account.clone()),
+            )
+            .child(style::tipped(
+                "sidebar.dnd.tip",
+                t!("sidebar-dnd"),
+                dnd_button,
+            ))
+            .when(!narrow, |footer| {
+                footer.child(style::tipped(
+                    "sidebar.help.tip",
+                    crate::actions::tooltip_text("Keyboard shortcuts", &t!("sidebar-help")),
+                    action_button(
+                        "sidebar.help",
+                        t!("sidebar-help"),
+                        LucideIcon::CircleQuestionMark,
+                        Box::new(crate::actions::ShowShortcuts),
+                        &theme,
+                    ),
+                ))
+            })
+            .child(style::tipped(
+                "sidebar.settings.tip",
+                crate::actions::tooltip_text("Settings", &t!("sidebar-settings")),
+                action_button(
+                    "sidebar.settings",
+                    t!("sidebar-settings"),
+                    LucideIcon::SlidersHorizontal,
+                    Box::new(crate::actions::OpenSettings),
+                    &theme,
+                ),
+            ))
+    }
+
+    /// The "N unread above" or "below" pill (spec §2.4).
+    fn unread_pill(&self, up: bool, at: OutOfView, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = UiTheme::read(cx).clone();
+        let label = if up {
+            t!("sidebar-unread-above", count = at.count)
+        } else {
+            t!("sidebar-unread-below", count = at.count)
+        };
+        let scroll = self.scroll.clone();
+        let target = at.target;
+        let pill = Button::new(if up {
+            "sidebar.unread-above"
+        } else {
+            "sidebar.unread-below"
+        })
+        .variant(ButtonVariant::Default)
+        .size(ButtonSize::Xs)
+        .aria_label(label.clone())
+        .h(scaled(&theme, 24.))
+        .px(theme.space(2.5))
+        .gap(theme.space(1.))
+        .rounded_full()
+        .type_style(
+            style::TypeStyle {
+                weight: gpui_kit::FontWeight::MEDIUM,
+                ..SECTION_NOTE
+            },
+            &theme,
+        )
+        .shadow_md()
+        .on_click(cx.listener(move |_, _, _, cx| {
+            let max = f32::from(scroll.max_offset().y).max(0.);
+            let mut offset = scroll.offset();
+            offset.y = px(-target.clamp(0., max));
+            scroll.set_offset(offset);
+            cx.notify();
+        }))
+        .child(
+            lucide(if up {
+                LucideIcon::ArrowUp
+            } else {
+                LucideIcon::ArrowDown
+            })
+            .size(scaled(&theme, metrics::ICON_TINY))
+            .text_color(theme.colors.primary_foreground),
+        )
+        .child(label);
+        let place = div().absolute().left_0().right_0().flex().justify_center();
+        // The pill takes the pointer, so a click on it never reaches the
+        // row it floats over.
+        let pill = div().occlude().child(pill);
+        if up {
+            place.top(px(2.)).child(pill)
+        } else {
+            place.bottom(px(2.)).child(pill)
+        }
+    }
+
+    /// Records where an unread row painted, in the tree's content space.
+    fn track_unread(&self, row: impl IntoElement) -> impl IntoElement {
+        let (painted, scroll) = (self.painted.clone(), self.scroll.clone());
+        div()
+            .w_full()
+            .on_prepaint(move |bounds, _, _| {
+                let origin = f32::from(scroll.bounds().top()) + f32::from(scroll.offset().y);
+                painted.borrow_mut().push(PaintedRow {
+                    top: f32::from(bounds.top()) - origin,
+                    bottom: f32::from(bounds.bottom()) - origin,
+                });
+            })
+            .child(row)
+    }
+
+    /// The chip that says the Unreads filter is on and turns it off.
+    fn filter_chip(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        div()
+            .h(scaled(&theme, 24.))
+            .mb(theme.space(2.))
+            .px(theme.space(1.))
+            .flex()
+            .items_center()
+            .child(
+                Button::new("sidebar.filter-chip")
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Xs)
+                    .aria_label(t!("sidebar-filter-off"))
+                    .h(scaled(&theme, 22.))
+                    .px(theme.space(2.))
+                    .gap(theme.space(1.))
+                    .rounded_full()
+                    .type_style(style::META, &theme)
+                    .on_click(cx.listener(|this, _, _, cx| this.set_unreads_only(false, cx)))
+                    .child(t!("sidebar-unread-only"))
+                    .child(
+                        lucide(LucideIcon::X)
+                            .size(scaled(&theme, metrics::ICON_TINY))
+                            .text_color(theme.colors.secondary_foreground),
+                    ),
             )
     }
 
-    /// The pencil a row with a draft shows in its icon's slot.
     fn draft_icon(theme: &UiTheme) -> impl IntoElement + use<> {
         div()
             .size(scaled(theme, metrics::ROW_SLOT))
@@ -1297,19 +1698,23 @@ impl SidebarView {
             )
     }
 
-    /// DESIGN.md §4: the Threads and Drafts entries sit above the categories,
-    /// drawn like channel rows with a count badge where there is something
-    /// to read or finish.
+    /// Spec §2.3: Unreads, Threads, Mentions, Drafts and Saved above the
+    /// tree, drawn like channel rows with a count badge where there is
+    /// something to read or finish.
     fn fixed_entries(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
+        enum Opens {
+            Event(SidebarEvent),
+            Action(Box<dyn gpui_kit::Action>),
+        }
         let entry = |id: &'static str,
                      label: SharedString,
                      glyph: LucideIcon,
                      count: EntryCount,
-                     event: SidebarEvent,
+                     selected: bool,
+                     opens: Opens,
                      cx: &mut Context<Self>| {
             let strong = count != EntryCount::None;
-            let selected = self.model.selected.as_deref() == Some(id);
             let mut item = SidebarItem::new(id, label)
                 .size(SidebarItemSize::Small)
                 .selected(selected)
@@ -1325,8 +1730,15 @@ impl SidebarView {
                                 .text_color(theme.colors.sidebar_muted_foreground()),
                         ),
                 )
-                .type_style(if strong { style::UI_STRONG } else { style::UI }, &theme)
-                .on_activate(cx.listener(move |_, _, _, cx| cx.emit(event.clone())));
+                .type_style(if strong { style::UI_STRONG } else { style::UI }, &theme);
+            item = match opens {
+                Opens::Event(event) => {
+                    item.on_activate(cx.listener(move |_, _, _, cx| cx.emit(event.clone())))
+                }
+                Opens::Action(action) => item.on_activate(move |_, window, cx| {
+                    window.dispatch_action(action.boxed_clone(), cx)
+                }),
+            };
             let badge = match count {
                 EntryCount::None => None,
                 EntryCount::Count(count) => {
@@ -1349,35 +1761,74 @@ impl SidebarView {
                             .line_height(theme.text(11.)),
                     ),
                 );
-            } else {
+            } else if !selected {
                 item = item.text_color(theme.colors.sidebar_muted_foreground());
             }
             item
         };
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(1.))
-            .pb(theme.space(3.))
-            .child(entry(
+        let selected = |id: &str| self.model.selected.as_deref() == Some(id);
+        let unreads = match self.model.unread_count() {
+            0 => EntryCount::None,
+            count => EntryCount::Count(count),
+        };
+        let drafts = match self.model.drafts {
+            0 => EntryCount::None,
+            count => EntryCount::Count(count),
+        };
+        let rows = [
+            entry(
+                UNREADS_ID,
+                t!("sidebar-unreads"),
+                LucideIcon::Inbox,
+                unreads,
+                self.listing == Some(Listing::Unreads),
+                Opens::Action(Box::new(crate::actions::AllUnreads)),
+                cx,
+            ),
+            entry(
                 THREADS_ID,
                 t!("sidebar-threads"),
                 LucideIcon::MessageSquareText,
                 self.model.threads_count(),
-                SidebarEvent::OpenThreads,
+                selected(THREADS_ID),
+                Opens::Event(SidebarEvent::OpenThreads),
                 cx,
-            ))
-            .child(entry(
+            ),
+            entry(
+                MENTIONS_ID,
+                t!("sidebar-mentions"),
+                LucideIcon::AtSign,
+                EntryCount::None,
+                self.listing == Some(Listing::Mentions),
+                Opens::Action(Box::new(crate::actions::RecentMentions)),
+                cx,
+            ),
+            entry(
                 DRAFTS_ID,
                 t!("sidebar-drafts"),
                 LucideIcon::FilePenLine,
-                match self.model.drafts {
-                    0 => EntryCount::None,
-                    count => EntryCount::Count(count),
-                },
-                SidebarEvent::OpenDrafts,
+                drafts,
+                selected(DRAFTS_ID),
+                Opens::Event(SidebarEvent::OpenDrafts),
                 cx,
-            ))
+            ),
+            entry(
+                SAVED_ID,
+                t!("sidebar-saved"),
+                LucideIcon::Bookmark,
+                EntryCount::None,
+                self.listing == Some(Listing::Saved),
+                Opens::Action(Box::new(crate::actions::SavedMessages)),
+                cx,
+            ),
+        ];
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .px(theme.space(2.))
+            .pb(theme.space(3.))
+            .children(rows)
     }
 
     /// A category's header: the collapsible trigger, which also opens the
@@ -1399,7 +1850,16 @@ impl SidebarView {
             window,
             cx,
         );
-        collapsible_trigger(element_id("sidebar.category", &category.id), open, cx)
+        let unread = if open {
+            0
+        } else {
+            category
+                .rows
+                .iter()
+                .filter(|row| row.unread && !row.muted)
+                .count()
+        };
+        let trigger = collapsible_trigger(element_id("sidebar.category", &category.id), open, cx)
             .aria_label(category.name.clone())
             .w_full()
             .h(theme.space(6.))
@@ -1409,7 +1869,7 @@ impl SidebarView {
             .items_center()
             .justify_start()
             .gap(theme.space(1.))
-            .type_style(style::LABEL, &theme)
+            .type_style(SECTION, &theme)
             .text_color(theme.colors.sidebar_muted_foreground())
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_category(&id, cx)))
             .on_mouse_down(
@@ -1428,7 +1888,81 @@ impl SidebarView {
                         turn * std::f32::consts::FRAC_PI_2,
                     ))),
             )
-            .child(category.name.to_uppercase())
+            .child(div().truncate().child(category.name.clone()))
+            .when(unread > 0, |trigger| {
+                trigger.child(
+                    div()
+                        .flex_shrink_0()
+                        .type_style(SECTION_NOTE, &theme)
+                        .child(t!("sidebar-section-unread", count = unread)),
+                )
+            });
+        // + and options show on hover, and on focus for the keyboard
+        // (spec §2.4); Favorites takes nothing new.
+        let add = match category.kind {
+            CategoryKind::Favorites => None,
+            CategoryKind::Direct => Some((t!("sidebar-new-message"), SidebarEvent::NewMessage)),
+            CategoryKind::Channels | CategoryKind::Custom => {
+                Some((t!("sidebar-browse-channels"), SidebarEvent::BrowseChannels))
+            }
+        };
+        let ghost = |id: gpui_kit::ElementId, label: SharedString, glyph: LucideIcon| {
+            sidebar_menu_action(id, label, cx)
+                .w(scaled(&theme, 22.))
+                .h(scaled(&theme, 22.))
+                .child(
+                    lucide(glyph)
+                        .size(scaled(&theme, metrics::ICON_SMALL))
+                        .text_color(theme.colors.sidebar_muted_foreground()),
+                )
+        };
+        let options_id = category.id.clone();
+        let options = ghost(
+            element_id("sidebar.category.options", &category.id),
+            t!("sidebar-section-options", name = category.name.to_string()),
+            LucideIcon::Ellipsis,
+        )
+        .on_click(
+            cx.listener(move |this, event: &gpui_kit::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.open_category_menu(&options_id, event.position(), window, cx)
+            }),
+        );
+        let add = add.map(|(label, event)| {
+            ghost(
+                element_id("sidebar.category.add", &category.id),
+                t!(
+                    "sidebar-section-add",
+                    name = category.name.to_string(),
+                    action = label.to_string()
+                ),
+                LucideIcon::Plus,
+            )
+            .on_click(cx.listener(move |_, _, _, cx| {
+                cx.stop_propagation();
+                cx.emit(event.clone())
+            }))
+        });
+        div()
+            .id(element_id("sidebar.category.head", &category.id))
+            .group(SECTION_GROUP)
+            .relative()
+            .w_full()
+            .child(trigger)
+            .child(
+                div()
+                    .absolute()
+                    .right(theme.space(1.))
+                    .top_0()
+                    .bottom_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .opacity(0.)
+                    .group_hover(SECTION_GROUP, |style| style.opacity(1.))
+                    .children(add)
+                    .child(options),
+            )
     }
 
     /// The rows a category shows: all of them when open, and only unread
@@ -1469,8 +2003,15 @@ impl SidebarView {
                     row.name.clone(),
                     move |_: &mut Window, cx: &mut App| {
                         // The 1px under each row keeps the static list's spacing.
-                        let row = view.update(cx, |this, cx| this.row(&row, cx));
-                        div().pb(px(1.)).child(row)
+                        let strong = row.unread && !row.muted;
+                        view.update(cx, |this, cx| {
+                            let drawn = div().pb(px(1.)).child(this.row(&row, cx));
+                            if strong {
+                                this.track_unread(drawn).into_any_element()
+                            } else {
+                                drawn.into_any_element()
+                            }
+                        })
                     },
                 )
             }))
@@ -1565,9 +2106,24 @@ fn placed_index(full: &[SharedString], shown: &[SharedString], index: usize) -> 
 impl Render for SidebarView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = UiTheme::read(cx).clone();
+        // Last frame's unread rows give this frame's pills; this frame
+        // records them again as they paint.
+        let (above, below) = out_of_view(&self.painted.borrow(), &self.scroll);
+        self.pills.set((above, below));
+        self.painted.borrow_mut().clear();
+        let top = div()
+            .flex()
+            .flex_col()
+            .child(self.header(cx))
+            .child(self.jump_row(cx))
+            .when(!self.model.loading, |top| top.child(self.fixed_entries(cx)));
         let mut sidebar = Sidebar::new("sidebar", t!("sidebar-channels"))
             .roving_focus(true)
-            .header(self.header(cx));
+            .track_scroll(&self.scroll)
+            .header_padding(px(0.))
+            .footer_padding(px(0.))
+            .header(top)
+            .footer(self.footer(cx));
         if self.model.loading {
             for (label, rows) in [
                 (t!("sidebar-favorites"), 2),
@@ -1585,24 +2141,32 @@ impl Render for SidebarView {
                                 .px(theme.space(2.))
                                 .flex()
                                 .items_center()
-                                .type_style(style::LABEL, &theme)
+                                .type_style(SECTION, &theme)
                                 .text_color(theme.colors.sidebar_muted_foreground())
-                                .child(label.to_uppercase()),
+                                .child(label),
                         )
                         .children((0..rows).map(|row| sidebar_menu_skeleton(row % 2 == 0, cx))),
                 );
             }
             return sidebar;
         }
-        sidebar = sidebar.child(self.fixed_entries(cx));
         if self.unreads_only {
+            sidebar = sidebar.child(self.filter_chip(cx));
             // The filtered list leaves rows out, so it does not reorder.
             for category in &self.shown().categories {
                 let header = self.category_header(category, window, cx);
                 let rows: Vec<_> = self
                     .shown_rows(category)
                     .into_iter()
-                    .map(|row| self.row(row, cx).into_any_element())
+                    .map(|row| {
+                        let strong = row.unread && !row.muted;
+                        let drawn = self.row(row, cx);
+                        if strong {
+                            self.track_unread(drawn).into_any_element()
+                        } else {
+                            drawn.into_any_element()
+                        }
+                    })
                     .collect();
                 sidebar = sidebar.child(
                     div()
@@ -1630,11 +2194,45 @@ impl Render for SidebarView {
                 cx,
             )));
         }
-        sidebar.child(
-            Menu::new(&self.row_menu, t!("sidebar-channel-options"))
-                .context_area(div())
-                .disabled(true),
-        )
+        // Room under the last row, so the pill never covers it.
+        // It paints after every row: when the rows just painted call for
+        // other pills than this frame drew (the first frame, a resize, a
+        // row turning unread), draw again.
+        let (painted, scroll, pills, view) = (
+            self.painted.clone(),
+            self.scroll.clone(),
+            self.pills.clone(),
+            cx.weak_entity(),
+        );
+        sidebar = sidebar.child(
+            div()
+                .flex_shrink_0()
+                .h(scaled(&theme, PILL_ROOM))
+                .on_prepaint(move |_, _, cx| {
+                    let now = out_of_view(&painted.borrow(), &scroll);
+                    if now != pills.get() {
+                        pills.set(now);
+                        // Not during the paint itself: that frame is done.
+                        let view = view.clone();
+                        cx.defer(move |cx| {
+                            view.update(cx, |_, cx| cx.notify()).ok();
+                        });
+                    }
+                }),
+        );
+        let pills = div()
+            .absolute()
+            .inset_0()
+            .children(above.map(|at| self.unread_pill(true, at, cx).into_any_element()))
+            .children(below.map(|at| self.unread_pill(false, at, cx).into_any_element()));
+        let pills_shown = above.is_some() || below.is_some();
+        sidebar
+            .when(pills_shown, |sidebar| sidebar.overlay(pills))
+            .child(
+                Menu::new(&self.row_menu, t!("sidebar-channel-options"))
+                    .context_area(div())
+                    .disabled(true),
+            )
     }
 }
 

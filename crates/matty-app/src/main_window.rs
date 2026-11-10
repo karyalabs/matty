@@ -16,7 +16,7 @@ use crate::account::{Account, AccountEvent, AccountView};
 use crate::actions::{
     self, AllUnreads, BrowseChannels, ChannelInfo, CreateChannel, DirectMessagesMenu,
     FocusComposer, FocusSearch, HistoryBack, HistoryForward, MarkAllRead, MarkChannelRead,
-    NextChannel, NextUnreadChannel, OpenInNewWindow, OpenSettings, Platform, PreviousChannel,
+    NextChannel, NextUnreadChannel, OpenInNewWindow, OpenSettings, PreviousChannel,
     PreviousUnreadChannel, QuickSwitcher, RecentMentions, ResetZoom, SavedMessages, Search,
     ShowShortcuts, ToggleRightPane, ToggleSidebar, UnreadsFilter, UploadFiles, ZoomIn, ZoomOut,
 };
@@ -40,7 +40,6 @@ use crate::ui::{
     dialog::{DialogHandle, dialog, dialog_popup},
     drawer::{Drawer, DrawerContent, DrawerHandle, DrawerSide},
     input::{InputEvent, InputState},
-    kbd::Kbd,
     markdown::selection_root,
     resizable::{PaneLimits, Resizable},
     select::SelectState,
@@ -533,7 +532,8 @@ impl MainWindow {
         cx.subscribe_in(&teams_model, window, Self::on_teams_event)
             .detach();
         sidebar.update(cx, |sidebar, cx| {
-            sidebar.set_switcher(teams_model.clone(), cx)
+            sidebar.set_switcher(teams_model.clone(), cx);
+            sidebar.set_account(account.clone(), cx);
         });
         cx.subscribe_in(&browse, window, Self::on_directory_event)
             .detach();
@@ -3700,30 +3700,6 @@ impl MainWindow {
                 .into_any_element();
         }
         let theme = UiTheme::read(cx).clone();
-        let platform = Platform::current();
-        let switcher_keys = actions::shortcut_for("Quick switcher").unwrap_or_default();
-        let switcher = Button::new("titlebar.switcher")
-            .variant(ButtonVariant::Outline)
-            .size(ButtonSize::Sm)
-            .aria_label(format!("Search Matty, {switcher_keys}"))
-            .on_click(|_, window, cx| window.dispatch_action(Box::new(QuickSwitcher), cx))
-            .flex_1()
-            .max_w(scaled(&theme, metrics::SWITCHER_MAX_WIDTH))
-            .justify_start()
-            .bg(theme.colors.background)
-            .text_color(theme.colors.muted_foreground)
-            .font_weight(gpui_kit::FontWeight::NORMAL)
-            .child(
-                lucide(LucideIcon::Search)
-                    .size(scaled(&theme, metrics::ICON_SMALL))
-                    .text_color(theme.colors.muted_foreground),
-            )
-            .child(div().flex_1().text_left().child("Search Matty"))
-            .child(Kbd::shortcut(match platform {
-                Platform::MacOs => "cmd-k",
-                Platform::Other => "ctrl-k",
-            }));
-        let me = self.account.clone();
         TitleBar::new()
             .h(px(metrics::TITLE_BAR_HEIGHT))
             .child(
@@ -3761,57 +3737,26 @@ impl MainWindow {
                         cx,
                     )),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .justify_center()
-                    .px(theme.space(2.))
-                    .child(switcher),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(theme.space(1.))
-                    .pr(theme.space(3.))
-                    .flex_shrink_0()
-                    .child(Self::icon_button(
-                        "titlebar.unreads",
-                        "All unreads",
-                        LucideIcon::Inbox,
-                        Box::new(AllUnreads),
-                        true,
-                        cx,
-                    ))
-                    .child(Self::icon_button(
-                        "titlebar.mentions",
-                        "Recent mentions",
-                        LucideIcon::AtSign,
-                        Box::new(RecentMentions),
-                        true,
-                        cx,
-                    ))
-                    .child(Self::icon_button(
-                        "titlebar.saved",
-                        "Saved messages",
-                        LucideIcon::Bookmark,
-                        Box::new(SavedMessages),
-                        true,
-                        cx,
-                    ))
-                    .child(Self::icon_button(
-                        "titlebar.help",
-                        "Keyboard shortcuts",
-                        LucideIcon::CircleQuestionMark,
-                        Box::new(ShowShortcuts),
-                        true,
-                        cx,
-                    ))
-                    .child(div().pl(theme.space(2.)).child(me)),
-            )
             .into_any_element()
+    }
+
+    /// Tells the sidebar which listing the right pane shows, so its
+    /// Unreads, Mentions and Saved rows read as selected (spec §2.3).
+    fn sync_sidebar_listing(&mut self, cx: &mut Context<Self>) {
+        let listing = if self.right_pane_open && !self.threads_open && !self.drafts_open {
+            match self.right_pane.read(cx).content() {
+                Some(RightPaneContent::Unreads(_)) => Some(crate::sidebar::Listing::Unreads),
+                Some(RightPaneContent::Mentions(_)) => Some(crate::sidebar::Listing::Mentions),
+                Some(RightPaneContent::Saved(_)) => Some(crate::sidebar::Listing::Saved),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if self.sidebar.read(cx).listing() != listing {
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.set_listing(listing, cx));
+        }
     }
 
     /// Puts the unread and mention totals on the dock icon (#141); signed
@@ -4655,6 +4600,7 @@ impl Render for MainWindow {
             None
         };
         let narrow_sidebar = Self::narrow_sidebar(window);
+        self.sync_sidebar_listing(cx);
         let content = self.content(window, cx);
         let frame = if self.sidebar_visible && !narrow_sidebar {
             Resizable::new("main.sidebar-split", "Resize sidebar", sidebar_width)
