@@ -299,34 +299,42 @@ starts early.
 ### 4.1 Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ ● ● ●   ‹ ›   [ Search  ⌘K / ⌘F                 ]       ⓘ  (avatar) │  title bar
-├───────────────┬─────────────────────────────────┬───────────────────┤
-│ Team name   ▾ │ # design   ☆  👤 12  📌 3  …     │ Thread        ✕   │
-│ ⊕ Threads     │ header text                     │                   │
-│ ⊕ Drafts      ├─────────────────────────────────┤ root message      │
-│ ▾ FAVORITES   │ ─────── Today ───────           │ 4 replies         │
+┌───────────────┬─────────────────────────────────┬───────────────────┐
+│ ● ● ●         │ ▯ ‹ › # design ☆  👤 12  📌 3  … │ Thread        ✕   │
+│ Team ▾  ▣² ▣• │ header text                     │                   │
+│ [Jump to  ⌘K] ├─────────────────────────────────┤ root message      │
+│ ⊕ Unreads     │                                 │                   │
+│ ⊕ Threads     │                                 │                   │
+│ ⊕ Mentions    │                                 │                   │
+│ ⊕ Drafts      │                                 │                   │
+│ ⊕ Saved       │                                 │                   │
+│ ▾ Favorites   │ ─────── Today ───────           │ 4 replies         │
 │   # design  2 │ (av) Ana  10:42                 │ ...               │
-│ ▾ CHANNELS    │      message text               │                   │
+│ ▾ Channels    │      message text               │                   │
 │   # general   │      👍 3  🎉 1                  │                   │
 │   # random    │ ───── New messages ─────        │                   │
-│ ▾ DIRECT MSGS │ (av) Ben  10:44                 │                   │
+│ ▾ Direct msgs │ (av) Ben  10:44                 │                   │
 │   ● Ana       │      ...                        │                   │
 │               ├─────────────────────────────────┤───────────────────┤
-│  (me) ● ▾     │ [ composer                 ]  ➤ │ [ reply      ]  ➤ │
+│ (me) ● 🔔 ? ⚙ │ [ composer                 ]  ➤ │ [ reply      ]  ➤ │
 └───────────────┴─────────────────────────────────┴───────────────────┘
   sidebar         channel                           right pane
 ```
 
+- **No title bar** (`docs/specs/sidebar-and-full-height-window.md`): the
+  sidebar runs full height and the pane headers are the top edge, with
+  Toggle sidebar, Back and Forward leading the first and the window
+  controls ending the last on Windows and Linux.
 - **Team switcher** (no rail since #735): the sidebar header's team name
   opens a menu of the current server's teams with unread dots and mention
-  counts, then the other servers; one badge on the header sums every other
-  team and server. Settings → Servers reorders and removes servers
+  counts, then the other servers; a tile per other team beside it carries
+  that team's own badge and switches in one click. Settings → Servers reorders and removes servers
   (`docs/specs/settings-window-and-team-switcher.md` §2).
 - **Sidebar**: 240px default, resizable 200–400px, collapsible with
-  Cmd/Ctrl+Shift+D (Slack's binding). Team name at the top, then Threads and
-  Drafts entries, then the user's categories. Own avatar and status
-  at the bottom.
+  Cmd/Ctrl+Shift+D (Slack's binding). Team name and team tiles at the top,
+  a jump field for the quick switcher, then Unreads, Threads, Mentions,
+  Drafts and Saved, then the user's categories. Own avatar and status, Do
+  not disturb, Help and Settings at the bottom.
 - **Channel view**: header (name, favorite, member count, pinned count,
   channel info), message list, composer. Composer grows to ~40% of height, then
   scrolls.
