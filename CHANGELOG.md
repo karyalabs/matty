@@ -9,6 +9,30 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.17] - 2026-11-10
+
+Matty on the web starts faster and keeps up while typing, and the app
+moves to the latest GPUI.
+
+### Changed
+
+- Matty is built on GPUI Kit 0.9.1, gpui-pre 0.3.12 and gpuicn 0.11.0
+  (#830).
+- Matty web caches the app in the browser and serves the page from that
+  copy, with fewer round trips before the first channel (#817, #822).
+- Matty web shows the first channel's counts and purpose at once (#826)
+  and runs its startup constructors once (#827).
+- Matty web uses the Mac keymap in Apple browsers (#815).
+- The local time zone is looked up once a minute, not on every call
+  (#820).
+
+### Fixed
+
+- Matty web decodes pictures in a worker and keeps messages laid out
+  while typing (#819, #825).
+- Matty web keeps the first sign-in when the browser quits soon after
+  (#824).
+
 ## [0.1.0-beta.16] - 2026-11-09
 
 The performance round from the beta.15 audit (#784): idle CPU, memory and
@@ -279,7 +303,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.14...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.17...HEAD
+[0.1.0-beta.17]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.14
