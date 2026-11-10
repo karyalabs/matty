@@ -1008,6 +1008,23 @@ impl MainWindow {
                     SidebarEvent::BrowseChannels => return this.browse_channels(window, cx),
                     SidebarEvent::NewMessage => return this.new_message(window, cx),
                     SidebarEvent::CreateChannel => return this.open_create_channel(window, cx),
+                    SidebarEvent::Peek(id) => {
+                        if crate::preview::enabled() {
+                            let posts = crate::preview::channel(id)
+                                .map(|model| model.posts)
+                                .unwrap_or_default();
+                            let id = id.clone();
+                            return this
+                                .sidebar
+                                .update(cx, |sidebar, cx| sidebar.set_peek(id, posts, cx));
+                        }
+                        if let Some(live) = &this.live {
+                            live.send(matty_sync::Command::Peek {
+                                channel_id: id.to_string(),
+                            });
+                        }
+                        return;
+                    }
                     SidebarEvent::MarkRead(id) => {
                         if let Some(live) = &this.live {
                             live.send(matty_sync::Command::ViewChannel {
@@ -1953,6 +1970,10 @@ impl MainWindow {
             };
             self.right_pane
                 .update(cx, |pane, cx| pane.set_content(Some(content), cx));
+        }
+        if let Some((id, posts)) = update.peeked {
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.set_peek(id, posts, cx));
         }
         if let Some(listing) = update.listing
             && self.right_pane_open

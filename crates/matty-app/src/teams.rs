@@ -183,6 +183,13 @@ pub struct TeamsModel {
 
 impl EventEmitter<TeamsEvent> for TeamsModel {}
 
+impl TeamsModel {
+    /// Whether the teams and servers menu is open.
+    pub fn menu_open(&self, cx: &App) -> bool {
+        self.menu.read(cx).is_open()
+    }
+}
+
 /// The menu's width (spec §2.2).
 const MENU_WIDTH: f32 = 300.;
 
