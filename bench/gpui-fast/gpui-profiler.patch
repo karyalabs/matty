@@ -1,0 +1,104 @@
+diff --git a/crates/matty-app/Cargo.toml b/crates/matty-app/Cargo.toml
+index b1a50cb..d70aaad 100644
+--- a/crates/matty-app/Cargo.toml
++++ b/crates/matty-app/Cargo.toml
+@@ -16,6 +16,7 @@ gpuicn.workspace = true
+ gpui-kit.workspace = true
+ gpui_platform.workspace = true
+ gpui-icons.workspace = true
++hdrhistogram = { version = "7", default-features = false, optional = true }
+ web-time.workspace = true
+ dirs.workspace = true
+ serde.workspace = true
+@@ -92,3 +93,5 @@ tempfile.workspace = true
+ [features]
+ # Compiles Metal shaders at runtime so macOS builds need no Xcode Metal toolchain.
+ runtime_shaders = ["gpui_platform/runtime_shaders"]
++# Perf runs: GPUI's own frame and input-latency histograms (perf.rs).
++gpui-profiler = ["gpui-kit/profiler", "dep:hdrhistogram"]
+diff --git a/crates/matty-app/src/lib.rs b/crates/matty-app/src/lib.rs
+index fe5596c..864073e 100644
+--- a/crates/matty-app/src/lib.rs
++++ b/crates/matty-app/src/lib.rs
+@@ -565,6 +565,8 @@ fn open_main_window(cx: &mut App) {
+             apply_theme(window, cx);
+             let main = cx.new(|cx| main_window::MainWindow::new(window, cx));
+             track_main_window(&main, window, cx);
++            #[cfg(feature = "gpui-profiler")]
++            perf::start_gpui_profile(window, cx);
+             cx.new(|cx| perf::PerfRoot::new(main, cx))
+         })
+         .map(|_| ())
+diff --git a/crates/matty-app/src/perf.rs b/crates/matty-app/src/perf.rs
+index 64e8113..58d59c5 100644
+--- a/crates/matty-app/src/perf.rs
++++ b/crates/matty-app/src/perf.rs
+@@ -413,3 +413,59 @@ mod tests {
+         assert_eq!(events(&lines, "first_paint").len(), 1);
+     }
+ }
++
++/// Writes GPUI's own frame and input-latency histograms (its `profiler`
++/// feature) to `<MATTY_PERF_LOG>.gpui.jsonl` twice a second, cumulative, so
++/// the last line covers the whole run. These are measured inside
++/// `Window::draw`, so they also count frames that redraw only part of the
++/// window, which [`PerfRoot`] cannot see under GPUI Fast.
++#[cfg(feature = "gpui-profiler")]
++pub fn start_gpui_profile(window: &Window, cx: &App) {
++    let Some(path) = std::env::var_os(ENV).filter(|path| !path.is_empty()) else {
++        return;
++    };
++    let mut path = std::path::PathBuf::from(path).into_os_string();
++    path.push(".gpui.jsonl");
++    let Ok(file) = File::create(&path) else {
++        return;
++    };
++    let mut out = LineWriter::new(file);
++    let start = Instant::now();
++    window
++        .spawn(cx, async move |cx| {
++            loop {
++                cx.background_executor()
++                    .timer(std::time::Duration::from_millis(500))
++                    .await;
++                let Ok(line) = cx.update(|window, _| {
++                    let frames = window.frame_duration_snapshot();
++                    let input = window.input_latency_snapshot();
++                    let ms = |h: &hdrhistogram::Histogram<u64>, q: f64| {
++                        h.value_at_quantile(q) as f64 / 1e6
++                    };
++                    let summary = |h: &hdrhistogram::Histogram<u64>| {
++                        serde_json::json!({
++                            "n": h.len(),
++                            "mean": h.mean() / 1e6,
++                            "p50": ms(h, 0.5),
++                            "p90": ms(h, 0.9),
++                            "p99": ms(h, 0.99),
++                            "max": h.max() as f64 / 1e6,
++                        })
++                    };
++                    serde_json::json!({
++                        "t": start.elapsed().as_secs_f64() * 1000.,
++                        "draw": summary(&frames.draw_duration_histogram),
++                        "dirty_to_present": summary(&frames.dirty_to_present_histogram),
++                        "input_latency": summary(&input.latency_histogram),
++                    })
++                }) else {
++                    break;
++                };
++                if writeln!(out, "{line}").is_err() {
++                    break;
++                }
++            }
++        })
++        .detach();
++}
+diff --git a/crates/matty/Cargo.toml b/crates/matty/Cargo.toml
+index 8390cc6..333a6f8 100644
+--- a/crates/matty/Cargo.toml
++++ b/crates/matty/Cargo.toml
+@@ -20,3 +20,4 @@ embed-resource.workspace = true
+ 
+ [features]
+ runtime_shaders = ["matty-app/runtime_shaders"]
++gpui-profiler = ["matty-app/gpui-profiler"]
