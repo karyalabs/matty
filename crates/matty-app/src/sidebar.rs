@@ -1188,7 +1188,7 @@ impl SidebarView {
         let loading = self.model.loading;
         let platform = crate::actions::Platform::current();
         let height = scaled(&theme, 30.);
-        let keys = crate::actions::shortcut_for("Quick switcher").unwrap_or_default();
+        let keys = crate::actions::shortcut_for("Quick switcher").unwrap_or_default(); // i18n-ignore
         let jump = Button::new("sidebar.jump")
             .variant(ButtonVariant::Outline)
             .size(ButtonSize::Sm)
