@@ -462,6 +462,21 @@ pub enum EntryCount {
     Mentions(usize),
 }
 
+/// The channel a peek card shows, its newest posts, and the authors whose
+/// picture had loaded when they arrived.
+struct Peek {
+    channel: SharedString,
+    posts: Vec<crate::channel::Post>,
+    pictured: std::collections::HashSet<SharedString>,
+}
+
+/// How many posts a peek card shows (spec §2.5).
+const PEEK_POSTS: usize = 3;
+/// How long the pointer rests on a row before its card opens, and how long
+/// the card stays after the pointer leaves it (spec §2.5).
+const PEEK_OPEN_DELAY: std::time::Duration = std::time::Duration::from_millis(380);
+const PEEK_CLOSE_DELAY: std::time::Duration = std::time::Duration::from_millis(220);
+
 /// The sidebar header's height (spec §2.1).
 const SIDEBAR_HEADER: f32 = 46.;
 /// What the bottom of the tree keeps clear for the unread pill.
@@ -551,8 +566,12 @@ pub enum SidebarEvent {
     BrowseChannels,
     /// "Create channel" from the sidebar's plus menu.
     CreateChannel,
-    /// "Mark as read" from a row's menu; the row is already clear.
+    /// "Mark as read" from a row's menu or its peek card; the row is
+    /// already clear.
     MarkRead(SharedString),
+    /// A row's peek card opened (spec §2.5): the window answers with
+    /// [`SidebarView::set_peek`].
+    Peek(SharedString),
     /// Favorite or unfavorite a channel from its row menu; the row has
     /// already moved between Favorites and its home category.
     SetFavorite { id: SharedString, favorite: bool },
@@ -626,6 +645,11 @@ pub struct SidebarView {
     painted: std::rc::Rc<std::cell::RefCell<Vec<PaintedRow>>>,
     /// The pills this frame drew; a paint that finds them stale redraws.
     pills: std::rc::Rc<std::cell::Cell<(Option<OutOfView>, Option<OutOfView>)>>,
+    /// The newest posts of the channel last peeked at (spec §2.5): the
+    /// card shows only once they are here.
+    peek: Option<Peek>,
+    /// The row whose card Space asked for, opened in the next frame.
+    peek_request: std::cell::RefCell<Option<SharedString>>,
 }
 
 impl EventEmitter<SidebarEvent> for SidebarView {}
@@ -685,7 +709,33 @@ impl SidebarView {
             scroll: gpui_kit::ScrollHandle::new(),
             painted: Default::default(),
             pills: Default::default(),
+            peek: None,
+            peek_request: Default::default(),
         }
+    }
+
+    /// The newest posts of `id` for its peek card, oldest first.
+    pub fn set_peek(
+        &mut self,
+        id: SharedString,
+        mut posts: Vec<crate::channel::Post>,
+        cx: &mut Context<Self>,
+    ) {
+        let skip = posts.len().saturating_sub(PEEK_POSTS);
+        posts.drain(..skip);
+        // Faces whose picture is here now; the rest keep their initial
+        // while the card is open rather than swap in under the pointer.
+        let pictured = posts
+            .iter()
+            .filter(|post| crate::avatars::image(&post.author_id, cx).is_some())
+            .map(|post| post.author_id.clone())
+            .collect();
+        self.peek = Some(Peek {
+            channel: id,
+            posts,
+            pictured,
+        });
+        cx.notify();
     }
 
     /// Which right-pane listing is open, for the fixed rows.
@@ -1417,6 +1467,221 @@ impl SidebarView {
     }
 
     /// Records where an unread row painted, in the tree's content space.
+    /// `row`, with its peek card when it is unread and not open (spec
+    /// §2.5): resting the pointer on it or pressing Space opens the card.
+    fn peekable(&self, row: &ChannelRow, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let drawn = self.row(row, cx);
+        let selected = self.model.selected.as_ref() == Some(&row.id);
+        if !(row.unread && !row.muted) || selected {
+            return drawn.into_any_element();
+        }
+        let requested = {
+            let mut request = self.peek_request.borrow_mut();
+            let asked = request.as_ref() == Some(&row.id);
+            if asked {
+                *request = None;
+            }
+            asked
+        };
+        let id = row.id.clone();
+        let view = cx.entity().downgrade();
+        let card = {
+            let (view, row) = (view.clone(), row.clone());
+            move |window: &mut Window, cx: &mut App| {
+                view.update(cx, |this, cx| this.peek_card(&row, window, cx))
+                    .unwrap_or_else(|_| div().into_any_element())
+            }
+        };
+        let space = {
+            let (view, id) = (view.clone(), id.clone());
+            move |event: &gpui_kit::KeyDownEvent, _: &mut Window, cx: &mut App| {
+                if event.keystroke.key == "space" && !event.keystroke.modifiers.modified() {
+                    cx.stop_propagation();
+                    view.update(cx, |this, cx| {
+                        *this.peek_request.borrow_mut() = Some(id.clone());
+                        cx.emit(SidebarEvent::Peek(id.clone()));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        };
+        let opened = {
+            let (view, id) = (view, id.clone());
+            move |open: &bool, _: &mut Window, cx: &mut App| {
+                if *open {
+                    view.update(cx, |_, cx| cx.emit(SidebarEvent::Peek(id.clone())))
+                        .ok();
+                }
+            }
+        };
+        // No card pops up over the rows while a sidebar menu is open or a
+        // row is being dragged (spec §2.5).
+        let busy = {
+            let menus = [self.menu.clone(), self.row_menu.clone()];
+            let switcher = self.switcher.clone();
+            move |_: &Window, cx: &App| {
+                cx.has_active_drag()
+                    || menus.iter().any(|menu| menu.read(cx).is_open())
+                    || switcher
+                        .as_ref()
+                        .is_some_and(|switcher| switcher.read(cx).menu_open(cx))
+            }
+        };
+        crate::ui::popover::hover_popover(element_id("sidebar.peek", &id), row.name.clone())
+            .passive()
+            .open_requested(requested)
+            .suppress_hover_when(busy)
+            .open_on_hover(PEEK_OPEN_DELAY, PEEK_CLOSE_DELAY)
+            .placement(gpui_kit::base::Placement::Right)
+            .align(gpui_kit::base::Align::Start)
+            .on_open_change(opened)
+            .w_full()
+            .trigger(div().w_full().capture_key_down(space).child(drawn))
+            .content(card)
+            .into_any_element()
+    }
+
+    /// The card a peek opens: the channel, its newest posts as plain text,
+    /// and Mark read and Open. Nothing until the posts are here.
+    fn peek_card(
+        &mut self,
+        row: &ChannelRow,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let Some(peek) = self.peek.as_ref().filter(|peek| peek.channel == row.id) else {
+            return div().into_any_element();
+        };
+        let (posts, pictured) = (&peek.posts, &peek.pictured);
+        let theme = UiTheme::read(cx).clone();
+        let palette = Palette::read(cx);
+        let clock = crate::settings::ClockFormat::current(cx);
+        let note = if row.mentions > 0 {
+            t!("sidebar-peek-mentions", count = row.mentions)
+        } else {
+            t!("sidebar-peek-unread")
+        };
+        let header = div()
+            .flex()
+            .items_center()
+            .gap(theme.space(2.))
+            .child(Self::row_icon(row, &theme, &palette, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .type_style(style::UI_STRONG, &theme)
+                    .text_color(theme.colors.popover_foreground)
+                    .child(row.name.clone()),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .type_style(style::META, &theme)
+                    .text_color(theme.colors.muted_foreground)
+                    .child(note),
+            );
+        let posts = posts.iter().map(|post| {
+            let initial: String = post.author.chars().take(1).collect();
+            div()
+                .flex()
+                .gap(theme.space(2.))
+                .child({
+                    let face = Avatar::new(element_id("sidebar.peek.avatar", &post.id))
+                        .size(AvatarSize::Sm)
+                        .w(scaled(&theme, 20.))
+                        .h(scaled(&theme, 20.))
+                        .fallback(initial);
+                    if pictured.contains(&post.author_id) {
+                        crate::avatars::with_picture(face, &post.author_id, cx)
+                    } else {
+                        face
+                    }
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .items_baseline()
+                                .gap(theme.space(1.5))
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .type_style(style::UI, &theme)
+                                        .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                        .text_color(theme.colors.popover_foreground)
+                                        .child(post.author.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .type_style(style::META, &theme)
+                                        .text_color(theme.colors.muted_foreground)
+                                        .child(clock.format(post.time)),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .type_style(style::UI, &theme)
+                                .text_color(theme.colors.popover_foreground)
+                                .line_clamp(3)
+                                // One paragraph: the clamp counts lines, not
+                                // the gaps between them.
+                                .child(
+                                    crate::channel::plain_text(&post.body)
+                                        .split_whitespace()
+                                        .collect::<Vec<_>>()
+                                        .join(" "),
+                                ),
+                        ),
+                )
+        });
+        let (read, open) = (row.id.clone(), row.id.clone());
+        let footer = div()
+            .flex()
+            .justify_end()
+            .gap(theme.space(2.))
+            .child(
+                Button::new("sidebar.peek.read")
+                    .variant(ButtonVariant::Outline)
+                    .size(ButtonSize::Sm)
+                    .label(t!("sidebar-peek-read"))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(SidebarEvent::MarkRead(read.clone()))
+                    })),
+            )
+            .child(
+                Button::new("sidebar.peek.open")
+                    .variant(ButtonVariant::Default)
+                    .size(ButtonSize::Sm)
+                    .label(t!("sidebar-peek-open"))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.model.selected = Some(open.clone());
+                        cx.emit(SidebarEvent::Select(open.clone()));
+                        window.dispatch_action(Box::new(crate::actions::FocusComposer), cx);
+                        cx.notify();
+                    })),
+            );
+        crate::ui::preview_card::preview_card_popup(element_id("sidebar.peek.card", &row.id), cx)
+            .w(scaled(&theme, 300.))
+            // The popover keeps 4px from the row; the card wants 10.
+            .ml(px(6.))
+            .flex()
+            .flex_col()
+            .gap(theme.space(3.))
+            .child(header)
+            .children(posts)
+            .child(footer)
+            .into_any_element()
+    }
+
     fn track_unread(&self, row: impl IntoElement) -> impl IntoElement {
         let (painted, scroll) = (self.painted.clone(), self.scroll.clone());
         div()
@@ -2022,7 +2287,7 @@ impl SidebarView {
                         // The 1px under each row keeps the static list's spacing.
                         let strong = row.unread && !row.muted;
                         view.update(cx, |this, cx| {
-                            let drawn = div().pb(px(1.)).child(this.row(&row, cx));
+                            let drawn = div().pb(px(1.)).child(this.peekable(&row, cx));
                             if strong {
                                 this.track_unread(drawn).into_any_element()
                             } else {
@@ -2196,7 +2461,7 @@ impl Render for SidebarView {
                     .into_iter()
                     .map(|row| {
                         let strong = row.unread && !row.muted;
-                        let drawn = self.row(row, cx);
+                        let drawn = self.peekable(row, cx);
                         if strong {
                             self.track_unread(drawn).into_any_element()
                         } else {

@@ -333,6 +333,9 @@ pub struct Update {
     pub avatars: bool,
     /// What a link in a message turned out to name (#85, #103).
     pub link: Option<(matty_sync::LinkQuery, Option<matty_sync::LinkAnswer>)>,
+    /// A channel's newest posts for the sidebar's peek card (spec
+    /// sidebar-and-full-height-window §2.5), as its rows show them.
+    pub peeked: Option<(SharedString, Vec<Post>)>,
     /// The session ended; the window returns to sign-in.
     pub signed_out: bool,
     /// The server refused the saved session; the window asks the user to
@@ -899,6 +902,25 @@ impl Live {
             self.notify_props = user.notify_props.clone();
             update.notify_props = Some(self.notify_props.clone());
         }
+    }
+
+    /// `posts` of `channel_id` as the channel's rows show them, for the
+    /// sidebar's peek card; `None` when the channel is not in the sidebar.
+    fn peek_posts(&self, channel_id: &str, posts: &[matty_api::models::Post]) -> Option<Vec<Post>> {
+        let row = self.row(channel_id)?;
+        let viewer = crate::transcript::Viewer {
+            user_id: &self.me.0,
+            keys: &self.prefs.keys,
+            saved: &self.saved,
+            zone: &self.zone,
+            now: jiff::Timestamp::now(),
+            link_previews: false,
+            collapsed_threads: self.threads_on.unwrap_or(false),
+            names: self.names,
+        };
+        let model =
+            crate::transcript::channel_model(&row, Some(posts), &self.users, &viewer, None, &[]);
+        Some(model.posts)
     }
 
     fn channel_model(&self) -> Option<ChannelModel> {
@@ -2391,6 +2413,11 @@ impl Live {
                     }
                     update.search = self.search_model();
                 }
+            }
+            ChangeSet::Peeked { channel_id, posts } => {
+                update.peeked = self
+                    .peek_posts(channel_id, posts)
+                    .map(|shown| (SharedString::from(channel_id.clone()), shown));
             }
             ChangeSet::Listing { listing, posts } => {
                 if let Some((asked, shown)) = self.listing.as_mut()

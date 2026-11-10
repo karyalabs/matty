@@ -62,3 +62,11 @@ sidebar-unread-below = { $count } unread below
 sidebar-dnd = Do not disturb
 sidebar-help = Help
 sidebar-settings = Settings
+# The peek card on an unread row (spec sidebar-and-full-height-window §2.5).
+sidebar-peek-mentions = { $count ->
+    [one] 1 mention
+   *[other] { $count } mentions
+}
+sidebar-peek-unread = unread
+sidebar-peek-read = Mark read
+sidebar-peek-open = Open
