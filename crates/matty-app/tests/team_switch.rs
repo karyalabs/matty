@@ -91,11 +91,8 @@ fn picking_a_team_shows_its_sidebar_and_remembers_where_you_were(
     assert!(has(&mut cx, "help-desk") && !has(&mut cx, "critique"));
 
     // The switcher: Design Guild's sidebar, at its town square.
-    click_where(
-        &mut cx,
-        |label| label.ends_with("in other teams or servers"),
-        "the team switcher",
-    );
+    // The team name in the sidebar header opens the switcher.
+    click(&mut cx, "Matty");
     click(&mut cx, "Design Guild");
     assert!(has(&mut cx, "critique"), "Design Guild's channels show");
     assert!(!has(&mut cx, "help-desk"), "Matty's channels are gone");

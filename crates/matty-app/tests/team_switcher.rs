@@ -42,12 +42,18 @@ fn the_switcher_lists_teams_and_servers(cx: &mut gpui_kit::TestAppContext) {
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
 
-    // No rail: the header's team name is the switcher, and it counts the
-    // other servers' mentions.
+    // No rail: a tile in the header counts the other server's mentions, and
+    // the team name beside it is the switcher.
     let drawn = labels(&mut cx);
+    assert!(
+        drawn
+            .iter()
+            .any(|(label, _)| label == "Acme Corp, 4 mentions"),
+        "no server tile in the header: {drawn:?}"
+    );
     let (_, header) = drawn
         .iter()
-        .find(|(label, _)| label.contains("mentions in other teams or servers"))
+        .find(|(label, _)| label == "Matty")
         .unwrap_or_else(|| panic!("no switcher in the header: {drawn:?}"))
         .clone();
     cx.simulate_click(header, gpui_kit::Modifiers::none());
