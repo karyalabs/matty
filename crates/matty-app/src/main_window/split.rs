@@ -825,3 +825,61 @@ impl MainWindow {
         }
     }
 }
+
+impl MainWindow {
+    /// Gives each pane its part in the window's chrome (`crate::chrome`):
+    /// the view that starts the top row leads with Toggle sidebar, Back and
+    /// Forward, the one that ends it carries the window controls, and every
+    /// header drags the window.
+    pub(super) fn sync_chrome(&mut self, window: &Window, cx: &mut Context<Self>) {
+        use crate::chrome::PaneChrome;
+        let nav = PaneChrome {
+            leading: true,
+            back: self.history_at > 0,
+            forward: self.history_at + 1 < self.history.len(),
+            sidebar_hidden: !self.sidebar_visible || Self::narrow_sidebar(window),
+            controls: false,
+            drag: true,
+            hidden_mentions: match self.badge {
+                matty_notify::Badge::Mentions(count) => count,
+                _ => 0,
+            },
+            hidden_unread: self.badge != matty_notify::Badge::Clear,
+        };
+        let plain = PaneChrome {
+            drag: true,
+            ..PaneChrome::default()
+        };
+        let ends = |chrome: PaneChrome| PaneChrome {
+            controls: true,
+            ..chrome
+        };
+        let full = self.threads_open || self.drafts_open;
+        let right = self.right_pane_open && !full && !Self::narrow_right_pane(window);
+        let split = self.shown_split().cloned();
+        let (mut main, mut second, mut pane) = (nav, plain, plain);
+        if !full {
+            if right {
+                pane = ends(pane);
+            } else if split.is_some() {
+                second = ends(second);
+            } else {
+                main = ends(main);
+            }
+        }
+        let view = ends(nav);
+        self.threads
+            .update(cx, |threads, cx| threads.set_chrome(view, cx));
+        self.drafts
+            .update(cx, |drafts, cx| drafts.set_chrome(view, cx));
+        self.channel
+            .update(cx, |channel, cx| channel.set_chrome(main, cx));
+        self.right_pane
+            .update(cx, |right, cx| right.set_chrome(pane, cx));
+        if let Some(split) = split
+            && let Some(channel) = split.read(cx).channel_view().cloned()
+        {
+            channel.update(cx, |channel, cx| channel.set_chrome(second, cx));
+        }
+    }
+}

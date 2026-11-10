@@ -27,12 +27,16 @@ Matty should feel like a quiet native app, not a web page in a frame:
 - **Room to make it yours.** Graphite and Porcelain are built-in presets on
   the same derived tokens, so more presets, a custom accent and the user's
   own font can follow without touching views.
-- **Dense but breathable.** 4px grid, 28px sidebar rows, 48px headers, 20px
+- **Dense but breathable.** 4px grid, 28px sidebar rows, 46px headers, 20px
   content gutters. Slack-like density, Zed-like restraint.
-- **Native chrome.** Matty draws its own title bar (traffic lights inset on
-  macOS, controls on Windows and client-decorated Linux) and puts navigation
-  and the quick switcher in it, like Slack and Linear. Windows follow the OS
-  theme by default.
+- **Native chrome.** Signed in, the main window has no title bar (spec
+  `docs/specs/sidebar-and-full-height-window.md`): the sidebar runs the full
+  height and the pane headers are the top edge, like Linear and Notion. The
+  first pane header leads with Toggle sidebar, Back and Forward; on Windows
+  and client-decorated Linux the last one ends in the window controls; on
+  macOS the traffic lights sit over a 28px strip at the top of the sidebar.
+  Headers and the sidebar header drag the window. Sign in, Settings and
+  pop-outs keep a title bar. Windows follow the OS theme by default.
 - **Motion is confirmation, not decoration.** 120 to 180ms eases on hover,
   disclosure and pane collapse; nothing moves on its own. Reduced motion
   turns it all off.
@@ -154,52 +158,79 @@ machine falls back to Plex, and Settings says so.
 | --- | --- | --- | --- |
 | `title` | 17 / 24 | SemiBold | Channel name in the header, dialog titles |
 | `body` | 14.5 / 22 | Regular | Post text, composer |
-| `ui` | 13.5 / 20 | Regular | Sidebar rows, buttons, menus, title bar |
+| `ui` | 13.5 / 20 | Regular | Sidebar rows, buttons, menus |
 | `ui_strong` | 13.5 / 20 | SemiBold | Unread rows, author names, labels |
 | `meta` | 12 / 16 | Regular | Timestamps, counts, descriptions |
-| `label` | 11 / 16 | Medium, uppercase | Sidebar category names |
+| `label` | 11 / 16 | Medium, uppercase | Menu section labels |
 | `code` | 13 / 20 | Mono | Inline code and blocks |
 
 ## 4. Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ ● ● ●  ‹ ›    [ 🔍 Search Matty                  ⌘K ]   @ 🔖 ? ◯ │ 34  title bar
-├───────────────┬───────────────────────────────────┬──────────────┤
-│ Team name 3 ▾ │ # design  ☆   12 · 3 pinned    ⓘ  │ Thread     ✕ │ 48  headers
-│               ├───────────────────────────────────┤              │
-│ CATEGORY      │                                   │              │
-│  # channel  3 │  posts                            │              │
-│  ◯ person     │                                   │              │
-│               ├───────────────────────────────────┤              │
-│               │ [ composer                     ➤ ] │              │
+┌───────────────┬───────────────────────────────────┬──────────────┐
+│ ● ● ●         │ ▯ ‹ ›  # design ☆   12 · 3 pinned │ Thread   ✕ □ │ 46  headers
+│ ▣ Team ▾ ▣² ▣•│                                   │              │
+│ [🔍 Jump  ⌘K][✎]├───────────────────────────────────┤              │
+│ ▤ Unreads   5 │                                   │              │
+│ ▤ Threads   1 │  posts                            │              │
+│ ▤ Mentions    │                                   │              │
+│ ▤ Drafts    2 │                                   │              │
+│ ▤ Saved       │                                   │              │
+│ ⌄ Channels +⋯ │                                   │              │
+│  # channel  3 │                                   │              │
+│   ↓ 2 unread  ├───────────────────────────────────┤              │
+│ ◯ Arya  🔔 ? ⚙│ [ composer                     ➤ ] │              │
 └───────────────┴───────────────────────────────────┴──────────────┘
-    240–400              ≥ 260 (flex)                   320–640
+    200–400              ≥ 260 (flex)                   320–640
 ```
 
-- **Title bar** (34px, `sidebar` background) spans the whole window. Left:
-  window controls, then back and forward. Center: the quick switcher as a
-  search pill, max 560px wide, that opens Cmd/Ctrl+K. Right: recent
-  mentions, saved, help, and the user's avatar with a presence dot.
-- **Team switcher** (#735, spec `docs/specs/settings-window-and-team-switcher.md`
-  §2): there is no team rail. The sidebar header's team name is the
-  switcher, with one badge for mentions (or a dot for unreads) in every
-  other team and server. Its menu lists the current server's teams as radio
-  items with their icons and unread marks (Cmd/Ctrl+Alt+1…9), Join another
-  team, then the other servers (Cmd/Ctrl+1…9), Add a server and Manage
-  servers, which opens Settings on Servers.
-- **Sidebar** (default 260px, 200 to 400) is the `sidebar` surface with no
-  right border on the content side beyond the hairline. Header is 48px with
-  the team name as a menu button. Threads and Drafts sit above the
-  categories as plain rows with a `secondary` count badge when there is
-  something to read or finish. Categories are collapsible 11px labels;
-  rows are 28px, 8px padding, 6px radius, icon 16px. Unread rows use
-  `ui_strong` in `sidebar-foreground`; read rows use `muted-foreground`;
-  muted channels are 60% opacity; the selected row is `sidebar-accent`.
-  Mention counts are `primary` pills. A channel with an unsent draft shows
-  a `muted-foreground` pencil in its icon slot while another channel is
-  open, as Mattermost does.
-- **Channel view** has a 48px header (name in `title`, star, member count,
+- **No title bar** (spec `docs/specs/sidebar-and-full-height-window.md` §1).
+  The pane that starts the top row (the channel, or Threads or Drafts when
+  open) leads its header with 28px ghost buttons for Toggle sidebar, Back
+  and Forward. The pane that ends it (the right pane when docked, else the
+  split's second pane, else the channel) ends in the window controls where
+  the platform does not draw its own. With the sidebar hidden, the toggle
+  carries the mentions (a `primary` pill) or a dot for unreads across every
+  team and server; resting on it, or within 14px of the window's left edge,
+  slides the sidebar in over the content (140ms, shadow `lg`) until the
+  pointer leaves it for 200ms. Clicking the toggle pins it.
+- **Sidebar** (default 260px, 200 to 400) is the `sidebar` surface with a
+  hairline on its right, top to bottom: header, jump row, fixed rows, tree,
+  footer; only the tree scrolls.
+  - **Header** (46px): the team button, a menu trigger with the 22px team
+    tile (icon, or initials on `primary` for the current team), the name in
+    15.5px SemiBold and a chevron. Its menu (#735) lists the server's teams
+    (Cmd/Ctrl+Alt+1…9), Join another team, the other servers (Cmd/Ctrl+1…9),
+    Add a server and Manage servers. After it, a 22px `secondary` tile per
+    other team, each one click away with its own mention pill
+    (`sidebar-primary`) or unread dot at its corner; past three other teams,
+    two tiles and a "+N" that opens the menu. A round tile shows another
+    server's count when something waits there and no "+N" says so.
+  - **Jump row**: a 30px field look-alike ("Jump to or search", ⌘K) that
+    opens the quick switcher, and a 30px outline New button.
+  - **Fixed rows**: Unreads (the digest; `secondary` count of unread
+    unmuted channels), Threads, Mentions, Drafts and Saved, drawn like
+    channel rows. Unreads, Mentions and Saved show selected while their
+    listing is open in the right pane.
+  - **Tree**: categories are collapsible sentence-case 12px Medium names;
+    hovering a header shows + (Browse channels, or New message for direct
+    messages) and ⋯ (the category menu, which starts with Show unread only).
+    A collapsed category still shows its unread rows and the open channel,
+    and says "· N unread". While the unreads filter is on, an "Unread only"
+    chip with an ✕ sits above the tree. When unread rows are out of view, a
+    24px `primary` pill floats at the tree's bottom ("↓ 2 unread below") or
+    top and scrolls to the nearest one. Rows are 28px, 8px padding, 6px
+    radius, icon 16px. Unread rows use `ui_strong` in
+    `sidebar-foreground`; read rows use `muted-foreground`; muted channels
+    are 60% opacity; the selected row is `sidebar-accent`. Mention counts
+    are `primary` pills. A channel with an unsent draft shows a
+    `muted-foreground` pencil in its icon slot while another channel is
+    open, as Mattermost does.
+  - **Footer** (48px, hairline on top): the account button (26px avatar
+    with the presence dot, the name in `ui_strong`, the custom status or
+    presence in `meta`), which opens the account menu upward, then Do not
+    disturb (a toggle), Help and Settings. Under 232px Help goes.
+- **Channel view** has a 46px header (name in `title`, star, member count,
   pinned count, info) over the post list and the composer. Posts use 20px
   horizontal gutters, 32px avatars, Medium author and `meta` time, grouped
   within five minutes of the same author, day dividers with a centered pill,
@@ -214,8 +245,7 @@ machine falls back to Plex, and Settings says so.
   spinner. A channel with nothing posted shows its purpose and Add members,
   sitting low over the composer. The right pane with nothing open says how
   to get a thread there.
-- **Connection banner** is a 32px strip between the title bar and the
-  workspace, never a dialog: `muted` with a spinner while reconnecting,
+- **Connection banner** is a 32px strip across the top of the window, never a dialog: `muted` with a spinner while reconnecting,
   `destructive` at 10% with a Retry button once offline. The app stays
   usable under it.
 
@@ -309,8 +339,8 @@ machine falls back to Plex, and Settings says so.
   the right while unread. Selecting a row reads it. The empty list says how
   threads get there.
 - **Pinned, Saved and Recent mentions** are right-pane listings, opened
-  from the channel header's pin count, the title bar's bookmark and @
-  buttons, or Cmd/Ctrl+Shift+B and M. Each post sits under a `meta`
+  from the channel header's pin count, the sidebar's Saved and Mentions
+  rows, or Cmd/Ctrl+Shift+B and M. Each post sits under a `meta`
   caption "#channel · Today" with a Jump link on the right, drawn as an
   ordinary message (author, time, body, reactions, no hover toolbar), and
   a hairline separates entries. Empty listings say how a post gets there.
@@ -348,7 +378,8 @@ machine falls back to Plex, and Settings says so.
   chips' add button keep the six quick reactions in a `menu`, with "More
   emoji…" at the end opening the same picker for that post.
 - **Account menu** (PLAN §3 M1 presence; §4.5 sign out) hangs off the
-  title bar avatar, which carries the presence dot (`design-19`). A `menu`
+  account button in the sidebar footer, whose avatar carries the presence
+  dot, and opens upward. A `menu`
   with a `label` row ("Arya · @arya"), the four presences as radio items,
   "Set a status…" (or "Status: …" once set) opening a small dialog with one
   field and Clear, Cancel, Done, then Settings and "Sign out…". Signing
@@ -609,7 +640,7 @@ machine falls back to Plex, and Settings says so.
   the window past 900px turns it back into the split with nothing lost
   (`design-49`).
 - **Narrow windows, sidebar** (PLAN §4.1): below 640px the sidebar leaves
-  the split and the title bar gains a panel button at the far left. It and
+  the split; the channel header's panel button and
   Cmd/Ctrl+Shift+D open the sidebar as a drawer from the left edge at its
   saved width; picking a channel, Threads or Drafts closes it, as do
   Escape and the backdrop. The team switcher

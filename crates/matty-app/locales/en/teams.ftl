@@ -8,10 +8,22 @@ teams-team-mentions = { $team }, { $count ->
     }
 # The header button: its name, with what is unread elsewhere.
 teams-switch = Switch team or server
-teams-switch-elsewhere = { $team }, { $count ->
-        [0] unread messages in other teams or servers
-        [one] { $count } mention in other teams or servers
-       *[other] { $count } mentions in other teams or servers
+# The tiles after the team button: a team's tooltip says what waits there.
+teams-tile-unread = unread
+teams-tile-mentions = { $count ->
+        [one] { $count } mention
+       *[other] { $count } mentions
+    }
+# The "+N" tile for teams that do not fit.
+teams-more = { $count ->
+        [one] { $count } more team
+       *[other] { $count } more teams
+    }
+# The round tile for another server with something waiting.
+teams-server-unread = { $server }, unread messages
+teams-server-mentions = { $server }, { $count ->
+        [one] { $count } mention
+       *[other] { $count } mentions
     }
 teams-menu = Teams and servers
 # Upper-case section labels in the menu.

@@ -13,7 +13,7 @@ use crate::custom_status::{self, Duration, StatusLine};
 use crate::dnd::{self, DURATIONS, DndDuration};
 use crate::settings::ClockFormat;
 use crate::sidebar::Presence;
-use crate::style::{Palette, TypeStyleExt as _, metrics, scaled, tipped_when};
+use crate::style::{self, Palette, TypeStyleExt as _, metrics, scaled};
 use crate::t;
 use crate::ui::{
     alert_dialog::{alert_dialog, alert_dialog_action, alert_dialog_cancel},
@@ -525,6 +525,9 @@ impl AccountView {
         dialog("account.dnd.custom", &self.custom, popup, window, cx)
     }
 
+    /// The sidebar footer's account button (spec §2.6): the avatar with
+    /// its presence dot, the name, and under it the custom status or the
+    /// presence word.
     fn trigger(&self, cx: &App) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let palette = Palette::read(cx);
@@ -535,18 +538,27 @@ impl AccountView {
             Presence::Offline => theme.colors.muted_foreground,
         };
         let initial: String = self.account.display_name.chars().take(1).collect();
-        let until = self.until(cx);
-        let tip = format!(
-            "{} · {}",
-            presence_label(self.account.presence),
-            until.clone().unwrap_or_default()
-        );
+        let status = self
+            .account
+            .status
+            .as_ref()
+            .map(|status| status.text.clone())
+            .filter(|text| !text.is_empty());
+        let line: SharedString = match (status, self.until(cx)) {
+            (Some(text), _) => text,
+            (None, Some(until)) => {
+                format!("{} · {until}", presence_label(self.account.presence)).into()
+            }
+            (None, None) => presence_label(self.account.presence),
+        };
         let avatar = div()
             .relative()
             .flex_shrink_0()
             .child(crate::avatars::with_picture(
                 Avatar::new("account.avatar")
                     .size(AvatarSize::Sm)
+                    .w(scaled(&theme, 26.))
+                    .h(scaled(&theme, 26.))
                     .fallback(initial),
                 &self.account.user_id,
                 cx,
@@ -562,7 +574,33 @@ impl AccountView {
                     .border_2()
                     .border_color(theme.colors.sidebar),
             );
-        tipped_when(until.is_some(), "account.avatar.tip", tip, avatar)
+        div()
+            .flex()
+            .items_center()
+            .gap(theme.space(2.5))
+            .min_w_0()
+            .child(avatar)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .text_left()
+                    .child(
+                        div()
+                            .truncate()
+                            .type_style(style::UI_STRONG, &theme)
+                            .text_color(theme.colors.sidebar_foreground)
+                            .child(self.account.display_name.clone()),
+                    )
+                    .child(
+                        div()
+                            .truncate()
+                            .type_style(style::META, &theme)
+                            .text_color(theme.colors.sidebar_muted_foreground())
+                            .child(line),
+                    ),
+            )
     }
 
     fn status_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -820,19 +858,19 @@ impl Render for AccountView {
         };
         div()
             .flex()
+            .flex_1()
+            .min_w_0()
             .items_center()
             .child(
                 Menu::new(&self.menu, label)
                     .trigger(self.trigger(cx))
                     .trigger_style_with(move |button| {
-                        style_button(
-                            button,
-                            false,
-                            ButtonVariant::Ghost,
-                            ButtonSize::IconSm,
-                            &theme,
-                        )
-                        .rounded_full()
+                        style_button(button, false, ButtonVariant::Ghost, ButtonSize::Sm, &theme)
+                            .w_full()
+                            .min_w_0()
+                            .h(scaled(&theme, 40.))
+                            .px(theme.space(1.5))
+                            .justify_start()
                     }),
             )
             .child(self.status_dialog(window, cx))

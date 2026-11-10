@@ -86,6 +86,22 @@ fn center_of(cx: &mut VisualTestContext, label: &str) -> gpui_kit::Point<gpui_ki
     })
 }
 
+/// The center of the last element labelled `label`.
+fn last_center_of(cx: &mut VisualTestContext, label: &str) -> gpui_kit::Point<gpui_kit::Pixels> {
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, _| {
+        use gpui_kit::test::TestQueryExt as _;
+        window
+            .elements()
+            .iter()
+            .rev()
+            .find(|element| element.label().is_some_and(|l| l == label))
+            .unwrap_or_else(|| panic!("nothing is labelled {label:?}"))
+            .bounds()
+            .center()
+    })
+}
+
 fn close(cx: &mut VisualTestContext) {
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
@@ -207,8 +223,11 @@ fn the_new_surfaces_have_no_unnamed_controls(cx: &mut gpui_kit::TestAppContext) 
     cx.dispatch_action(actions::CloseRightPane);
     cx.run_until_parked();
 
-    // The account menu and what it opens (#212).
-    click(&mut cx, "Arya, online");
+    // The account menu and what it opens (#212). Message avatars share its
+    // name; the sidebar footer draws last.
+    let center = last_center_of(&mut cx, "Arya, online");
+    cx.simulate_click(center, gpui_kit::Modifiers::none());
+    cx.run_until_parked();
     audit(
         &mut cx,
         "Account menu",
