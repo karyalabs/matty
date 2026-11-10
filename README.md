@@ -24,7 +24,7 @@ process with no browser engine inside. It opens in a fraction of a second,
 switches channels without a spinner, and keeps working offline.
 
 > **Status: beta.** New betas ship about once a week for every platform, and
-> the web app updates with each one. The plan of record is
+> Matty on the web updates with each one. The plan of record is
 > [docs/PLAN.md](docs/PLAN.md), and work is tracked in
 > [GitHub issues](https://github.com/karyalabs/matty/issues). Matty is an
 > unofficial client, not made or endorsed by Mattermost, Inc.
@@ -186,10 +186,16 @@ getting patches. CI tests against Mattermost 12.0, 11.7, 10.11 and 10.5.
 
 ### Known limitations
 
-- Webapp plugins (Boards, Playbooks and other plugin UIs) can't run in a
-  native client. Their posts show a card with "Open in browser".
-- Calls isn't supported; call posts open in the browser.
-- The System Console isn't in Matty; use the web app.
+These parts of Mattermost are not in Matty yet. For each, Matty hands you
+over to Mattermost's own web interface on your server.
+
+- **Plugin screens** such as Boards and Playbooks. Their posts show a card
+  with "Open in browser", which opens that post on your Mattermost server.
+- **Calls.** A call post opens the call on your Mattermost server in the
+  browser.
+- **The System Console,** where admins manage the server. Matty has no admin
+  screens, so open your server's address in a browser and use Mattermost's
+  System Console there.
 
 ### Reporting problems
 
