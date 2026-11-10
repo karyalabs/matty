@@ -41,7 +41,7 @@ sidebar-caught-up-hint = Nothing unread. Turn the filter off to see every channe
 sidebar-channel-options = Channel options
 sidebar-categories = Categories
 # The jump row: a field look-alike that opens the quick switcher.
-sidebar-jump = Jump to or search
+sidebar-jump = Jump to…
 sidebar-jump-label = Jump to a channel or person, or search messages, { $keys }
 # The rows above the tree.
 sidebar-unreads = Unreads

@@ -109,8 +109,8 @@ shows its unread rows and the open channel) and row anatomy as today. Changes:
 - **Section headers** are sentence case, 12px Medium, `sidebar-muted-foreground`, 24px tall
   ("Favorites", "Channels", "Direct messages", custom names as the user typed them). Drop
   the uppercase `LABEL` style here and in the loading skeleton.
-- **Collapsed header** shows "· N unread" after the name (11.5px Regular) when it hides
-  unread rows.
+- **Collapsed header** shows "· N unread" after the name (11.5px Regular) whenever the
+  collapsed section holds unread unmuted rows.
 - **Header hover or focus** reveals two 22px ghost buttons at the right: `Plus` and
   `Ellipsis`. Plus: Channels and custom sections open Browse channels (the New menu's
   browse item); Direct messages opens New message; Favorites has no Plus. Ellipsis opens
