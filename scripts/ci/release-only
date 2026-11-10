@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Says whether BASE..HEAD only bumps the release version (docs/releasing.md).
+
+    scripts/ci/release-only BASE HEAD
+
+Prints release=true when the change touches nothing but CHANGELOG.md, the
+[workspace.package] version in Cargo.toml, and the workspace crates' own
+versions in Cargo.lock; otherwise release=false. Both commits must be
+fetched. A release PR's tree is then the one master already checked with
+only the version strings changed, and the Release workflow builds every
+platform from it anyway, so CI has nothing left to check.
+"""
+
+import subprocess
+import sys
+import tomllib
+
+ALLOWED = {"CHANGELOG.md", "Cargo.toml", "Cargo.lock"}
+
+
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def toml_at(rev: str, path: str) -> dict:
+    return tomllib.loads(git("show", f"{rev}:{path}"))
+
+
+def without_version(manifest: dict) -> dict:
+    manifest.get("workspace", {}).get("package", {}).pop("version", None)
+    return manifest
+
+
+def without_member_versions(lock: dict) -> dict:
+    # Workspace crates are the packages with no `source`.
+    for package in lock.get("package", []):
+        if "source" not in package:
+            package.pop("version", None)
+    return lock
+
+
+def release_only(base: str, head: str) -> tuple[bool, str]:
+    files = set(git("diff", "--name-only", base, head).split())
+    if not files:
+        return False, "nothing changed"
+    if files - ALLOWED:
+        return False, "other files changed: " + " ".join(sorted(files - ALLOWED))
+    if "Cargo.toml" in files and without_version(toml_at(base, "Cargo.toml")) != without_version(toml_at(head, "Cargo.toml")):
+        return False, "Cargo.toml changed beyond [workspace.package] version"
+    if "Cargo.lock" in files and without_member_versions(toml_at(base, "Cargo.lock")) != without_member_versions(toml_at(head, "Cargo.lock")):
+        return False, "Cargo.lock changed beyond the workspace crates' versions"
+    return True, "only the version and the changelog changed"
+
+
+def main() -> None:
+    base, head = sys.argv[1:3]
+    only, why = release_only(base, head)
+    print(f"{base[:7]}..{head[:7]}: {why}", file=sys.stderr)
+    print(f"release={'true' if only else 'false'}")
+
+
+if __name__ == "__main__":
+    main()

@@ -12,6 +12,9 @@ name: CI
 # - T3, nightly when master moved (or by hand): the macOS release build and
 #   dev bundle, the universal bundle, the Linux packages, both Windows jobs,
 #   the live tests on every supported Mattermost, and cargo-deny.
+# - A release PR, whose only change is the version and the changelog entry
+#   (scripts/ci/release-only), runs none of them, in the pull request or the
+#   queue: master already checked that tree and Release builds it.
 #
 # A label pulls more into a pull request: `tests`, `web`, `macos` (tests and
 # the universal bundle), `linux` (packages), `windows`, `integration`, or
@@ -149,6 +152,19 @@ jobs:
               - 'scripts/windows-package'
             new-images:
               - added: 'docs/**/*.{png,jpg,jpeg,gif,webp,mp4,mov}'
+      # A release PR (docs/releasing.md) only bumps the version and adds the
+      # changelog entry. Its tree is the one master already checked, and the
+      # Release workflow builds every platform from it anyway, so neither
+      # the pull request nor the merge queue checks it again.
+      - name: Is this only a release bump
+        id: release
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE" "$HEAD"
+          scripts/ci/release-only "$BASE" "$HEAD" | tee -a "$GITHUB_OUTPUT"
       # Nightly runs only when master moved since the last good nightly.
       - name: Did master move since the last nightly
         id: moved
@@ -209,6 +225,7 @@ jobs:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
           MOVED: ${{ steps.moved.outputs.moved }}
           QUEUED: ${{ steps.queued.outputs.checked }}
+          RELEASE: ${{ steps.release.outputs.release }}
           CODE: ${{ steps.code.outputs.code }}
           DEPS: ${{ steps.filter.outputs.deps }}
           PACKAGING: ${{ steps.filter.outputs.packaging }}
@@ -229,6 +246,10 @@ jobs:
             schedule) [ "$MOVED" = true ] && tier=nightly || tier=none ;;
             workflow_dispatch) tier=nightly ;;
           esac
+          if [ "$RELEASE" = true ]; then
+            echo "A release bump: master already checked this tree, and the Release workflow builds it."
+            tier=release
+          fi
           lint=false tests=false web=false deny=false macos=false macos_tests=false
           macos_release=false universal=false linux_package=false windows=false
           windows_package=false integration='[]'
@@ -527,11 +548,13 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
-      - if: github.event_name != 'pull_request'
+      # The release build adds minutes; the merge queue leaves it to the
+      # nightly run and the `windows installer` job.
+      - if: needs.changes.outputs.tier == 'nightly'
         run: cargo build --release --locked -p matty
-      - if: github.event_name != 'pull_request'
+      - if: needs.changes.outputs.tier == 'nightly'
         run: target/release/matty.exe --version
-      - if: github.event_name != 'pull_request'
+      - if: needs.changes.outputs.tier == 'nightly'
         uses: actions/upload-artifact@v4
         with:
           name: matty-windows-x86_64
@@ -624,7 +647,8 @@ jobs:
       - if: runner.environment == 'github-hosted'
         uses: Swatinem/rust-cache@v2
         with:
-          key: windows-release
+          # Release's Windows build restores this cache too.
+          shared-key: windows-release
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Install WiX
         run: dotnet tool install --global wix --version 5.0.2
