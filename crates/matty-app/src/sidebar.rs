@@ -1943,11 +1943,28 @@ impl SidebarView {
                 cx.emit(event.clone())
             }))
         });
+        // Shift+F10 or the context-menu key on the focused header opens the
+        // same menu, for the keyboard (the hover buttons are pointer-only).
+        let place = std::rc::Rc::new(std::cell::Cell::new(gpui_kit::Bounds::default()));
+        let (painted_at, key_id) = (place.clone(), category.id.clone());
         div()
             .id(element_id("sidebar.category.head", &category.id))
             .group(SECTION_GROUP)
             .relative()
             .w_full()
+            .on_prepaint(move |bounds, _, _| painted_at.set(bounds))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui_kit::KeyDownEvent, window, cx| {
+                    let keys = &event.keystroke;
+                    let menu_key = keys.key == "menu"
+                        || (keys.key == "f10" && keys.modifiers.shift && !keys.modifiers.control);
+                    if menu_key {
+                        let at = place.get();
+                        cx.stop_propagation();
+                        this.open_category_menu(&key_id, at.bottom_left(), window, cx);
+                    }
+                }),
+            )
             .child(trigger)
             .child(
                 div()
