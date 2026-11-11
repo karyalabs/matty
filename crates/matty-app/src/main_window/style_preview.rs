@@ -329,6 +329,8 @@ pub(super) fn scene(look: &Look, caption: SharedString, theme: &UiTheme) -> Div 
     };
     let sidebar = div()
         .w(relative(0.36))
+        // Wide enough for the longest channel name and its unread dot.
+        .min_w(px(118.))
         .flex_none()
         .h_full()
         .bg(c.sidebar)
@@ -442,27 +444,40 @@ pub(super) fn scene(look: &Look, caption: SharedString, theme: &UiTheme) -> Div 
     };
     let status = |label: SharedString, color: Rgba| {
         div()
+            .flex_none()
             .flex()
             .items_center()
             .gap(px(3.))
             .child(div().flex_none().size(px(5.)).rounded_full().bg(color))
-            .child(text(10., color).child(label))
+            .child(text(10., color).whitespace_nowrap().child(label))
     };
+    // The buttons and the status text are two groups: side by side when
+    // there is room, and the status text on a second line when there is
+    // not, as at the Settings window's default width.
+    let group = || div().flex_none().flex().items_center().gap(px(6.));
     let controls = div()
         .px(px(10.))
         .pt(px(8.))
         .flex()
+        .flex_wrap()
         .items_center()
-        .gap(px(6.))
-        .child(button(
-            t!("prefs-preview-save"),
-            Some(c.primary),
-            c.primary_foreground,
-        ))
-        .child(button(t!("prefs-preview-cancel"), None, c.foreground))
-        .child(div().flex_1())
-        .child(status(t!("prefs-preview-saved"), c.success))
-        .child(status(t!("prefs-preview-failed"), c.destructive));
+        .justify_between()
+        .gap_x(px(6.))
+        .gap_y(px(4.))
+        .child(
+            group()
+                .child(button(
+                    t!("prefs-preview-save"),
+                    Some(c.primary),
+                    c.primary_foreground,
+                ))
+                .child(button(t!("prefs-preview-cancel"), None, c.foreground)),
+        )
+        .child(
+            group()
+                .child(status(t!("prefs-preview-saved"), c.success))
+                .child(status(t!("prefs-preview-failed"), c.destructive)),
+        );
     let messages = div()
         .flex_1()
         .min_h_0()
@@ -494,6 +509,7 @@ pub(super) fn scene(look: &Look, caption: SharedString, theme: &UiTheme) -> Div 
                                         .gap_x(px(3.))
                                         .child(
                                             text(10.5, c.foreground)
+                                                .min_w_0()
                                                 .child(t!("prefs-preview-message")),
                                         )
                                         .child(
@@ -531,6 +547,7 @@ pub(super) fn scene(look: &Look, caption: SharedString, theme: &UiTheme) -> Div 
                                         )
                                         .child(
                                             text(10.5, c.foreground)
+                                                .min_w_0()
                                                 .child(t!("prefs-preview-reply")),
                                         ),
                                 ),
@@ -614,7 +631,7 @@ pub(super) fn scene(look: &Look, caption: SharedString, theme: &UiTheme) -> Div 
         .child(
             div()
                 .w_full()
-                .h(px(214.))
+                .h(px(240.))
                 .flex()
                 .overflow_hidden()
                 .font_family(family)
