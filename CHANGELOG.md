@@ -9,6 +9,8 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.21] - 2026-11-11
+
 Themes, worked out again from the contrast rules (#855).
 
 ### Added
@@ -409,7 +411,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.19...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.21...HEAD
+[0.1.0-beta.21]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.21
 [0.1.0-beta.20]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.18
