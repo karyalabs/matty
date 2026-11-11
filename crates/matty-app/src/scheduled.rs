@@ -229,7 +229,7 @@ pub fn composer_hint(
             .child(
                 div()
                     .id(id)
-                    .text_color(theme.colors.primary)
+                    .text_color(theme.colors.link())
                     .cursor_pointer()
                     .hover(|link| link.underline())
                     .child(t!("scheduled-see-all"))

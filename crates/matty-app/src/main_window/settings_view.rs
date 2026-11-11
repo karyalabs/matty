@@ -112,6 +112,10 @@ pub(super) struct PageSelects {
     pub(super) style_menus: HashMap<String, Entity<MenuState>>,
     /// Appearance's Share ▾ menu.
     pub(super) share_menu: Option<Entity<MenuState>>,
+    /// The accent's hex field (#855), and the color it was last filled
+    /// with, so a color picked elsewhere shows in it.
+    pub(super) accent_hex: Option<(Entity<InputState>, Subscription)>,
+    pub(super) accent_hex_shown: Option<String>,
 }
 
 impl Default for PageSelects {
@@ -131,6 +135,8 @@ impl Default for PageSelects {
             rename_for: None,
             style_menus: HashMap::new(),
             share_menu: None,
+            accent_hex: None,
+            accent_hex_shown: None,
         }
     }
 }
@@ -425,6 +431,7 @@ impl Render for SettingsView {
             Host::Window => root
                 .child(
                     TitleBar::new()
+                        .page(true)
                         .h(px(metrics::TITLE_BAR_HEIGHT))
                         .on_close(move |_, window, cx| {
                             view.update(cx, |this, cx| this.close(window, cx)).ok();

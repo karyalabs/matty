@@ -1724,6 +1724,7 @@ impl Render for PopOutView {
             .type_style(style::UI, &theme)
             .child(
                 TitleBar::new()
+                    .page(true)
                     .h(px(style::metrics::TITLE_BAR_HEIGHT))
                     .on_close(move |_, window, cx| {
                         view.update(cx, |this, cx| this.close(window, cx)).ok();

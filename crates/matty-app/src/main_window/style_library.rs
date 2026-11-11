@@ -54,8 +54,8 @@ pub(super) fn say(text: SharedString, error: bool, cx: &mut App) {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Choice {
     Mattermost,
-    Graphite,
-    Porcelain,
+    /// One of Matty's built-in themes.
+    Preset(Preset),
     /// A saved style, by name.
     Saved(String),
     /// The person's own style before saved styles had names.
@@ -66,11 +66,10 @@ pub(super) enum Choice {
 pub(super) fn chosen(settings: &Settings) -> Choice {
     match settings.theme_source {
         ThemeSource::Mattermost => Choice::Mattermost,
-        ThemeSource::Matty => Choice::Graphite,
-        ThemeSource::Porcelain => Choice::Porcelain,
         ThemeSource::Custom => selected(settings)
             .map(|saved| Choice::Saved(saved.name.clone()))
             .unwrap_or(Choice::Unsaved),
+        source => Choice::Preset(source.preset().unwrap_or_default()),
     }
 }
 
@@ -97,14 +96,6 @@ fn selected(settings: &Settings) -> Option<&share::SavedStyle> {
 /// style's, or the Mattermost theme's.
 pub(super) fn shown(settings: &Settings, cx: &App) -> (StyleSpec, String) {
     match settings.theme_source {
-        ThemeSource::Matty => (
-            Preset::Graphite.style(),
-            t!("prefs-colors-graphite").to_string(),
-        ),
-        ThemeSource::Porcelain => (
-            Preset::Porcelain.style(),
-            t!("prefs-colors-porcelain").to_string(),
-        ),
         ThemeSource::Custom => {
             let name = selected(settings)
                 .map(|s| s.name.clone())
@@ -116,7 +107,16 @@ pub(super) fn shown(settings: &Settings, cx: &App) -> (StyleSpec, String) {
                 .unwrap_or_else(crate::mattermost_theme::Theme::denim);
             (share::from_mattermost(&theme), theme.name())
         }
+        source => {
+            let preset = source.preset().unwrap_or_default();
+            (preset.style(), preset_name(preset).to_string())
+        }
     }
+}
+
+/// A built-in theme's name.
+pub(super) fn preset_name(preset: Preset) -> SharedString {
+    crate::i18n::text(&format!("prefs-colors-{}", preset.id()), &[])
 }
 
 /// Makes the saved style `name` the one on screen, with its fonts.
@@ -379,32 +379,22 @@ pub(super) fn cards(settings: &Settings, cx: &App) -> Vec<Card> {
     let mode = UiTheme::read(cx).mode;
     let mattermost = crate::mattermost_theme::shown(settings, cx)
         .unwrap_or_else(crate::mattermost_theme::Theme::denim);
-    let mut cards = vec![
-        Card {
-            id: "preferences.style.mattermost".into(),
-            choice: Choice::Mattermost,
-            name: mattermost.name().into(),
-            subtitle: t!("prefs-style-mattermost"),
-            preview: StyleCard::mattermost(&mattermost),
-            menu: None,
-        },
-        Card {
-            id: "preferences.style.graphite".into(),
-            choice: Choice::Graphite,
-            name: t!("prefs-colors-graphite"),
-            subtitle: t!("prefs-style-preset"),
-            preview: StyleCard::of(&Preset::Graphite.style(), mode),
-            menu: None,
-        },
-        Card {
-            id: "preferences.style.porcelain".into(),
-            choice: Choice::Porcelain,
-            name: t!("prefs-colors-porcelain"),
-            subtitle: t!("prefs-style-preset"),
-            preview: StyleCard::of(&Preset::Porcelain.style(), mode),
-            menu: None,
-        },
-    ];
+    let mut cards = vec![Card {
+        id: "preferences.style.mattermost".into(),
+        choice: Choice::Mattermost,
+        name: mattermost.name().into(),
+        subtitle: t!("prefs-style-mattermost"),
+        preview: StyleCard::mattermost(&mattermost),
+        menu: None,
+    }];
+    cards.extend(Preset::ALL.into_iter().map(|preset| Card {
+        id: format!("preferences.style.{}", preset.id()).into(),
+        choice: Choice::Preset(preset),
+        name: preset_name(preset),
+        subtitle: crate::i18n::text(&format!("prefs-theme-about-{}", preset.id()), &[]),
+        preview: StyleCard::of(&preset.style(), mode),
+        menu: None,
+    }));
     if chosen(settings) == Choice::Unsaved {
         cards.push(Card {
             id: "preferences.style.unsaved".into(),
@@ -436,8 +426,7 @@ pub(super) fn cards(settings: &Settings, cx: &App) -> Vec<Card> {
 pub(super) fn pick(store: &Entity<SettingsStore>, choice: &Choice, cx: &mut App) {
     let source = match choice {
         Choice::Mattermost => ThemeSource::Mattermost,
-        Choice::Graphite => ThemeSource::Matty,
-        Choice::Porcelain => ThemeSource::Porcelain,
+        Choice::Preset(preset) => ThemeSource::of(*preset),
         Choice::Unsaved => ThemeSource::Custom,
         Choice::Saved(name) => return use_saved(store, name, cx),
     };
@@ -563,7 +552,7 @@ fn card_element(
                 })
                 .hover(|style| style.bg(theme.colors.accent))
                 .on_click(move |_, _, cx| pick(&store, &choice, cx))
-                .child(card.preview.render(theme))
+                .child(card.preview.render())
                 .child(
                     div()
                         .flex()
@@ -648,10 +637,10 @@ mod tests {
     fn copying_and_pasting_a_style_brings_it_back(cx: &mut gpui_kit::TestAppContext) {
         let store = setup(cx);
         cx.update(|cx| {
-            pick(&store, &Choice::Porcelain, cx);
+            pick(&store, &Choice::Preset(Preset::Porcelain), cx);
             edit_style(&store, |style| style.with_accent(0.6, 0.15, 30.), cx);
             copy_style(&store, cx);
-            pick(&store, &Choice::Graphite, cx);
+            pick(&store, &Choice::Preset(Preset::Graphite), cx);
             paste_style(&store, cx);
             let back = store.read(cx).get().custom_style.unwrap();
             assert!((back.colors.accent_hue - 30.).abs() < 0.01);
@@ -667,7 +656,7 @@ mod tests {
     fn editing_a_preset_saves_a_copy_and_then_edits_it(cx: &mut gpui_kit::TestAppContext) {
         let store = setup(cx);
         cx.update(|cx| {
-            pick(&store, &Choice::Graphite, cx);
+            pick(&store, &Choice::Preset(Preset::Graphite), cx);
             edit_style(&store, |style| style.with_accent(0.5, 0.1, 100.), cx);
             let names = |cx: &App| -> Vec<String> {
                 store
@@ -689,7 +678,7 @@ mod tests {
             let saved = store.read(cx).get().saved_styles[0].style;
             assert!((saved.colors.accent_hue - 200.).abs() < 0.01);
             // Graphite itself did not change.
-            pick(&store, &Choice::Graphite, cx);
+            pick(&store, &Choice::Preset(Preset::Graphite), cx);
             edit_style(&store, |style| style, cx);
             assert_eq!(names(cx), ["Graphite copy", "Graphite copy 2"]);
         });
@@ -706,7 +695,7 @@ mod tests {
             delete(&store, "Dusk", cx);
             let settings = store.read(cx).get();
             assert!(settings.saved_styles.is_empty());
-            assert_eq!(chosen(settings), Choice::Graphite);
+            assert_eq!(chosen(settings), Choice::Preset(Preset::Graphite));
         });
     }
 

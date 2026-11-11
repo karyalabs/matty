@@ -9,6 +9,46 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+Themes, worked out again from the contrast rules (#855).
+
+### Added
+
+- Five more built-in themes beside Graphite and Porcelain: Harbor (a navy
+  sidebar beside a white page), Linen (warm paper), Tide (sea-tinted),
+  Dusk (violet-tinted) and Ember (a dark sidebar with an orange accent).
+  Each has a light and a dark mode.
+- The theme editor shows the theme you are editing in light and in dark,
+  side by side, as you change it. New choices: the sidebar's fill (Soft,
+  Tinted, Dark or Accent), contrast (Standard or High), and a hex field
+  for the accent, for a brand color. A Readability line says how many
+  color pairs were checked and which is the closest to its minimum.
+
+### Changed
+
+- Every theme's colors now come from one set of rules: surfaces step in
+  lightness so panels can be told apart, text is moved until it reaches
+  its contrast on every surface it sits on, and a selected row is a step
+  of grey while the accent is kept for buttons, links and counts
+  (docs/DESIGN.md §2). In dark mode the page is a dark grey and no longer
+  near-black, and text no longer glares.
+- A mention of you is amber in every theme, links are their own color and
+  no longer the button color, and the outlines of fields and switches are
+  stronger.
+- A muted channel's name stays readable: it was dimmed to 60% opacity.
+- Settings → Appearance says "Theme" where it said "Style", and "Mode" for
+  light or dark. Choices such as Light or Dark are drawn as one segmented
+  control, so the choice shows at a glance.
+- The gallery's cards are small drawings of the window in each theme's
+  colors.
+
+### Fixed
+
+- On a theme with a dark sidebar beside a light page, the sidebar's
+  buttons, the account button, presence dots and the title bar are drawn
+  in the sidebar's own colors. They used the page's, and vanished.
+- A Mattermost theme's quiet text and status text are moved to 4.5:1 when
+  the theme's own colors fall short.
+
 ## [0.1.0-beta.20] - 2026-11-11
 
 Notifications and messages that look like the official Mattermost client's.

@@ -25,7 +25,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{MONO, Radius, SANS, StyleSpec, palette::StyleColors};
+use super::{
+    MONO, Radius, SANS, StyleSpec,
+    palette::{Contrast, Sidebar, StyleColors},
+};
 use crate::mattermost_theme::{self, Theme};
 use crate::ui::color_picker::Oklch;
 use crate::ui::theme::ThemeMode;
@@ -141,6 +144,8 @@ pub fn export(style: &StyleSpec, name: Option<&str>, fonts: &Fonts) -> String {
             accent_chroma: round(c.accent_chroma),
             accent_light: round(c.accent_light),
             accent_dark: round(c.accent_dark),
+            sidebar: c.sidebar,
+            contrast: c.contrast,
         },
         radius: style.radius,
         ui_font: Some(fonts.ui_font.clone().unwrap_or_else(|| SANS.to_owned())),
@@ -242,15 +247,32 @@ pub fn from_mattermost(theme: &Theme) -> StyleSpec {
         }
     };
     let lightness = accent.lightness.clamp(0., 1.);
+    let dark_of = |light: f32| {
+        if accent.chroma <= 0.05 {
+            (1.17 - light).clamp(0.6, 0.93)
+        } else {
+            light.clamp(0.57, 0.80)
+        }
+    };
     let (accent_light, accent_dark) = match theme.mode() {
-        ThemeMode::Light => (
-            lightness.clamp(0.05, 0.98),
-            (1.28 - lightness).clamp(0.6, 0.93),
-        ),
-        ThemeMode::Dark => (
-            (1.28 - lightness).clamp(0.3, 0.68),
-            lightness.clamp(0.6, 0.93),
-        ),
+        ThemeMode::Light => (lightness.clamp(0.05, 0.98), dark_of(lightness)),
+        ThemeMode::Dark => (lightness.clamp(0.3, 0.68), lightness.clamp(0.5, 0.93)),
+    };
+    // A sidebar that is dark beside a light channel view, as in Denim, is
+    // what people recognise the theme by: in its button's hue it is an
+    // accent sidebar, else a dark one.
+    let sidebar_is_dark =
+        contrast_ratio(m.sidebar_bg, WHITE) >= contrast_ratio(m.sidebar_bg, BLACK);
+    let sidebar_kind = if theme.mode() == ThemeMode::Light && sidebar_is_dark {
+        if sidebar.chroma >= 0.03 {
+            Sidebar::Accent
+        } else {
+            Sidebar::Dark
+        }
+    } else if sidebar.chroma >= 0.012 && theme.mode() == ThemeMode::Light {
+        Sidebar::Tinted
+    } else {
+        Sidebar::Soft
     };
     StyleSpec {
         colors: StyleColors {
@@ -260,9 +282,28 @@ pub fn from_mattermost(theme: &Theme) -> StyleSpec {
             accent_chroma: accent.chroma.clamp(0., MAX_CHROMA),
             accent_light,
             accent_dark,
+            sidebar: sidebar_kind,
+            contrast: Contrast::Standard,
         },
         radius: Radius::Soft,
     }
+}
+
+const WHITE: gpui_kit::Rgba = gpui_kit::Rgba {
+    r: 1.,
+    g: 1.,
+    b: 1.,
+    a: 1.,
+};
+const BLACK: gpui_kit::Rgba = gpui_kit::Rgba {
+    r: 0.,
+    g: 0.,
+    b: 0.,
+    a: 1.,
+};
+
+fn contrast_ratio(a: gpui_kit::Rgba, b: gpui_kit::Rgba) -> f32 {
+    crate::contrast::ratio(crate::contrast::over(a, WHITE), b)
 }
 
 /// The highest chroma a style keeps; past it most hues leave sRGB.
@@ -278,6 +319,8 @@ fn checked(colors: StyleColors) -> Option<StyleColors> {
         accent_chroma,
         accent_light,
         accent_dark,
+        sidebar,
+        contrast,
     } = colors;
     let all = [
         neutral_hue,
@@ -298,6 +341,8 @@ fn checked(colors: StyleColors) -> Option<StyleColors> {
         accent_chroma: accent_chroma.clamp(0., MAX_CHROMA),
         accent_light: accent_light.clamp(0.05, 0.98),
         accent_dark: accent_dark.clamp(0.05, 0.98),
+        sidebar,
+        contrast,
     })
 }
 

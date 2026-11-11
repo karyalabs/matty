@@ -532,10 +532,10 @@ impl AccountView {
         let theme = UiTheme::read(cx).clone();
         let palette = Palette::read(cx);
         let dot = match self.account.presence {
-            Presence::Online => palette.online,
-            Presence::Away => palette.away,
-            Presence::Dnd => palette.dnd,
-            Presence::Offline => theme.colors.muted_foreground,
+            Presence::Online => palette.sidebar_online,
+            Presence::Away => palette.sidebar_away,
+            Presence::Dnd => palette.sidebar_dnd,
+            Presence::Offline => theme.colors.sidebar_muted_foreground(),
         };
         let initial: String = self.account.display_name.chars().take(1).collect();
         let status = self
@@ -865,12 +865,18 @@ impl Render for AccountView {
                 Menu::new(&self.menu, label)
                     .trigger(self.trigger(cx))
                     .trigger_style_with(move |button| {
-                        style_button(button, false, ButtonVariant::Ghost, ButtonSize::Sm, &theme)
-                            .w_full()
-                            .min_w_0()
-                            .h(scaled(&theme, 40.))
-                            .px(theme.space(1.5))
-                            .justify_start()
+                        style_button(
+                            button,
+                            false,
+                            ButtonVariant::Sidebar,
+                            ButtonSize::Sm,
+                            &theme,
+                        )
+                        .w_full()
+                        .min_w_0()
+                        .h(scaled(&theme, 40.))
+                        .px(theme.space(1.5))
+                        .justify_start()
                     }),
             )
             .child(self.status_dialog(window, cx))

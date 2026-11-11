@@ -192,6 +192,7 @@ mod split;
 mod sso;
 mod style_editor;
 mod style_library;
+mod style_preview;
 mod teams;
 mod triage;
 
@@ -3777,7 +3778,7 @@ impl MainWindow {
     /// Signed out there is nothing to navigate: a bar for the window
     /// controls only.
     fn title_bar(&self) -> impl IntoElement + use<> {
-        TitleBar::new().h(px(metrics::TITLE_BAR_HEIGHT))
+        TitleBar::new().page(true).h(px(metrics::TITLE_BAR_HEIGHT))
     }
 
     /// Tells the sidebar which listing the right pane shows, so its
@@ -4003,7 +4004,7 @@ impl MainWindow {
         } else if matches!(state, ConnectionState::Demo) {
             lucide(LucideIcon::Sparkles)
                 .size(scaled(&theme, metrics::ICON_SMALL))
-                .text_color(theme.colors.primary)
+                .text_color(theme.colors.link())
                 .into_any_element()
         } else {
             crate::ui::spinner::Spinner::new("banner.spinner")

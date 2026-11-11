@@ -1,0 +1,100 @@
+/* Matty colors: Ember: a charcoal sidebar and an orange accent (docs/DESIGN.md §2).
+   shadcn CSS variable format: light reads :root, dark reads :root then
+   .dark, as gpuicn's UiTheme::from_shadcn_css does. Written by
+   crates/matty-app/src/style/palette.rs; change the theme's numbers in
+   style.rs, then run MATTY_WRITE_THEMES=1 cargo test -p matty-app palette. */
+:root {
+  --radius: 8px;
+  --background: #fefcfb;
+  --foreground: #231d19;
+  --card: #fffffe;
+  --card-foreground: #231d19;
+  --popover: #fffffe;
+  --popover-foreground: #231d19;
+  --primary: #e26b1b;
+  --primary-foreground: #0d0d0d;
+  --secondary: #ece7e4;
+  --secondary-foreground: #231d19;
+  --muted: #f2eeeb;
+  --muted-foreground: #6f6762;
+  --accent: #efeae7;
+  --accent-foreground: #231d19;
+  --destructive: #cc2827;
+  --destructive-foreground: #fafafa;
+  --success: #007d37;
+  --success-foreground: #fafafa;
+  --warning: #956300;
+  --warning-foreground: #fafafa;
+  --info: #116bb5;
+  --info-foreground: #fafafa;
+  --border: #e1dcd9;
+  --input: #c2bcb9;
+  --ring: #e26b1b;
+  --chart-1: #e26b1b;
+  --chart-2: #16a34a;
+  --chart-3: #cc7a00;
+  --chart-4: #d42020;
+  --chart-5: #8b5cf6;
+  --sidebar: #27221e;
+  --sidebar-foreground: #f4ede8;
+  --sidebar-primary: #e26b1b;
+  --sidebar-primary-foreground: #0d0d0d;
+  --sidebar-accent: #332c28;
+  --sidebar-accent-foreground: #f4ede8;
+  --sidebar-border: #39332f;
+  --sidebar-ring: #e26b1b;
+  --sidebar-muted-foreground: #b3a9a2;
+  --sidebar-badge: #e26b1b;
+  --sidebar-badge-foreground: #0d0d0d;
+  --link: #ac4b00;
+  --mention-highlight: #f6b933;
+  --mention-highlight-foreground: #221909;
+  --new-messages: #cc2827;
+}
+.dark {
+  --background: #1c1916;
+  --foreground: #e5e2e0;
+  --card: #25211e;
+  --card-foreground: #e5e2e0;
+  --popover: #25211e;
+  --popover-foreground: #e5e2e0;
+  --primary: #fe843d;
+  --primary-foreground: #0d0d0d;
+  --secondary: #312d2a;
+  --secondary-foreground: #e5e2e0;
+  --muted: #272421;
+  --muted-foreground: #a5a09d;
+  --accent: #2d2927;
+  --accent-foreground: #e5e2e0;
+  --destructive: #ff6459;
+  --destructive-foreground: #0d0d0d;
+  --success: #5ac576;
+  --success-foreground: #0d0d0d;
+  --warning: #eeb154;
+  --warning-foreground: #0d0d0d;
+  --info: #60b0ff;
+  --info-foreground: #0d0d0d;
+  --border: #332f2d;
+  --input: #4e4947;
+  --ring: #fe843d;
+  --chart-1: #fe843d;
+  --chart-2: #3fb950;
+  --chart-3: #f2b038;
+  --chart-4: #f0564f;
+  --chart-5: #a78bfa;
+  --sidebar: #0f0b09;
+  --sidebar-foreground: #e5e2e0;
+  --sidebar-primary: #fe843d;
+  --sidebar-primary-foreground: #0d0d0d;
+  --sidebar-accent: #191512;
+  --sidebar-accent-foreground: #e5e2e0;
+  --sidebar-border: #1f1b18;
+  --sidebar-ring: #fe843d;
+  --sidebar-muted-foreground: #b1a9a4;
+  --sidebar-badge: #fe843d;
+  --sidebar-badge-foreground: #0d0d0d;
+  --link: #f38c53;
+  --mention-highlight: #eab444;
+  --mention-highlight-foreground: #221909;
+  --new-messages: #ff6459;
+}

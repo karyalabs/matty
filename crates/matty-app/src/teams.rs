@@ -440,7 +440,7 @@ impl TeamsModel {
                         style_button(
                             button,
                             disabled,
-                            ButtonVariant::Ghost,
+                            ButtonVariant::Sidebar,
                             ButtonSize::Sm,
                             &style_theme,
                         )
@@ -606,7 +606,7 @@ fn tile_button(
 ) -> crate::ui::button::Button {
     let theme = UiTheme::read(cx);
     crate::ui::button::Button::new(id)
-        .variant(ButtonVariant::Ghost)
+        .variant(ButtonVariant::Sidebar)
         .size(ButtonSize::IconSm)
         .aria_label(label)
         .w(scaled(theme, TILE + 2.))

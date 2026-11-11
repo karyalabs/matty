@@ -1178,7 +1178,7 @@ impl SidebarView {
     fn plain_team_button(&self, theme: &UiTheme) -> Button {
         let theme = theme.clone();
         Button::new("sidebar.team")
-            .variant(ButtonVariant::Ghost)
+            .variant(ButtonVariant::Sidebar)
             .size(ButtonSize::Sm)
             .aria_label(t!("sidebar-team-menu"))
             .px(theme.space(2.))
@@ -1239,8 +1239,13 @@ impl SidebarView {
         let platform = crate::actions::Platform::current();
         let height = scaled(&theme, 30.);
         let keys = crate::actions::shortcut_for("Quick switcher").unwrap_or_default(); // i18n-ignore
+        // A field on the sidebar: the page's color where the sidebar is the
+        // page's mode, else a wash of the sidebar's own text color (#855).
+        let palette = Palette::read(cx);
+        let quiet = theme.colors.sidebar_muted_foreground();
         let jump = Button::new("sidebar.jump")
-            .variant(ButtonVariant::Outline)
+            .variant(ButtonVariant::Sidebar)
+            .border_color(theme.colors.sidebar_border)
             .size(ButtonSize::Sm)
             .aria_label(t!("sidebar-jump-label", keys = keys.to_string()))
             .on_click(|_, window, cx| {
@@ -1254,13 +1259,13 @@ impl SidebarView {
             .gap(theme.space(2.))
             .rounded(scaled(&theme, 7.))
             .justify_start()
-            .bg(theme.colors.background)
-            .text_color(theme.colors.muted_foreground)
+            .bg(palette.sidebar_field)
+            .text_color(quiet)
             .font_weight(gpui_kit::FontWeight::NORMAL)
             .child(
                 lucide(LucideIcon::Search)
                     .size(scaled(&theme, metrics::ICON_SMALL))
-                    .text_color(theme.colors.muted_foreground),
+                    .text_color(quiet),
             )
             .child(
                 div()
@@ -1270,28 +1275,33 @@ impl SidebarView {
                     .text_left()
                     .child(t!("sidebar-jump")),
             )
-            .child(crate::ui::kbd::Kbd::new(match platform {
-                crate::actions::Platform::MacOs => "⌘K",     // i18n-ignore
-                crate::actions::Platform::Other => "Ctrl K", // i18n-ignore
-            }));
+            .child(
+                crate::ui::kbd::Kbd::new(match platform {
+                    crate::actions::Platform::MacOs => "⌘K",     // i18n-ignore
+                    crate::actions::Platform::Other => "Ctrl K", // i18n-ignore
+                })
+                .bg(theme.colors.sidebar_accent)
+                .text_color(quiet),
+            );
         let button_theme = theme.clone();
         let compose = Menu::new(&self.menu, t!("sidebar-new"))
             .trigger(
                 lucide(LucideIcon::SquarePen)
                     .size(scaled(&theme, metrics::ICON))
-                    .text_color(theme.colors.muted_foreground),
+                    .text_color(quiet),
             )
             .trigger_style_with(move |button| {
                 style_button(
                     button.aria_label(t!("sidebar-new-label")).disabled(loading),
                     false,
-                    ButtonVariant::Outline,
+                    ButtonVariant::Sidebar,
                     ButtonSize::IconSm,
                     &button_theme,
                 )
                 .size(scaled(&button_theme, 30.))
                 .rounded(scaled(&button_theme, 7.))
-                .bg(button_theme.colors.background)
+                .border_color(button_theme.colors.sidebar_border)
+                .bg(palette.sidebar_field)
             });
         div()
             .px(scaled(&theme, 10.))
@@ -1321,6 +1331,7 @@ impl SidebarView {
         };
         let account = self.account.clone();
         let dnd_button = Toggle::new("sidebar.dnd")
+            .variant(crate::ui::toggle::ToggleVariant::Sidebar)
             .size(ToggleSize::Sm)
             .pressed(dnd)
             .disabled(account.is_none())
@@ -1350,7 +1361,7 @@ impl SidebarView {
                              action: Box<dyn gpui_kit::Action>,
                              theme: &UiTheme| {
             Button::new(id)
-                .variant(ButtonVariant::Ghost)
+                .variant(ButtonVariant::Sidebar)
                 .size(ButtonSize::IconSm)
                 .w(scaled(theme, 28.))
                 .h(scaled(theme, 28.))
@@ -1797,7 +1808,7 @@ impl SidebarView {
                                 .size(AvatarSize::Sm)
                                 .fallback(initial)
                                 .aria_label(row.name.clone())
-                                .status(crate::style::avatar_status(*presence, palette))
+                                .status(crate::style::sidebar_avatar_status(*presence, palette))
                                 .status_size(scaled(theme, 6.))
                                 .ring_color(theme.colors.sidebar),
                             row.person.as_deref().unwrap_or_default(),
@@ -1845,8 +1856,13 @@ impl SidebarView {
         if !strong && !selected {
             item = item.text_color(theme.colors.sidebar_muted_foreground());
         }
+        // A muted channel is the quietest text on the sidebar, at a color
+        // that still reads (3:1 or more), not an opacity that may not.
         if row.muted && !selected {
-            item = item.opacity(0.6);
+            item = item.text_color(palette.sidebar_faint);
+        }
+        if selected {
+            item = item.bg(palette.sidebar_selected);
         }
         // The status emoji follows the name, where the options button never
         // covers it, and its tooltip reads the status (#681).
@@ -1996,6 +2012,9 @@ impl SidebarView {
                         ),
                 )
                 .type_style(if strong { style::UI_STRONG } else { style::UI }, &theme);
+            if selected {
+                item = item.bg(Palette::read(cx).sidebar_selected);
+            }
             item = match opens {
                 Opens::Event(event) => {
                     item.on_activate(cx.listener(move |_, _, _, cx| cx.emit(event.clone())))
@@ -2006,9 +2025,14 @@ impl SidebarView {
             };
             let badge = match count {
                 EntryCount::None => None,
-                EntryCount::Count(count) => {
-                    Some(Badge::new(count.to_string()).variant(BadgeVariant::Secondary))
-                }
+                // A plain count is a quiet chip in the sidebar's own colors,
+                // so it reads on a dark sidebar beside a light page too.
+                EntryCount::Count(count) => Some(
+                    Badge::new(count.to_string())
+                        .variant(BadgeVariant::Secondary)
+                        .bg(theme.colors.sidebar_accent)
+                        .text_color(theme.colors.sidebar_accent_foreground),
+                ),
                 EntryCount::Mentions(count) => Some(
                     Badge::count(count, 99)
                         .bg(theme.colors.sidebar_badge())

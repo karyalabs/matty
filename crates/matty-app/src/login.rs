@@ -880,7 +880,7 @@ impl LoginView {
         };
         ToggleGroup::new("login.method")
             .aria_label(t!("login-method"))
-            .joined(true)
+            .segmented(true)
             .w_full()
             .disabled(self.model.busy)
             .value([if self.picked_ldap { "ldap" } else { "password" }])
