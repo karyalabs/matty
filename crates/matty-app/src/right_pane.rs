@@ -530,6 +530,11 @@ pub struct RightPaneView {
     /// reply or for a reaction, as in the channel (#679).
     picker: Entity<EmojiPickerState>,
     picker_open: bool,
+    /// Where a post's reaction picker opened, beside the button that asked;
+    /// `None` opens it at the composer's emoji button.
+    picker_at: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+    /// The post and press that last closed the reaction picker from outside.
+    picker_closed_by: Option<(SharedString, gpui_kit::Point<gpui_kit::Pixels>)>,
     /// The post the picker reacts to; `None` types into the reply.
     picker_target: Option<SharedString>,
     _subscriptions: Vec<gpui_kit::Subscription>,
@@ -575,12 +580,30 @@ impl PostHost for RightPaneView {
         self.toggle_reaction(id, emoji, cx);
     }
 
-    fn pick_reaction(&mut self, id: SharedString, cx: &mut Context<Self>) {
+    fn pick_reaction(
+        &mut self,
+        id: SharedString,
+        at: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        if crate::post_row::closed_by_press(self.picker_closed_by.take(), &id, at) {
+            return;
+        }
+        if self.picker_open && self.picker_target.as_ref() == Some(&id) {
+            self.picker_open = false;
+            self.picker_target = None;
+            self.picker_at = None;
+            cx.notify();
+            return;
+        }
         self.open_picker(Some(id), cx);
+        self.picker_at = at;
     }
 
     fn post_menu_open(&self, cx: &App) -> bool {
-        self.menu.read(cx).is_open()
+        // A post's reaction picker counts too: its button's tooltip would
+        // sit over it.
+        self.menu.read(cx).is_open() || (self.picker_open && self.picker_at.is_some())
     }
 
     fn open_post_menu_at(
@@ -902,6 +925,8 @@ impl RightPaneView {
             schedule_dialog,
             picker,
             picker_open: false,
+            picker_at: None,
+            picker_closed_by: None,
             picker_target: None,
             _permalink_task: None,
             pending_jump: None,
@@ -1155,6 +1180,7 @@ impl RightPaneView {
             body: body.clone(),
             reactions: vec![],
             mentions_me: false,
+            own_mentions: Default::default(),
             edited: false,
             // Never a continuation: the row's own "Sending…" must show.
             continues: false,
@@ -2231,6 +2257,7 @@ impl RightPaneView {
     fn open_picker(&mut self, target: Option<SharedString>, cx: &mut Context<Self>) {
         self.picker.update(cx, crate::emoji::prepare_picker);
         self.picker_target = target;
+        self.picker_at = None;
         self.picker_open = true;
         cx.notify();
     }
@@ -2239,10 +2266,35 @@ impl RightPaneView {
         if self.picker_open {
             self.picker_open = false;
             self.picker_target = None;
+            self.picker_at = None;
             self.composer
                 .update(cx, |composer, cx| composer.focus(window, cx));
             cx.notify();
         }
+    }
+
+    /// The reaction picker of a post, open beside the button that asked
+    /// for it; a picker opened from the keyboard uses the composer's.
+    fn post_picker(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui_kit::AnyElement> {
+        let at = self.picker_at.filter(|_| self.picker_open)?;
+        let view = cx.entity().downgrade();
+        Some(crate::post_row::reaction_picker(
+            &self.picker,
+            at,
+            move |pressed, window, cx| {
+                view.update(cx, |this, cx| {
+                    this.picker_closed_by = this.picker_target.clone().map(|id| (id, pressed));
+                    this.close_picker(window, cx);
+                })
+                .ok();
+            },
+            window,
+            cx,
+        ))
     }
 
     fn pick_emoji(&mut self, name: SharedString, window: &mut Window, cx: &mut Context<Self>) {
@@ -2276,9 +2328,9 @@ impl RightPaneView {
             let (view, id) = (view.clone(), post.id.clone());
             vec![
                 MenuItem::new("thread.context.react", t!("pane-add-reaction-menu")).on_click(
-                    move |_, _, cx| {
-                        let id = id.clone();
-                        view.update(cx, |this, cx| this.open_picker(Some(id), cx))
+                    move |event, _, cx| {
+                        let (id, at) = (id.clone(), crate::post_row::pointer(event));
+                        view.update(cx, |this, cx| this.pick_reaction(id, at, cx))
                             .ok();
                     },
                 ),
@@ -2912,13 +2964,14 @@ impl RightPaneView {
         // (#679).
         let picker = self.picker.clone();
         let picker_open = self.picker_open;
+        let picker_at = self.picker_at;
         let emoji_tool = tool(
             "right-pane.emoji",
             t!("pane-emoji"),
             LucideIcon::FaceSlightlySmiling,
         );
         let emoji_popover = popover("right-pane.emoji.popover")
-            .open(picker_open)
+            .open(picker_open && picker_at.is_none())
             .offset(px(6.))
             .trigger_with(move |_, _, _| {
                 style::tipped_when(
@@ -4079,6 +4132,7 @@ impl Render for RightPaneView {
             .child(self.leave_dialog(window, cx))
             .child(self.discard_dialog(window, cx))
             .child(self.schedule_dialog.clone())
+            .children(self.post_picker(window, cx))
             .child(
                 Menu::new(&self.menu, t!("pane-message-actions"))
                     .context_area(div())
@@ -4344,6 +4398,7 @@ mod tests {
             body: format!("Reply {id}").into(),
             reactions: vec![],
             mentions_me: false,
+            own_mentions: Default::default(),
             edited: false,
             continues: false,
             mine: false,

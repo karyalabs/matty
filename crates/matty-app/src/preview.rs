@@ -707,6 +707,10 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         body: body.into(),
         reactions: vec![],
         mentions_me: false,
+        own_mentions: crate::links::OwnMentions {
+            username: "arya".into(),
+            channel_wide: true,
+        },
         edited: false,
         continues: false,
         mine: false,
@@ -771,12 +775,23 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         },
         Post {
             continues: true,
+            // A page with no site name and no image (a blank row topped
+            // its card before gpuicn 0.11.4).
+            embeds: vec![crate::embeds::Embed::Link(crate::embeds::LinkCard {
+                url: "https://example.com/".into(),
+                site_name: "".into(),
+                title: "Example Domain".into(),
+                description:
+                    "This domain is for use in documentation examples without needing permission."
+                        .into(),
+                image: None,
+            })],
             ..post(
                 "p3",
                 "Sam Okafor",
                 "09:15",
                 "Yesterday",
-                "One more thing: the macOS build now needs `MATTY_PREVIEW=1` to show sample data, nothing else changed.",
+                "One more thing: the macOS build now needs `MATTY_PREVIEW=1` to show sample data, nothing else changed. Docs: https://example.com/",
             )
         },
         Post {
@@ -907,13 +922,26 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         },
         Post {
             mentions_me: true,
-            reactions: vec![reaction("🙏", 1, false, &["Priya Nair"])],
+            reactions: vec![
+                reaction("🙏", 1, false, &["Priya Nair"]),
+                reaction("👍", 2, true, &["Arya", "Sam Okafor"]),
+            ],
+            replies: Some(ReplySummary {
+                count: 2,
+                last_time: hm("08:12"),
+                last_day: "Today".into(),
+                participants: vec!["Sam Okafor".into()],
+                participant_ids: vec![person("Sam Okafor")],
+                following: true,
+                unread_replies: 0,
+                unread_mentions: 0,
+            }),
             ..post(
                 "p6",
                 "Priya Nair",
                 "08:05",
                 "Today",
-                "@arya could you take a look at the title bar on Windows when you get a minute? The controls overlap the switcher at 480px wide.",
+                "@arya @sam.okafor could you take a look at the title bar on Windows when you get a minute? The controls overlap the switcher at 480px wide.",
             )
         },
         Post {
@@ -1397,6 +1425,7 @@ pub fn incoming(channel_id: &str) -> Vec<Post> {
         body: body.into(),
         reactions: vec![],
         mentions_me: false,
+        own_mentions: Default::default(),
         edited: false,
         continues: false,
         mine: false,
@@ -1904,6 +1933,7 @@ pub fn thread(channel_id: &str, post_id: &str) -> Option<ThreadModel> {
         body: body.into(),
         reactions: vec![],
         mentions_me: false,
+        own_mentions: Default::default(),
         edited: false,
         continues,
         mine: author == "Arya",

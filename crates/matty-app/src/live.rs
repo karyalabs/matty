@@ -4160,6 +4160,7 @@ mod tests {
             body: body.into(),
             reactions: vec![],
             mentions_me: false,
+            own_mentions: Default::default(),
             edited: false,
             continues: false,
             mine: false,
