@@ -9,6 +9,34 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.20] - 2026-11-11
+
+Notifications and messages that look like the official Mattermost client's.
+
+### Changed
+
+- Desktop notifications follow Mattermost's layout: the channel or the
+  direct message partner is the title, the sender is the subtitle ("Ada
+  replied in a thread" for replies), and the body is the message as plain
+  text with emoji drawn. A post with only files says "Sent a file". On
+  Linux and Windows the sender stays in the body, and the notification now
+  shows the sender's profile picture. The macOS app bundle ships the
+  full-size app icon (#850).
+- A post that mentions you no longer gets a tinted row with a left bar.
+  Only your own mention (and `@here`, `@channel` or `@all` when they notify
+  you) is filled; other people's mentions read as plain links (#853).
+- Reactions sit above the "N replies · Following" line (#853).
+- A post's "Add reaction" button opens the emoji picker right beside it,
+  and clicking it again closes it (#853).
+- Matty is built on gpuicn 0.11.4 (#853).
+
+### Fixed
+
+- Clicking blank space in a message no longer starts a text selection
+  (#853).
+- A link preview for a page without a site name no longer leaves a blank
+  row at the top of the card, and its title is in the link color (#853).
+
 ## [0.1.0-beta.19] - 2026-11-10
 
 Peek at an unread channel from the sidebar without opening it.
@@ -342,6 +370,7 @@ The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
 [Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.19...HEAD
+[0.1.0-beta.20]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.17
