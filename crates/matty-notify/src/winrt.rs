@@ -11,7 +11,7 @@
 #![allow(unsafe_code)]
 
 use async_channel::Sender;
-use tauri_winrt_notification::Toast;
+use tauri_winrt_notification::{IconCrop, Toast};
 
 use crate::{Badge, Clicked, Notification, Notifier};
 
@@ -46,19 +46,28 @@ impl Notifier for Toasts {
             post_id: notification.post_id.clone(),
             root_id: notification.root_id.clone(),
         };
-        let (title, body) = (notification.title.clone(), notification.body.clone());
+        let title = notification.title.clone();
+        let (subtitle, body) = (notification.subtitle.clone(), notification.body.clone());
+        let image = notification.image.clone();
         let shown = std::thread::Builder::new()
             .name("toast".into())
             .spawn(move || {
-                // Matty plays its own sounds.
-                let toast = Toast::new(APP_USER_MODEL_ID)
-                    .title(&title)
-                    .text1(&body)
-                    .sound(None)
-                    .on_activated(move |_| {
-                        let _ = clicked.try_send(target.clone());
-                        Ok(())
-                    });
+                // Matty plays its own sounds. The author's name and the
+                // message take a line each under the channel, and their
+                // picture, cropped round, stands in for the app's logo.
+                let mut toast = Toast::new(APP_USER_MODEL_ID).title(&title);
+                toast = if subtitle.is_empty() {
+                    toast.text1(&body)
+                } else {
+                    toast.text1(&subtitle).text2(&body)
+                };
+                if let Some(image) = &image {
+                    toast = toast.icon(image, IconCrop::Circular, "");
+                }
+                let toast = toast.sound(None).on_activated(move |_| {
+                    let _ = clicked.try_send(target.clone());
+                    Ok(())
+                });
                 if let Err(error) = toast.show() {
                     tracing::debug!(%error, "toast");
                 }

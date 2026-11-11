@@ -4183,7 +4183,8 @@ impl MainWindow {
         // A pop-out with focus shows its own channel or thread (#222).
         let app = self.split_seen(app, cx);
         let app = crate::popout::seen_by_focused(app, cx);
-        if let Some(notification) = arrival.decide(app) {
+        if let Some(mut notification) = arrival.decide(app) {
+            notification.image = crate::avatars::notification_file(&arrival.event.author_id, cx);
             self.notifier.show(&notification);
             self.repeat_if_persistent(arrival, notification, window, cx);
         }

@@ -119,8 +119,11 @@ pub struct Event {
     pub channel_name: String,
     /// The channel's kind.
     pub channel_kind: ChannelKind,
-    /// The post's text.
+    /// The post's text, as written: Markdown, for finding mentions.
     pub message: String,
+    /// The post's text as a notification shows it: plain, without the
+    /// Markdown. Empty uses `message`.
+    pub preview: String,
     /// A system message such as a join or a header change.
     pub system: bool,
     /// The server listed the user in the event's `mentions`.
@@ -150,13 +153,20 @@ pub struct AppState {
     pub sound_for_all: bool,
 }
 
-/// A notification to show.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A notification to show, laid out as the official Mattermost apps do:
+/// the channel on top, who wrote it under it, then the message.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Notification {
     /// The channel, or the author for a direct message.
     pub title: String,
+    /// Who wrote it, under the title; empty for a direct message, whose
+    /// title already names them, and without previews.
+    pub subtitle: String,
     /// The message, or only who wrote it without previews.
     pub body: String,
+    /// The author's profile picture as a file, for the platforms that show
+    /// one; the app fills it in once it has the picture.
+    pub image: Option<std::path::PathBuf>,
     /// Where clicking it goes.
     pub channel_id: String,
     /// The post to highlight.
@@ -167,6 +177,18 @@ pub struct Notification {
     pub mention: bool,
     /// The sound to play with it, if any.
     pub sound: Option<Sound>,
+}
+
+impl Notification {
+    /// The subtitle and body on one line, `who: what`, for platforms whose
+    /// notifications have no subtitle line.
+    pub fn combined_body(&self) -> String {
+        if self.subtitle.is_empty() {
+            self.body.clone()
+        } else {
+            format!("{}: {}", self.subtitle, self.body)
+        }
+    }
 }
 
 /// Whether Do not disturb still holds at `now` (seconds since the epoch)
@@ -217,19 +239,36 @@ pub fn decide(
     if !notifies {
         return None;
     }
-    let title = if event.channel_kind == ChannelKind::Direct {
+    let direct_message = event.channel_kind == ChannelKind::Direct;
+    let title = if direct_message {
         event.author_name.clone()
     } else {
         event.channel_name.clone()
     };
-    let body = match (app.show_preview, event.channel_kind) {
-        (true, ChannelKind::Direct) => event.message.clone(),
-        (true, _) => format!("{}: {}", event.author_name, event.message),
-        (false, _) => format!("New message from {}", event.author_name),
+    let (subtitle, body) = if app.show_preview {
+        let preview = if event.preview.is_empty() {
+            &event.message
+        } else {
+            &event.preview
+        };
+        let subtitle = match (direct_message, reply) {
+            (true, false) => String::new(),
+            (true, true) => "Reply in thread".to_owned(),
+            (false, false) => event.author_name.clone(),
+            (false, true) => format!("{} replied in a thread", event.author_name),
+        };
+        (subtitle, preview.clone())
+    } else {
+        (
+            String::new(),
+            format!("New message from {}", event.author_name),
+        )
     };
     Some(Notification {
         title,
+        subtitle,
         body,
+        image: None,
         channel_id: event.channel_id.clone(),
         post_id: event.post_id.clone(),
         root_id: event.root_id.clone(),
@@ -261,6 +300,7 @@ mod tests {
             channel_name: "Town Square".into(),
             channel_kind: ChannelKind::Public,
             message: message.into(),
+            preview: String::new(),
             system: false,
             server_mentioned: false,
             followed_thread: false,
@@ -578,7 +618,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(shown.title, "Town Square");
-        assert_eq!(shown.body, "Sam Okafor: hi @arya");
+        assert_eq!(shown.subtitle, "Sam Okafor");
+        assert_eq!(shown.body, "hi @arya");
+        assert_eq!(shown.combined_body(), "Sam Okafor: hi @arya");
         let hidden = decide(
             &event("hi @arya"),
             &user(Level::Mention),
@@ -589,6 +631,7 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(hidden.subtitle, "");
         assert_eq!(hidden.body, "New message from Sam Okafor");
         let direct = decide(
             &Event {
@@ -601,8 +644,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            (direct.title.as_str(), direct.body.as_str()),
-            ("Sam Okafor", "lunch?")
+            (
+                direct.title.as_str(),
+                direct.subtitle.as_str(),
+                direct.body.as_str()
+            ),
+            ("Sam Okafor", "", "lunch?")
+        );
+    }
+
+    #[test]
+    fn the_preview_is_plain_text_and_replies_say_so() {
+        let reply = decide(
+            &Event {
+                root_id: "root".into(),
+                preview: "ship it".into(),
+                ..event("**ship** it @arya")
+            },
+            &user(Level::Mention),
+            &ChannelPrefs::default(),
+            &app(),
+        )
+        .unwrap();
+        assert_eq!(reply.title, "Town Square");
+        assert_eq!(reply.subtitle, "Sam Okafor replied in a thread");
+        assert_eq!(reply.body, "ship it");
+        let direct_reply = decide(
+            &Event {
+                root_id: "root".into(),
+                channel_kind: ChannelKind::Direct,
+                ..event("on it")
+            },
+            &user(Level::Mention),
+            &ChannelPrefs::default(),
+            &app(),
+        )
+        .unwrap();
+        assert_eq!(
+            (direct_reply.title.as_str(), direct_reply.subtitle.as_str()),
+            ("Sam Okafor", "Reply in thread")
         );
     }
 

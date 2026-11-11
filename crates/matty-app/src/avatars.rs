@@ -226,6 +226,41 @@ pub fn image(user_id: &str, cx: &App) -> Option<Arc<Image>> {
     cx.try_global::<Avatars>()?.image(user_id)
 }
 
+/// The user's picture as a file, for a notification on the platforms that
+/// show one beside the text: Linux and Windows read it from a path. It is
+/// written once per picture under the cache folder, and `None` until the
+/// picture is up or when it is a format those platforms do not draw.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub fn notification_file(user_id: &str, cx: &App) -> Option<std::path::PathBuf> {
+    use gpui_kit::ImageFormat;
+    let picture = image(user_id, cx)?;
+    let extension = match picture.format {
+        ImageFormat::Png => "png",
+        ImageFormat::Jpeg => "jpg",
+        ImageFormat::Bmp => "bmp",
+        _ => return None,
+    };
+    // Server ids are letters and digits; anything else is not a file name.
+    if user_id.is_empty() || !user_id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let dir = dirs::cache_dir()?.join("Matty").join("notifications"); // i18n-ignore: a folder
+    let path = dir.join(format!("{user_id}-{}.{extension}", picture.id));
+    if !path.exists() {
+        std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::write(&path, &picture.bytes))
+            .map_err(|error| tracing::debug!(%error, "notification picture"))
+            .ok()?;
+    }
+    Some(path)
+}
+
+/// No platform here reads a picture from a file: macOS draws the app icon.
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+pub fn notification_file(_user_id: &str, _cx: &App) -> Option<std::path::PathBuf> {
+    None
+}
+
 /// `avatar` with the user's picture once it has one; until then it keeps
 /// its initials.
 pub fn with_picture(avatar: Avatar, user_id: &str, cx: &App) -> Avatar {

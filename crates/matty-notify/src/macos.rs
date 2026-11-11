@@ -138,6 +138,9 @@ impl Notifier for Center {
     fn show(&self, notification: &Notification) {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&notification.title));
+        if !notification.subtitle.is_empty() {
+            content.setSubtitle(&NSString::from_str(&notification.subtitle));
+        }
         content.setBody(&NSString::from_str(&notification.body));
         content.setThreadIdentifier(&NSString::from_str(&notification.channel_id));
         if let Some(sound) = notification.sound {

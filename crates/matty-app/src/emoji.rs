@@ -119,6 +119,36 @@ pub fn glyph(name: &str) -> Option<SharedString> {
     lookup(name).map(|emoji| emoji.as_str().into())
 }
 
+/// `text` with each `:shortcode:` it knows replaced by its glyph, as a
+/// notification shows a message; unknown names, such as custom emoji, stay.
+pub fn with_glyphs(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(':') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let name_end = after.find(|c: char| !(c.is_alphanumeric() || "_+-".contains(c)));
+        match name_end {
+            Some(end) if end > 0 && after[end..].starts_with(':') => match lookup(&after[..end]) {
+                Some(emoji) => {
+                    out.push_str(emoji.as_str());
+                    rest = &after[end + 1..];
+                }
+                None => {
+                    out.push(':');
+                    rest = after;
+                }
+            },
+            _ => {
+                out.push(':');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The Mattermost name behind a reaction value: a glyph's shortcode, or
 /// `name` for a custom emoji's `:name:`.
 pub fn name_for(emoji: &str) -> Option<String> {
@@ -423,5 +453,17 @@ mod tests {
             "one letter is too little to go on"
         );
         assert_eq!(glyph("not-an-emoji"), None);
+    }
+
+    #[test]
+    fn shortcodes_become_glyphs_and_the_rest_stays() {
+        assert_eq!(with_glyphs("ship it :tada: now"), "ship it 🎉 now");
+        assert_eq!(with_glyphs(":+1::+1:"), "👍👍");
+        assert_eq!(
+            with_glyphs("at 10:30: :party_parrot:"),
+            "at 10:30: :party_parrot:"
+        );
+        assert_eq!(with_glyphs("a: b"), "a: b");
+        assert_eq!(with_glyphs("ends with :"), "ends with :");
     }
 }
