@@ -192,12 +192,17 @@ fn build(notification: &Notification) -> notify_rust::Notification {
     built
         .appname("Matty")
         .summary(&notification.title)
-        .body(&escape(&notification.body))
+        .body(&escape(&notification.combined_body()))
         .icon(DESKTOP_ENTRY)
         .action("default", "Open")
         .hint(Hint::DesktopEntry(DESKTOP_ENTRY.into()))
         .hint(Hint::Category("im.received".into()))
         .hint(Hint::SuppressSound(true));
+    // The author's picture beside the text, as GNOME, KDE and others draw
+    // `image-path`; the app icon stays the notification's own icon.
+    if let Some(image) = notification.image.as_ref().and_then(|path| path.to_str()) {
+        built.hint(Hint::ImagePath(image.to_owned()));
+    }
     built
 }
 
@@ -275,7 +280,9 @@ mod tests {
     fn a_notification_names_matty_and_its_desktop_entry() {
         let built = build(&Notification {
             title: "town-square".into(),
-            body: "Ada: <hi>".into(),
+            subtitle: "Ada".into(),
+            body: "<hi>".into(),
+            image: None,
             channel_id: "c1".into(),
             post_id: "p1".into(),
             root_id: String::new(),

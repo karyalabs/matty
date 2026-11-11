@@ -195,7 +195,9 @@ mod tests {
             post_id: "reply".into(),
             root_id: "root".into(),
             title: "town".into(),
-            body: "Ada: on it".into(),
+            subtitle: "Ada".into(),
+            body: "on it".into(),
+            image: None,
             mention: false,
             sound: None,
         };

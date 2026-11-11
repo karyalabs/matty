@@ -386,6 +386,7 @@ impl Arrival {
                 channel_name: arrived.channel_display_name.clone(),
                 channel_kind,
                 message: post.message.clone(),
+                preview: notification_preview(&post.message, post.file_ids.len()),
                 system: post.kind.starts_with("system_"),
                 server_mentioned: arrived.mentioned,
                 followed_thread: arrived.followed,
@@ -409,6 +410,26 @@ impl Arrival {
             ..app
         };
         matty_notify::decide(&self.event, &self.user, &self.channel, &app)
+    }
+}
+
+/// A post's text as its notification shows it: plain, without the
+/// Markdown, its emoji drawn, blank lines closed up; or what it attached
+/// when it has no text.
+fn notification_preview(message: &str, files: usize) -> String {
+    let plain = crate::emoji::with_glyphs(&crate::channel::plain_text(message));
+    let lines: Vec<&str> = plain
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    if !lines.is_empty() {
+        return lines.join("\n");
+    }
+    match files {
+        0 => String::new(),
+        1 => "Sent a file".to_owned(),
+        count => format!("Sent {count} files"),
     }
 }
 
@@ -3351,6 +3372,20 @@ mod tests {
     use super::*;
     use matty_api::models::Status;
     use matty_sync::{SidebarChannel, Unreads};
+
+    #[test]
+    fn a_notification_previews_plain_text() {
+        assert_eq!(
+            notification_preview(
+                "**Done** and live :tada:\n\nsee [the PR](https://x.test/1)",
+                0
+            ),
+            "Done and live 🎉\nsee the PR"
+        );
+        assert_eq!(notification_preview("", 1), "Sent a file");
+        assert_eq!(notification_preview("", 3), "Sent 3 files");
+        assert_eq!(notification_preview("", 0), "");
+    }
 
     /// #755: an SVG reads as one from its bytes, whatever the server says,
     /// and only the file itself shows it.

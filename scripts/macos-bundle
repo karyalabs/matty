@@ -61,6 +61,10 @@ res="$app/Contents/Resources"
 icon_lines=$'\t<key>CFBundleIconFile</key>\n\t<string>AppIcon</string>'
 if [[ "$(uname)" == Darwin ]] && "$root/scripts/macos-icon" "$res" >/dev/null; then
 	icon_lines+=$'\n\t<key>CFBundleIconName</key>\n\t<string>AppIcon</string>'
+	# actool's .icns stops at 256 px, which older systems, Finder's large
+	# views and notification banners scale up blurry or skip; the committed
+	# one has every size up to 1024 px.
+	cp "$root/packaging/macos/AppIcon.icns" "$res/AppIcon.icns"
 else
 	echo "macos-bundle: no Xcode 26 actool; using the committed AppIcon.icns" >&2
 	rm -f "$res/Assets.car"
