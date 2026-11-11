@@ -70,13 +70,25 @@ next to the list.
 <a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/threads-light.png" alt="The Threads view with a thread open" width="100%"></picture></a>
 </p>
 
-**Make it yours.** Pick a built-in style (Graphite is the default), follow
-your Mattermost theme, or build your own from an accent color, greys and
-corner shape. Bring your own fonts, then share the style as a file or a
-snippet a teammate can paste.
+**Make it yours.** Pick one of seven built-in themes, each with a light and
+a dark mode (Graphite is the default), follow your Mattermost theme, or
+build your own from an accent color, a background tint, the sidebar's fill,
+contrast and corner shape. Matty works every color out from contrast rules,
+so text stays readable in whatever you pick.
 
 <p align="center">
-<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/appearance-light.png" alt="The Appearance settings with the style gallery and accent colors" width="720"></picture></a>
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/themes-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/themes-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/themes-light.png" alt="Eight Matty windows, one in each built-in theme and one in a theme made in the editor" width="100%"></picture></a>
+</p>
+
+Top row: Graphite, Porcelain, Harbor and Linen. Bottom row: Tide, Dusk,
+Ember and a theme made in the editor.
+
+The editor shows your theme in light and in dark as you change it. Bring
+your own fonts, then share the theme as a file or a snippet a teammate can
+paste.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/editor-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/editor-dark.png"><img src="https://raw.githubusercontent.com/karyalabs/assets/main/matty/readme/editor-light.png" alt="The theme editor with a live light and dark preview above the accent color controls" width="100%"></picture></a>
 </p>
 
 The screenshots follow your GitHub theme, light or dark, and open at full
