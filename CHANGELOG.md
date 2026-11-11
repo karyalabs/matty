@@ -9,6 +9,12 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+### Fixed
+
+- The theme editor's preview fits the Settings window at its default
+  size. The "Not sent" label and the longest channel name were cut off
+  there (#855).
+
 ## [0.1.0-beta.21] - 2026-11-11
 
 Themes, worked out again from the contrast rules (#855).
