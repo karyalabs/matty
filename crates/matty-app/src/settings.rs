@@ -49,11 +49,50 @@ pub enum ThemeSource {
     Matty,
     /// Matty's Porcelain colors, light or dark as [`ThemeChoice`] says.
     Porcelain,
+    /// Matty's other built-in themes (#855), each light or dark as
+    /// [`ThemeChoice`] says.
+    Harbor,
+    Linen,
+    Tide,
+    Dusk,
+    Ember,
     /// The person's own style, [`Settings::custom_style`] (#705).
     Custom,
     /// The account's Mattermost theme for the team on screen, which is
     /// light or dark by itself.
     Mattermost,
+}
+
+impl ThemeSource {
+    /// The built-in theme this names, if it names one. The Mattermost
+    /// theme and a person's own style are neither.
+    pub fn preset(self) -> Option<crate::style::Preset> {
+        use crate::style::Preset;
+        Some(match self {
+            Self::Matty => Preset::Graphite,
+            Self::Porcelain => Preset::Porcelain,
+            Self::Harbor => Preset::Harbor,
+            Self::Linen => Preset::Linen,
+            Self::Tide => Preset::Tide,
+            Self::Dusk => Preset::Dusk,
+            Self::Ember => Preset::Ember,
+            Self::Custom | Self::Mattermost => return None,
+        })
+    }
+
+    /// The source that shows `preset`.
+    pub fn of(preset: crate::style::Preset) -> Self {
+        use crate::style::Preset;
+        match preset {
+            Preset::Graphite => Self::Matty,
+            Preset::Porcelain => Self::Porcelain,
+            Preset::Harbor => Self::Harbor,
+            Preset::Linen => Self::Linen,
+            Preset::Tide => Self::Tide,
+            Preset::Dusk => Self::Dusk,
+            Preset::Ember => Self::Ember,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

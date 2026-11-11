@@ -170,9 +170,11 @@ pub(crate) fn section_list(
                 )
                 .surface(true)
                 .selected(current)
+                // Selection is a neutral fill two steps from the list, as on
+                // the sidebar, never the accent (DESIGN.md §2).
                 .when(current, |item| {
-                    item.bg(theme.colors.primary.opacity(0.1))
-                        .text_color(theme.colors.primary)
+                    item.bg(theme.colors.foreground.opacity(0.08))
+                        .text_color(theme.colors.foreground)
                 })
                 .when(dimmed, |item| item.opacity(0.6))
                 .on_activate(move |_, window, cx| on_select(section, window, cx)),
@@ -1938,7 +1940,7 @@ pub(super) fn choices(
 ) -> ToggleGroup {
     let mut group = ToggleGroup::new(id)
         .aria_label(label)
-        .joined(true)
+        .segmented(true)
         .value([SharedString::from(value)]);
     for (option, text) in options {
         group = group.item(
@@ -2028,7 +2030,7 @@ impl MainWindow {
         let theme_store = store.clone();
         let mode = ToggleGroup::new("preferences.theme")
             .aria_label(t!("prefs-theme"))
-            .joined(true)
+            .segmented(true)
             .disabled(use_imported)
             .value([theme_value])
             .item(theme_item(
@@ -2057,7 +2059,7 @@ impl MainWindow {
                 };
                 theme_store.update(cx, |store, cx| store.update(cx, |s| s.theme = choice));
             });
-        let light_dark = Group::new("preferences.theme", t!("prefs-theme")).row(
+        let light_dark = Group::new("preferences.theme", t!("prefs-mode")).row(
             Row::new("preferences.theme", t!("prefs-light-dark"))
                 .description(if use_imported {
                     t!("prefs-theme-from-mattermost")
@@ -2168,6 +2170,61 @@ impl MainWindow {
             style = style.note(t!("prefs-this-computer"));
         }
         let editor = super::style_editor::editor(&store, cx);
+        // The accent as a hex color (#855): it shows the accent, and takes
+        // a typed or pasted one, such as a brand color.
+        let accent_hex = super::style_editor::accent_hex(&settings, cx);
+        if selects.accent_hex.is_none() {
+            let input = cx.new(|cx| InputState::new(window, cx));
+            let hex_store = store.clone();
+            let subscription = cx.subscribe_in(
+                &input,
+                window,
+                move |_, input: &Entity<InputState>, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let typed = input.read(cx).value().to_string();
+                        super::style_editor::set_accent_hex(&hex_store, &typed, cx);
+                    }
+                },
+            );
+            selects.accent_hex = Some((input, subscription));
+        }
+        let hex_input = selects.accent_hex.as_ref().map(|(input, _)| input.clone());
+        if let Some(input) = &hex_input
+            && selects.accent_hex_shown.as_deref() != Some(accent_hex.as_str())
+        {
+            // A color typed here stays as typed; one picked elsewhere shows.
+            if !gpui_kit::Focusable::focus_handle(input.read(cx), cx).is_focused(window) {
+                input.update(cx, |input, cx| {
+                    input.set_value(accent_hex.clone(), window, cx)
+                });
+            }
+            selects.accent_hex_shown = Some(accent_hex);
+        }
+        let accent = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(theme.space(4.))
+            .child(editor.accent)
+            .when_some(hex_input, |accent, input| {
+                accent.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(theme.space(3.))
+                        .child(
+                            div()
+                                .w(scaled(&theme, 120.))
+                                .child(Input::new(&input).aria_label(t!("prefs-accent-hex"))),
+                        )
+                        .child(
+                            div()
+                                .type_style(style::META, &theme)
+                                .text_color(theme.colors.muted_foreground)
+                                .child(t!("prefs-accent-hex-detail")),
+                        ),
+                )
+            });
         let (ui_font, code_font, fonts_under) = self.font_controls(window, cx);
         let size_value: SharedString = TEXT_SIZES
             .iter()
@@ -2182,7 +2239,7 @@ impl MainWindow {
         let size_store = store.clone();
         let mut size_group = ToggleGroup::new("preferences.text-size")
             .aria_label(t!("prefs-text-size"))
-            .joined(true)
+            .segmented(true)
             .value([size_value]);
         for (name, scale) in TEXT_SIZES {
             let text = format!("{}%", (scale * 100.).round());
@@ -2207,6 +2264,17 @@ impl MainWindow {
             super::style_library::chosen(&settings),
             super::style_library::Choice::Saved(_)
         );
+        let readable = editor.readability.failing.is_empty();
+        let verdict = if readable {
+            Tag::new("preferences.readability.tag", t!("prefs-readability-good"))
+                .variant(TagVariant::Outline)
+                .icon(LucideIcon::CircleCheck)
+                .text_color(theme.colors.success)
+        } else {
+            Tag::new("preferences.readability.tag", t!("prefs-contrast-tag"))
+                .variant(TagVariant::Destructive)
+                .icon(LucideIcon::TriangleAlert)
+        };
         let customise = Group::new(
             "preferences.customise",
             t!("prefs-customise", name = shown_name.clone()),
@@ -2217,16 +2285,46 @@ impl MainWindow {
             t!("prefs-this-computer")
         })
         .row(
-            Row::new("preferences.accent", t!("prefs-accent"))
+            Row::new("preferences.preview", t!("prefs-preview"))
+                .description(t!("prefs-preview-detail"))
                 .stacked()
-                .control(editor.accent),
+                .control(editor.preview),
         )
-        .row(Row::new("preferences.greys", t!("prefs-greys")).control(editor.greys))
+        .row(
+            Row::new("preferences.accent", t!("prefs-accent"))
+                .description(t!("prefs-accent-detail"))
+                .stacked()
+                .control(accent),
+        )
+        .row(
+            Row::new("preferences.greys", t!("prefs-greys"))
+                .description(t!("prefs-greys-detail"))
+                .control(editor.background),
+        )
+        .row(
+            Row::new("preferences.sidebar-fill", t!("prefs-sidebar-fill"))
+                .description(t!("prefs-sidebar-fill-detail"))
+                .control(editor.sidebar),
+        )
+        .row(
+            Row::new("preferences.contrast", t!("prefs-contrast"))
+                .description(t!("prefs-contrast-detail"))
+                .control(editor.contrast),
+        )
         .row(Row::new("preferences.corners", t!("prefs-corners")).control(editor.corners))
-        .row(Row::new("preferences.font-interface", t!("prefs-font-interface")).control(ui_font))
-        .row(Row::new("preferences.font-code", t!("prefs-font-code")).control(code_font))
-        .row(Row::new("preferences.text-size", t!("prefs-text-size")).control(size_group))
-        .after(fonts_under);
+        .row(
+            Row::new("preferences.readability", t!("prefs-readability"))
+                .description(editor.readability.summary())
+                .control(verdict),
+        );
+        let text = Group::new("preferences.text", t!("prefs-text"))
+            .note(t!("prefs-this-computer"))
+            .row(
+                Row::new("preferences.font-interface", t!("prefs-font-interface")).control(ui_font),
+            )
+            .row(Row::new("preferences.font-code", t!("prefs-font-code")).control(code_font))
+            .row(Row::new("preferences.text-size", t!("prefs-text-size")).control(size_group))
+            .after(fonts_under);
         let motion = Group::new("preferences.motion", t!("prefs-motion"))
             .note(t!("prefs-this-computer"))
             .row(
@@ -2239,7 +2337,7 @@ impl MainWindow {
                         |s, v| s.reduce_motion = v,
                     )),
             );
-        vec![light_dark, style, customise, motion]
+        vec![light_dark, style, customise, text, motion]
     }
 
     /// A saved style's ⋯ menu: Rename… and Delete….

@@ -242,9 +242,11 @@ impl Theme {
         c.accent_foreground = fg;
         c.destructive = over(m.error_text_color, bg);
         c.destructive_foreground = readable_on(c.destructive);
-        c.success = over(m.online_indicator, bg);
+        // The indicators were chosen as dots; as text ("Saved", a warning
+        // line) they need text contrast, which the theme never promised.
+        c.success = readable(over(m.online_indicator, bg), &[bg], 4.5);
         c.success_foreground = readable_on(c.success);
-        c.warning = over(m.away_indicator, bg);
+        c.warning = readable(over(m.away_indicator, bg), &[bg], 4.5);
         c.warning_foreground = readable_on(c.warning);
         c.info = over(m.link_color, bg);
         c.info_foreground = readable_on(c.info);
@@ -273,10 +275,31 @@ impl Theme {
         c.new_messages = Some(over(m.new_message_separator, bg));
         theme.code_theme = CodeTheme::from_name(&self.code_theme).unwrap_or_default();
 
+        // Readable whatever the theme says: quiet text keeps its hue and
+        // moves in lightness until it reaches 4.5:1 on what it sits on,
+        // as Matty's own themes do (#855).
+        c.muted_foreground = readable(c.muted_foreground, &[bg, c.muted], 4.5);
+        let side_quiet = c.sidebar_muted_foreground.unwrap_or(c.sidebar_foreground);
+        c.sidebar_muted_foreground = Some(readable(side_quiet, &[side, c.sidebar_accent], 4.5));
+        let sidebar_contrasts = match mode {
+            ThemeMode::Light => contrast::ratio(side, WHITE) > contrast::ratio(side, BLACK),
+            ThemeMode::Dark => contrast::ratio(side, BLACK) > contrast::ratio(side, WHITE),
+        };
         let palette = Palette {
             online: m.online_indicator,
             away: m.away_indicator,
             dnd: m.dnd_indicator,
+            sidebar_online: m.online_indicator,
+            sidebar_away: m.away_indicator,
+            sidebar_dnd: m.dnd_indicator,
+            sidebar_faint: readable(on_side(m.sidebar_text.opacity(0.5)), &[side], 3.2),
+            sidebar_field: if sidebar_contrasts {
+                on_side(m.sidebar_text.opacity(0.1))
+            } else {
+                bg
+            },
+            sidebar_selected: c.sidebar_accent,
+            sidebar_contrasts,
         };
         (theme, palette)
     }
@@ -326,6 +349,24 @@ const BLACK_COLORS: Colors = Colors {
     mention_highlight_bg: BLACK,
     mention_highlight_link: BLACK,
 };
+
+/// `color` moved toward white or black, whichever is further from
+/// `against`, until it reaches `minimum` on every one of them.
+fn readable(color: Rgba, against: &[Rgba], minimum: f32) -> Rgba {
+    let passes = |c: Rgba| against.iter().all(|bg| contrast::ratio(c, *bg) >= minimum);
+    let Some(first) = against.first() else {
+        return color;
+    };
+    let target = readable_on(*first);
+    let mut next = color;
+    for step in 1..=50 {
+        if passes(next) {
+            break;
+        }
+        next = over(target.opacity(step as f32 * 0.02), color);
+    }
+    next
+}
 
 /// White or black, whichever reads better on `bg`.
 fn readable_on(bg: Rgba) -> Rgba {

@@ -4835,7 +4835,7 @@ impl ChannelView {
             .child(
                 div()
                     .type_style(style::UI_STRONG, &theme)
-                    .text_color(theme.colors.primary)
+                    .text_color(theme.colors.link())
                     .child(label),
             )
             .when(summary.unread(), |this| {

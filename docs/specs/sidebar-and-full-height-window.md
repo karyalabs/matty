@@ -207,7 +207,7 @@ the edge peek and the pill.
 - Hiding the sidebar keeps a badge on the toggle; the left edge peeks it; reduced motion
   removes the slide.
 - Keyboard only: every new control is reachable in order (team button, tiles, jump, new,
-  fixed rows, tree, footer); `scripts/check-accessible-names.py` and `scripts/contrast.py`
+  fixed rows, tree, footer); `scripts/check-accessible-names.py` and the contrast tests
   pass. Roving focus in the tree is unchanged.
 - No new per-frame work: scrolling the sidebar and typing in the composer profile no worse
   than before on web (the pill and tile badges read cached counts; the peek loads on demand).

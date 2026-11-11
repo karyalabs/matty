@@ -305,7 +305,7 @@ impl ThreadsView {
                     .child(
                         ToggleGroup::new("threads.filter")
                             .aria_label(t!("threads-filter"))
-                            .joined(true)
+                            .segmented(true)
                             .value([filter])
                             .item(item("threads.filter.all", "all", t!("threads-filter-all")))
                             .item(item(

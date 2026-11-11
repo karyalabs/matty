@@ -628,12 +628,12 @@ pub(crate) fn apply_theme(window: &Window, cx: &mut App) {
         let (theme, palette) = imported.ui();
         style::install_theme(theme, palette, cx);
     } else {
-        let style = match settings.theme_source {
-            ThemeSource::Porcelain => style::Preset::Porcelain.style(),
-            ThemeSource::Custom => settings
+        let style = match settings.theme_source.preset() {
+            Some(preset) => preset.style(),
+            None => settings
                 .custom_style
+                .filter(|_| settings.theme_source == ThemeSource::Custom)
                 .unwrap_or_else(|| style::Preset::Graphite.style()),
-            ThemeSource::Matty | ThemeSource::Mattermost => style::Preset::Graphite.style(),
         };
         style::install_style(&style, mode, cx);
     }

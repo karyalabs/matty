@@ -1,15 +1,13 @@
 # Matty design direction
 
-How Matty looks and feels, and the tokens behind it. A style is a few OKLCH
-numbers and a corner radius; `crates/matty-app/src/style/palette.rs` derives
-every color token from them at runtime, with a contrast guard, so built-in
-presets and a person's own style take the same path (#698). The semantic
-colors and type scale live in `crates/matty-app/src/style.rs`.
-`scripts/theme_palette.py` writes the same presets to
-`crates/matty-app/assets/theme-*.css` (shadcn format, so they open in
-tweakcn) for this page and the contrast table; a test keeps both in step. Everything
-below is applied through gpuicn's `UiTheme`; Matty never restyles a gpuicn
-component, it only sets tokens and composes.
+How Matty looks and feels, and the tokens behind it. A theme is a few
+choices (an accent, a background tint, a sidebar fill, a contrast level and
+a corner radius); `crates/matty-app/src/style/palette.rs` works every color
+token out from them at runtime, by the contrast rules in §2, so built-in
+themes and a person's own take the same path (#698, #855). The type scale
+lives in `crates/matty-app/src/style.rs`. Everything below is applied
+through gpuicn's `UiTheme`; Matty never restyles a gpuicn component, it
+only sets tokens and composes.
 
 ## 1. Feel
 
@@ -43,57 +41,118 @@ Matty should feel like a quiet native app, not a web page in a frame:
 
 ## 2. Color
 
-Tokens are shadcn names so gpuicn components pick them up unchanged.
-Values are sRGB hex, generated. To change a preset, change its numbers in
-both `Preset::colors` (style.rs) and `scripts/theme_palette.py`, then rerun the
-script; the palette test fails until they agree.
+Tokens are shadcn names so gpuicn components pick them up unchanged. No
+color is typed in by hand. A theme is a few choices, and
+`palette::tokens` works every token out from them by rule (#855). A
+built-in theme and one a person makes take the same path, so the rules
+below hold for both.
 
-**Contrast guard.** Before a style is applied, `palette::tokens` checks
-the foreground, muted text and links for 4.5:1 on the page, cards, sidebar
-and muted fills. It also checks the accent for 3:1 on the page and 4.5:1
-under its own button label. Any color that falls short moves in lightness,
-darker in light mode and lighter in dark, until it passes. A test runs every
-hue through it, so any accent a person picks stays readable. The built-in
-presets pass without moving.
+**What a theme chooses**
 
-| Token | Graphite light | Graphite dark | Porcelain light | Porcelain dark | Used for |
-| --- | --- | --- | --- | --- | --- |
-| `background` / `foreground` | `#fdfdfe` / `#17181a` | `#131415` / `#eaebec` | `#fdfdff` / `#15181e` | `#121417` / `#e9ebee` | Channel view, dialogs' text |
-| `sidebar` | `#f5f6f7` | `#0d0e0f` | `#f4f6fa` | `#0c0e11` | Title bar, sidebar |
-| `sidebar-accent` | `#e5e6e8` | `#222324` | `#e3e6ec` | `#202327` | Hovered and selected sidebar rows |
-| `border` / `input` | `#e2e3e4` / `#d8d9da` | `#232425` / `#2d2e2f` | `#e1e3e7` / `#d7d9dd` | `#222427` / `#2c2e31` | Hairlines, field fills |
-| `primary` / `primary-foreground` | `#1f2226` / `#fcfcfc` | `#e5e8ed` / `#121212` | `#4b64ae` / `#fcfcfc` | `#94aff6` / `#101116` | Buttons, links, mention badges, send |
-| `accent` | `#ecedee` | `#212223` | `#eaedf1` | `#202225` | Hover on buttons and menu items |
-| `muted` / `muted-foreground` | `#eff0f1` / `#626365` | `#212223` / `#9d9ea0` | `#eef0f4` / `#5f636a` | `#202225` / `#9c9ea3` | Timestamps, placeholders, meta |
-| `card` / `popover` | `#fdfdfe` | `#1b1c1d` | `#fdfdff` | `#1a1c1f` | Popovers, menus, dialogs |
-| `destructive` | `#cf2a2a` | `#f0564f` | `#cf2a2a` | `#f0564f` | Errors, delete, DND |
-| `radius` | 8px | 8px | 8px | 8px | Base; buttons use 6px, inputs 8px, cards 10px |
+| Choice | Values | What it sets |
+| --- | --- | --- |
+| Accent | any color (hue, chroma, lightness) | Buttons, links, badges, the focus ring |
+| Background | Neutral, Cool, Warm, Tinted | The tint of every grey |
+| Sidebar | Soft, Tinted, Dark, Accent | The sidebar's fill. Dark and Accent stay dark beside a light page |
+| Contrast | Standard, High | How strong text and outlines are |
+| Corners | Square, Soft, Round | The base radius |
 
-A preset is five numbers: the hue and chroma that tint every neutral, and
-the accent's hue, chroma and lightness per mode. Dark is designed rather
-than inverted: surfaces get lighter as they come forward (sidebar, page,
-popover), the accent goes lighter and a little less saturated, and text
-sits at 94% lightness so it does not glare.
+**The rules**
 
-Every text token reaches 4.5:1 on every surface it sits on, and every
-presence color 3:1 (PLAN §8); `scripts/contrast.py` checks every preset.
-In dark mode `primary` is light with near-black text on it, because no
-mid-tone can carry white text and still read as a link on the dark page.
-Hairline borders are decorative and exempt; inputs are told apart by their
-`input` fill and placeholder, not their border.
+1. *Surfaces step in lightness, and each step can be seen.* Light: sidebar
+   96.6%, page 99.3%, cards and popovers 99.9%. Dark: sidebar 18.5%, page
+   21.5%, cards and popovers 25%. Dark is designed and not inverted: a
+   surface gets lighter as it comes forward, and the page is a dark grey,
+   not black, so text at 91.5% lightness does not glare.
+2. *Text is solved, not picked.* Each text color starts at a target and
+   moves in lightness until it reaches its contrast on every surface it is
+   drawn on: 7:1 for body text and 4.5:1 for quiet text (timestamps,
+   placeholders, read channels), on the page, cards, the hovered row and a
+   mention row. High contrast raises quiet text to 7:1.
+3. *The sidebar has its own text.* Sidebar text is solved against the
+   sidebar and its selected row, so a navy sidebar beside a white page gets
+   light text, light presence dots and its own hover fill. Controls on the
+   sidebar use gpuicn's `Sidebar` button and toggle variants, never the
+   page's ghost button.
+4. *The accent is a fill; a link is the accent as text.* `primary` must be
+   seen on the page (3:1) and carry its label (4.5:1); the label is white,
+   or ink when the accent is pale. `link` is the same hue moved until it
+   reads at 4.5:1 as text. An ink accent (Graphite) gets a blue link, so a
+   link never looks like plain text. Nothing draws text in `primary`.
+5. *Selection is neutral.* A selected row is a step of grey, never the
+   accent. The accent is kept for what asks for action: the send button,
+   mention counts, links, the focus ring. That is what keeps a screen full
+   of rows calm.
+6. *Hover and selected differ.* On the sidebar, hover is one step from the
+   fill and selected is two (`sidebar-accent` and `Palette::sidebar_selected`).
+7. *Meaning has fixed hues.* Red, green, amber and blue for error, success,
+   warning and information do not follow the accent. Each is solved to
+   4.5:1 as text on the page and on its own 8% banner tint. A mention of
+   you is amber with dark text in every theme, so it is never confused
+   with a link or a button.
+8. *Things that are not text reach 3:1*: presence dots (solved apart for
+   the page and for the sidebar), the focus ring, badges, and in High
+   contrast the outline of fields and switches. A muted channel's name is
+   dimmed to no less than 3:1; it used to be 60% opacity, which fell to
+   about 2.5:1.
+9. *A color a person picks is kept when it can be.* When an accent cannot
+   carry a label or be seen on the page it moves in lightness only, and
+   Settings says so.
 
-Semantic colors Matty adds on top (`style::Palette`):
+The tests in `palette.rs` run every built-in theme, in light and dark and at
+both contrast levels, through the same checks. They also run twelve hues,
+from near-grey to vivid and from very dark to pale, with every sidebar
+choice, contrast level and background tint: 2,304 themes.
 
-| Name | Light | Dark | Used for |
+**Built-in themes**
+
+| Theme | Accent | Background | Sidebar |
 | --- | --- | --- | --- |
-| `online` | `#16a34a` | `#3fb950` | Presence dot |
-| `away` | `#cc7a00` | `#f2b038` | Presence dot, favorite star |
-| `dnd` | `#d42020` | `#f0564f` | Presence dot |
-| `sidebar_muted` | `muted-foreground` | `muted-foreground` | Read channels, icons and labels on the sidebar |
-| `mention` / `mention_foreground` | `primary` / `primary-foreground` | `primary` / `primary-foreground` | Mention counts on the sidebar |
+| Graphite (default) | Ink, with blue links | Neutral | Soft |
+| Porcelain | Lapis | Cool | Soft |
+| Harbor | Blue | Cool | Accent (navy) |
+| Linen | Clay | Warm | Soft |
+| Tide | Teal | Sea-tinted | Tinted |
+| Dusk | Violet | Violet-tinted | Tinted |
+| Ember | Orange | Neutral | Dark |
 
-In Matty's own theme the last two rows repeat shadcn tokens; they exist
-because a Mattermost theme colors the sidebar apart from the channel view.
+`crates/matty-app/assets/theme-*.css` holds each one in shadcn format, so
+it opens in tweakcn. A test writes them from `Preset::colors`
+(`MATTY_WRITE_THEMES=1 cargo test -p matty-app palette`) and fails when a
+file is out of date.
+
+Graphite's tokens, as an example of what the rules give:
+
+| Token | Light | Dark | Used for |
+| --- | --- | --- | --- |
+| `background` / `foreground` | `#fcfdfd` / `#1d1e20` | `#19191b` / `#e2e3e4` | Channel view and its text |
+| `card`, `popover` | `#feffff` | `#212223` | Cards, menus, dialogs |
+| `sidebar` / `sidebar-foreground` | `#f3f4f5` / `#1d1e20` | `#121314` / `#e2e3e4` | Sidebar, title bar |
+| `sidebar-accent` | `#e7e8ea` | `#1c1d1f` | Hovered sidebar row |
+| `muted` / `muted-foreground` | `#eeeff1` / `#66686b` | `#242426` / `#a0a1a3` | Quiet fills; timestamps, placeholders |
+| `accent` | `#eaebed` | `#292a2c` | Hover on buttons and menu items |
+| `border` / `input` | `#dcdddf` / `#bcbec0` | `#2f3032` / `#494a4c` | Hairlines / field and switch outlines |
+| `primary` / `primary-foreground` | `#1f2226` / `#fafafa` | `#e1e5ea` / `#0d0d0d` | Buttons, send, mention counts |
+| `link` | `#345fb2` | `#91b7fe` | Links, people and channel mentions |
+| `destructive` | `#cc2827` | `#ff6459` | Errors, delete, the "New messages" line |
+| `success` / `warning` / `info` | `#007f38` / `#966400` / `#116bb5` | `#5ac576` / `#eeb154` / `#60b0ff` | Status text and icons |
+| `mention-highlight` / its foreground | `#f6b933` / `#221909` | `#eab444` / `#221909` | A mention of you |
+
+Hairline borders are decorative and have no minimum. In Standard contrast a
+field's outline is about 1.8:1 on the page (it was 1.4:1); the field is
+also told apart by its placeholder and its focus ring. High contrast takes
+the outline to 3:1.
+
+Semantic colors Matty adds on top (`style::Palette`), each worked out by
+the same rules:
+
+| Name | Used for |
+| --- | --- |
+| `online`, `away`, `dnd` | Presence dots on the page |
+| `sidebar_online`, `sidebar_away`, `sidebar_dnd` | The same dots on the sidebar |
+| `sidebar_faint` | A muted channel's name |
+| `sidebar_field` | The fill behind Jump to and the compose button on the sidebar |
+| `sidebar_selected` | The selected sidebar row |
 
 ### Mattermost themes
 
@@ -108,7 +167,7 @@ the tokens above on Matty's theme for its mode (light when
 | `centerChannelBg` / `centerChannelColor` | `background`, `card`, `popover` / their foregrounds; `muted` and `accent` are the text at 8%, `border` and `input` at 16%, `muted-foreground` at 72% |
 | `buttonBg` / `buttonColor` | `primary` / `primary-foreground`, `ring` |
 | `errorTextColor` | `destructive` |
-| `linkColor` | `info` (gpuicn draws links in `primary`) |
+| `linkColor` | `link`, `info` |
 | `sidebarBg` / `sidebarUnreadText` | `sidebar` / `sidebar-foreground` |
 | `sidebarText` | `sidebar_muted` at 72%, `sidebar-border` at 16% |
 | `sidebarTextHoverBg` / `sidebarTextActiveColor` | `sidebar-accent` / its foreground |
@@ -128,16 +187,11 @@ The last theme shown is cached in the settings file
 (`mattermost_theme`), so Matty starts in it rather than flashing its own
 colors until sync connects; signing out drops it.
 
-Mentions, the "New messages" line and links need no token of their own:
-gpuicn's `Message` tints a mention row with `primary` at 6% behind a 2px
-`primary` left border, draws the "New messages" rule in `destructive`,
-and Markdown links use `primary`. Matty keeps those so every gpuicn app
-reads the same way.
-
-Contrast: every foreground on its surface is at least 4.5:1, every
-`muted-foreground` at least 4.5:1 on `background` and `sidebar`, and the
-accent on the page is at least 5:1 in every preset. `style.rs` tests the
-pairs that matter.
+Quiet text is the theme's text at 72%, moved further when that falls
+below 4.5:1 on the page or the sidebar. The indicators were chosen as
+dots, so as status text (`success`, `warning`) they are moved to 4.5:1 too.
+A dark sidebar in a light Mattermost theme imports as the Accent or Dark
+sidebar choice when the theme is turned into a Matty theme.
 
 ## 3. Type
 
@@ -676,7 +730,7 @@ machine falls back to Plex, and Settings says so.
   users hear the same name (`design-51`).
 - **Contrast** (PLAN §8): every text token reads at 4.5:1 on each surface
   it sits on and every presence color at 3:1, in both themes, checked by
-  `scripts/contrast.py`. Dark `primary` moved from `#4a6de8` (3.97:1 as a
+  the tests in `style/palette.rs`. Dark `primary` moved from `#4a6de8` (3.97:1 as a
   link) to `#6688f2` with near-black text on buttons; light `destructive`
   to `#d42020` so sign-in errors pass on the sidebar surface; light `away`
   to `#cc7a00` for the presence dot and favorite star (`design-53`).

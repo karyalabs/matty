@@ -14,7 +14,7 @@ pub mod share;
 use gpui_kit::{
     App, ElementId, FontWeight, Global, InteractiveElement as _, IntoElement, ParentElement as _,
     Pixels, Rgba, SharedString, StatefulInteractiveElement as _, Styled, div,
-    prelude::FluentBuilder as _, px, rgb,
+    prelude::FluentBuilder as _, px,
 };
 
 use gpui_icons::{LucideIcon, lucide};
@@ -31,24 +31,88 @@ pub const SANS: &str = "IBM Plex Sans";
 /// Code, inline and in blocks.
 pub const MONO: &str = "IBM Plex Mono";
 
-/// A built-in color preset (DESIGN.md §2).
+/// A built-in theme (DESIGN.md §2). Each is one identity that works in
+/// light and in dark.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Preset {
     /// Ink on paper: near-neutral greys and an ink accent. The default.
     #[default]
     Graphite,
-    /// Cool greys with a soft lapis accent.
+    /// Cool greys with a lapis accent.
     Porcelain,
+    /// A deep blue sidebar beside a white page, the classic team chat.
+    Harbor,
+    /// Warm paper neutrals with a clay accent.
+    Linen,
+    /// A teal accent that washes the sidebar.
+    Tide,
+    /// Violet, with violet-tinted neutrals.
+    Dusk,
+    /// A charcoal sidebar and an orange accent.
+    Ember,
 }
 
 impl Preset {
-    /// The preset's color numbers, as in `scripts/theme_palette.py`.
+    /// Every built-in theme, in the order the gallery shows them.
+    pub const ALL: [Self; 7] = [
+        Self::Graphite,
+        Self::Porcelain,
+        Self::Harbor,
+        Self::Linen,
+        Self::Tide,
+        Self::Dusk,
+        Self::Ember,
+    ];
+
+    /// The theme's name in file names and settings, such as `graphite`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Graphite => "graphite",
+            Self::Porcelain => "porcelain",
+            Self::Harbor => "harbor",
+            Self::Linen => "linen",
+            Self::Tide => "tide",
+            Self::Dusk => "dusk",
+            Self::Ember => "ember",
+        }
+    }
+
+    /// One line on what the theme is, for the CSS files.
+    pub fn summary(self) -> &'static str {
+        match self {
+            Self::Graphite => {
+                "Graphite, the default: ink on paper, near-neutral greys and an ink accent"
+            }
+            Self::Porcelain => "Porcelain: cool greys with a lapis accent",
+            Self::Harbor => "Harbor: a deep blue sidebar beside a white page",
+            Self::Linen => "Linen: warm paper neutrals with a clay accent",
+            Self::Tide => "Tide: a teal accent that washes the sidebar",
+            Self::Dusk => "Dusk: violet, with violet-tinted neutrals",
+            Self::Ember => "Ember: a charcoal sidebar and an orange accent",
+        }
+    }
+
+    /// The theme's numbers: the neutral hue and chroma, the accent's hue,
+    /// chroma and lightness in light and in dark, and the sidebar.
     pub fn colors(self) -> palette::StyleColors {
-        let (neutral_hue, neutral_chroma, accent_hue, accent_chroma, accent_light, accent_dark) =
-            match self {
-                Self::Graphite => (260., 0.002, 260., 0.008, 0.25, 0.93),
-                Self::Porcelain => (260., 0.006, 268., 0.12, 0.52, 0.76),
-            };
+        use palette::Sidebar;
+        let (
+            neutral_hue,
+            neutral_chroma,
+            accent_hue,
+            accent_chroma,
+            accent_light,
+            accent_dark,
+            sidebar,
+        ) = match self {
+            Self::Graphite => (260., 0.002, 260., 0.008, 0.25, 0.92, Sidebar::Soft),
+            Self::Porcelain => (262., 0.007, 268., 0.13, 0.52, 0.57, Sidebar::Soft),
+            Self::Harbor => (255., 0.007, 258., 0.17, 0.50, 0.555, Sidebar::Accent),
+            Self::Linen => (75., 0.014, 42., 0.13, 0.56, 0.70, Sidebar::Soft),
+            Self::Tide => (205., 0.008, 192., 0.10, 0.53, 0.74, Sidebar::Tinted),
+            Self::Dusk => (295., 0.012, 295., 0.17, 0.52, 0.57, Sidebar::Tinted),
+            Self::Ember => (55., 0.005, 48., 0.17, 0.66, 0.74, Sidebar::Dark),
+        };
         palette::StyleColors {
             neutral_hue,
             neutral_chroma,
@@ -56,6 +120,8 @@ impl Preset {
             accent_chroma,
             accent_light,
             accent_dark,
+            sidebar,
+            contrast: palette::Contrast::Standard,
         }
     }
 
@@ -122,8 +188,8 @@ impl Greys {
     fn tint(self, accent_hue: f32) -> (f32, f32) {
         match self {
             Self::Neutral => (accent_hue, 0.002),
-            Self::Cool => (255., 0.007),
-            Self::Warm => (75., 0.007),
+            Self::Cool => (255., 0.008),
+            Self::Warm => (75., 0.012),
             Self::Tinted => (accent_hue, 0.012),
         }
     }
@@ -137,13 +203,19 @@ impl StyleSpec {
     }
 
     /// This style with the accent `lightness`, `chroma` and `hue` (light
-    /// mode). Dark mode takes a lighter accent from it, as the presets do;
-    /// tinted greys follow the hue. The contrast guard does the rest.
+    /// mode). Dark mode takes its accent from it, as the presets do; tinted
+    /// greys follow the hue. The contrast rules do the rest.
     pub fn with_accent(mut self, lightness: f32, chroma: f32, hue: f32) -> Self {
         let greys = self.greys();
         let c = &mut self.colors;
         c.accent_light = lightness.clamp(0.05, 0.98);
-        c.accent_dark = (1.28 - lightness).clamp(0.6, 0.93);
+        // An ink flips to a pale ink in dark mode. A color stays the color:
+        // a mid-tone that carries a white label, or the pale tone chosen.
+        c.accent_dark = if chroma <= 0.05 {
+            (1.17 - lightness).clamp(0.6, 0.93)
+        } else {
+            lightness.clamp(0.57, 0.80)
+        };
         c.accent_chroma = chroma.max(0.);
         c.accent_hue = hue.rem_euclid(360.);
         self.with_greys(greys)
@@ -206,17 +278,11 @@ pub fn theme_from(style: &StyleSpec, mode: ThemeMode) -> UiTheme {
     theme.fonts.body = SANS.into();
     theme.fonts.heading = SANS.into();
     theme.fonts.mono = MONO.into();
-    // Matty's sidebar reads quiet text and mention counts like the channel
-    // view does; a Mattermost theme (#214) colors them apart.
-    let c = &mut theme.colors;
-    c.sidebar_muted_foreground = Some(c.muted_foreground);
-    c.sidebar_badge = Some(c.primary);
-    c.sidebar_badge_foreground = Some(c.primary_foreground);
     theme
 }
 
 /// Colors with a meaning gpuicn's tokens do not cover (DESIGN.md §2):
-/// presence.
+/// presence, and what the sidebar needs when it is not the page's mode.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
     /// Presence dot: online.
@@ -225,18 +291,47 @@ pub struct Palette {
     pub away: Rgba,
     /// Presence dot: do not disturb.
     pub dnd: Rgba,
+    /// The three presence dots as they show on the sidebar, which may be
+    /// dark beside a light page.
+    pub sidebar_online: Rgba,
+    pub sidebar_away: Rgba,
+    pub sidebar_dnd: Rgba,
+    /// A muted channel's name on the sidebar: quieter than quiet text, and
+    /// still 3:1.
+    pub sidebar_faint: Rgba,
+    /// The fill behind a field or a chip on the sidebar, such as Jump to.
+    pub sidebar_field: Rgba,
+    /// The selected row's fill on the sidebar, a step past a hovered row's.
+    pub sidebar_selected: Rgba,
+    /// Whether the sidebar is dark beside a light page, or light beside a
+    /// dark one, so controls on it must use the sidebar's colors.
+    pub sidebar_contrasts: bool,
 }
 
 impl Global for Palette {}
 
 impl Palette {
-    /// The semantic colors for `mode`.
+    /// The default theme's semantic colors for `mode`.
     pub fn for_mode(mode: ThemeMode) -> Self {
-        let (online, away, dnd) = match mode {
-            ThemeMode::Light => (rgb(0x16a34a), rgb(0xcc7a00), rgb(0xd42020)),
-            ThemeMode::Dark => (rgb(0x3fb950), rgb(0xf2b038), rgb(0xf0564f)),
-        };
-        Self { online, away, dnd }
+        Self::of(&Preset::default().style(), mode)
+    }
+
+    /// `style`'s semantic colors for `mode`.
+    pub fn of(style: &StyleSpec, mode: ThemeMode) -> Self {
+        let tokens = palette::tokens(&style.colors, mode);
+        let get = |name| tokens.get(name).unwrap_or_default();
+        Self {
+            online: get("online"),
+            away: get("away"),
+            dnd: get("dnd"),
+            sidebar_online: get("sidebar-online"),
+            sidebar_away: get("sidebar-away"),
+            sidebar_dnd: get("sidebar-dnd"),
+            sidebar_faint: get("sidebar-faint"),
+            sidebar_field: tokens.sidebar_field,
+            sidebar_selected: tokens.sidebar_selected,
+            sidebar_contrasts: tokens.sidebar_contrasts,
+        }
     }
 
     /// The palette for the current theme mode. Falls back to light before
@@ -257,7 +352,7 @@ pub fn install(preset: Preset, mode: ThemeMode, cx: &mut App) {
 
 /// Installs `style` for `mode`, as [`install`] does a preset.
 pub fn install_style(style: &StyleSpec, mode: ThemeMode, cx: &mut App) {
-    install_theme(theme_from(style, mode), Palette::for_mode(mode), cx);
+    install_theme(theme_from(style, mode), Palette::of(style, mode), cx);
 }
 
 /// Installs `next` and its `palette`, such as an imported Mattermost theme
@@ -533,12 +628,35 @@ pub fn avatar_status(
     presence: crate::sidebar::Presence,
     palette: &Palette,
 ) -> crate::ui::avatar::AvatarStatus {
+    presence_status(presence, palette.online, palette.away, palette.dnd)
+}
+
+/// [`avatar_status`] for an avatar on the sidebar, whose dots are solved
+/// against the sidebar's fill rather than the page's.
+pub fn sidebar_avatar_status(
+    presence: crate::sidebar::Presence,
+    palette: &Palette,
+) -> crate::ui::avatar::AvatarStatus {
+    presence_status(
+        presence,
+        palette.sidebar_online,
+        palette.sidebar_away,
+        palette.sidebar_dnd,
+    )
+}
+
+fn presence_status(
+    presence: crate::sidebar::Presence,
+    online: Rgba,
+    away: Rgba,
+    dnd: Rgba,
+) -> crate::ui::avatar::AvatarStatus {
     use crate::sidebar::Presence;
     use crate::ui::avatar::AvatarStatus;
     let color = match presence {
-        Presence::Online => palette.online,
-        Presence::Away => palette.away,
-        Presence::Dnd => palette.dnd,
+        Presence::Online => online,
+        Presence::Away => away,
+        Presence::Dnd => dnd,
         Presence::Offline => return AvatarStatus::Offline,
     };
     AvatarStatus::Custom {
@@ -586,7 +704,7 @@ mod tests {
 
     #[test]
     fn presets_parse_in_both_modes() {
-        for preset in [Preset::Graphite, Preset::Porcelain] {
+        for preset in Preset::ALL {
             let css = palette::css(&preset.colors(), Radius::Soft.px());
             UiTheme::from_shadcn_css(&css, ThemeMode::Light).unwrap();
             UiTheme::from_shadcn_css(&css, ThemeMode::Dark).unwrap();
