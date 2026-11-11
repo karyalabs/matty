@@ -118,6 +118,41 @@ fn server_target(url: &str, server: &str, teams: Option<&[&str]>) -> Option<Link
     }
 }
 
+/// The mentions in a body that are the viewer's: `@username`, and
+/// `@here`, `@channel` and `@all` when those notify them. Mattermost fills
+/// these and shows every other mention as a link.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OwnMentions {
+    /// The viewer's username, without the `@`; empty matches nothing.
+    pub username: SharedString,
+    /// Whether `@here`, `@channel` and `@all` count.
+    pub channel_wide: bool,
+}
+
+impl OwnMentions {
+    pub fn of(keys: &matty_notify::MentionKeys) -> Self {
+        Self {
+            username: keys.username.clone().into(),
+            channel_wide: keys.channel_wide,
+        }
+    }
+
+    /// Whether the entity link `target` (the part after `matty:`, such as
+    /// `//user/arya`) is one of the viewer's mentions.
+    pub fn matches(&self, target: &str) -> bool {
+        match target.strip_prefix("//") {
+            Some(rest) => match rest.split_once('/') {
+                Some(("user", name)) => {
+                    !self.username.is_empty() && name.eq_ignore_ascii_case(&self.username)
+                }
+                Some(("special", _)) => self.channel_wide,
+                _ => false,
+            },
+            None => false,
+        }
+    }
+}
+
 /// A message body: Markdown with `~channel`, `@user` and `#hashtag` as
 /// gpuicn entity chips, and every click, chip or link, handed to
 /// `on_link` with its URL. A body taller than about 600 px collapses
@@ -131,13 +166,14 @@ pub fn message_body(
     image_sizes: &[(SharedString, u32, u32)],
     on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
     on_link_menu: Option<LinkMenu>,
+    own: &OwnMentions,
     cx: &App,
 ) -> ShowMore {
     let id = id.into();
     let source = cached_source(body, cx);
     ShowMore::new(
         (id.clone(), "more"),
-        markdown_from_source(id, source, image_sizes, on_link, on_link_menu, cx),
+        markdown_from_source(id, source, image_sizes, on_link, on_link_menu, own, cx),
     )
 }
 
@@ -198,7 +234,15 @@ pub fn markdown_body(
     let custom = cx.try_global::<crate::emoji::CustomEmoji>();
     let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
     let source = body_source(body, &is_custom).into();
-    markdown_from_source(id, source, image_sizes, on_link, on_link_menu, cx)
+    markdown_from_source(
+        id,
+        source,
+        image_sizes,
+        on_link,
+        on_link_menu,
+        &OwnMentions::default(),
+        cx,
+    )
 }
 
 /// The Markdown view of a message whose source [`body_source`] made.
@@ -208,6 +252,7 @@ fn markdown_from_source(
     image_sizes: &[(SharedString, u32, u32)],
     on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
     on_link_menu: Option<LinkMenu>,
+    own: &OwnMentions,
     cx: &App,
 ) -> MarkdownView {
     // Table cells and headings are views of their own; they get the same
@@ -216,12 +261,14 @@ fn markdown_from_source(
         let image_sizes = image_sizes.to_vec();
         let on_link = on_link.clone();
         let on_link_menu = on_link_menu.clone();
+        let own = own.clone();
         MarkdownBlocks::new().inline(move |id, source, _, cx| {
             with_message_plugins(
                 markdown(id, source, cx),
                 &image_sizes,
                 on_link.clone(),
                 on_link_menu.clone(),
+                &own,
             )
         })
     };
@@ -230,6 +277,7 @@ fn markdown_from_source(
         image_sizes,
         on_link,
         on_link_menu,
+        own,
     )
 }
 
@@ -239,8 +287,10 @@ fn with_message_plugins(
     image_sizes: &[(SharedString, u32, u32)],
     on_link: impl Fn(&SharedString, &mut Window, &mut App) + Clone + Send + Sync + 'static,
     on_link_menu: Option<LinkMenu>,
+    own: &OwnMentions,
 ) -> MarkdownView {
     let chip = on_link.clone();
+    let own = own.clone();
     let image_link = on_link.clone();
     view
         // Custom emoji as images sized to the text, from sync's media cache
@@ -260,9 +310,11 @@ fn with_message_plugins(
                 .on_click(move |url, window, cx| image_link(url, window, cx)),
         )
         .plugin(
-            EntityLinks::new("matty").on_click(move |target, window, cx| {
-                chip(&format!("matty:{target}").into(), window, cx)
-            }),
+            EntityLinks::new("matty")
+                .on_click(move |target, window, cx| {
+                    chip(&format!("matty:{target}").into(), window, cx)
+                })
+                .highlight(move |target| own.matches(target)),
         )
         // A right-click on a link opens its menu, never the link (#757);
         // a left or middle click, Enter or a tap opens it.
@@ -392,6 +444,28 @@ mod tests {
     use super::*;
 
     const SERVER: &str = "https://chat.example.com";
+
+    /// Only the viewer's own mentions get the filled chip (as in
+    /// Mattermost); `@here` and friends only when they notify the viewer.
+    #[test]
+    fn own_mentions_match_the_viewer_only() {
+        let own = OwnMentions {
+            username: "ada".into(),
+            channel_wide: true,
+        };
+        assert!(own.matches("//user/ada"));
+        assert!(own.matches("//user/Ada"));
+        assert!(!own.matches("//user/sam"));
+        assert!(!own.matches("//user/adam"));
+        assert!(own.matches("//special/here"));
+        assert!(!own.matches("//channel/ada"));
+        let quiet = OwnMentions {
+            channel_wide: false,
+            ..own
+        };
+        assert!(!quiet.matches("//special/channel"));
+        assert!(!OwnMentions::default().matches("//user/"));
+    }
     const TEAMS: &[&str] = &["matty", "design-guild"];
 
     fn go(url: &str) -> LinkTarget {
@@ -582,6 +656,7 @@ mod tests {
                 &[("https://cdn.example.com/chart.png".into(), 1200, 600)],
                 |_, _, _| {},
                 None,
+                &OwnMentions::default(),
                 cx,
             ))
         }

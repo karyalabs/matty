@@ -450,6 +450,9 @@ pub struct Post {
     pub body: SharedString,
     pub reactions: Vec<PostReaction>,
     pub mentions_me: bool,
+    /// Which of the body's mentions are the viewer's, to fill as in
+    /// Mattermost; other mentions read as links.
+    pub own_mentions: crate::links::OwnMentions,
     pub edited: bool,
     /// True when the previous post is from the same author within five
     /// minutes; the row then hides its avatar and header.
@@ -1284,6 +1287,11 @@ pub struct ChannelView {
     /// The full emoji picker, in a popover on the composer's emoji button.
     picker: Entity<EmojiPickerState>,
     picker_open: bool,
+    /// Where a post's reaction picker opened, beside the button that asked;
+    /// `None` opens it at the composer's emoji button.
+    picker_at: Option<gpui_kit::Point<Pixels>>,
+    /// The post and press that last closed the reaction picker from outside.
+    picker_closed_by: Option<(SharedString, gpui_kit::Point<Pixels>)>,
     /// The post a pick reacts to; `None` inserts into the composer.
     picker_target: Option<SharedString>,
     /// Shortcodes picked this session, newest first, for the picker's
@@ -1409,12 +1417,30 @@ impl PostHost for ChannelView {
         self.toggle_reaction(id, emoji, cx);
     }
 
-    fn pick_reaction(&mut self, id: SharedString, cx: &mut Context<Self>) {
+    fn pick_reaction(
+        &mut self,
+        id: SharedString,
+        at: Option<gpui_kit::Point<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        if crate::post_row::closed_by_press(self.picker_closed_by.take(), &id, at) {
+            return;
+        }
+        if self.picker_open && self.picker_target.as_ref() == Some(&id) {
+            self.picker_open = false;
+            self.picker_target = None;
+            self.picker_at = None;
+            cx.notify();
+            return;
+        }
         self.open_picker(Some(id), cx);
+        self.picker_at = at;
     }
 
     fn post_menu_open(&self, cx: &App) -> bool {
-        self.menu.read(cx).is_open()
+        // A post's reaction picker counts too: its button's tooltip would
+        // sit over it.
+        self.menu.read(cx).is_open() || (self.picker_open && self.picker_at.is_some())
     }
 
     fn open_post_menu_at(
@@ -1780,6 +1806,8 @@ impl ChannelView {
             convert: DialogHandle::new(false),
             picker,
             picker_open: false,
+            picker_at: None,
+            picker_closed_by: None,
             picker_target: None,
             directory: std::sync::Arc::default(),
             people: PeopleAsk::default(),
@@ -2993,6 +3021,7 @@ impl ChannelView {
             body: body.clone(),
             reactions: vec![],
             mentions_me: false,
+            own_mentions: Default::default(),
             edited: false,
             // Never a continuation: the row's own "Sending…" must show.
             continues: false,
@@ -3257,6 +3286,7 @@ impl ChannelView {
     fn open_picker(&mut self, target: Option<SharedString>, cx: &mut Context<Self>) {
         self.picker.update(cx, crate::emoji::prepare_picker);
         self.picker_target = target;
+        self.picker_at = None;
         self.picker_open = true;
         cx.notify();
     }
@@ -3265,10 +3295,35 @@ impl ChannelView {
         if self.picker_open {
             self.picker_open = false;
             self.picker_target = None;
+            self.picker_at = None;
             self.composer
                 .update(cx, |composer, cx| composer.focus(window, cx));
             cx.notify();
         }
+    }
+
+    /// The reaction picker of a post, open beside the button that asked
+    /// for it; a picker opened from the keyboard uses the composer's.
+    fn post_picker(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui_kit::AnyElement> {
+        let at = self.picker_at.filter(|_| self.picker_open)?;
+        let view = cx.entity().downgrade();
+        Some(crate::post_row::reaction_picker(
+            &self.picker,
+            at,
+            move |pressed, window, cx| {
+                view.update(cx, |this, cx| {
+                    this.picker_closed_by = this.picker_target.clone().map(|id| (id, pressed));
+                    this.close_picker(window, cx);
+                })
+                .ok();
+            },
+            window,
+            cx,
+        ))
     }
 
     fn pick_emoji(&mut self, name: SharedString, window: &mut Window, cx: &mut Context<Self>) {
@@ -3696,11 +3751,17 @@ impl ChannelView {
                     cx.emit(ChannelEvent::OpenThreadWindow(window_id.clone()))
                 }),
             ),
-            act(
-                "react",
-                t!("chan-add-reaction-menu"),
-                Box::new(move |this, _, cx| this.open_picker(Some(react_id.clone()), cx)),
-            ),
+            {
+                // The picker opens where the menu was, not at the composer.
+                let view = view.clone();
+                MenuItem::new("post.context.react", t!("chan-add-reaction-menu")).on_click(
+                    move |event, _, cx| {
+                        let at = crate::post_row::pointer(event);
+                        view.update(cx, |this, cx| this.pick_reaction(react_id.clone(), at, cx))
+                            .ok();
+                    },
+                )
+            },
             MenuItem::separator(),
         ];
         items.extend(Self::more_items_for(post, away, delete_others, cx));
@@ -4531,7 +4592,8 @@ impl ChannelView {
         })
         .px(scaled(&theme, metrics::GUTTER));
         if let Some(summary) = &post.replies {
-            row = row.child(Self::reply_footer(&id, summary, cx));
+            // Under the reactions, as in Mattermost.
+            row = row.footer(Self::reply_footer(&id, summary, cx));
         }
         // Right-click selects the row and opens the same actions as the
         // toolbar's "More" button, plus reply and react (PLAN §4.2). It
@@ -5046,15 +5108,14 @@ impl ChannelView {
         cx.notify();
     }
 
-    /// Selection wins over permalink over mention: the reader's own choice
-    /// comes first, then the row they asked for.
+    /// Selection wins over permalink: the reader's own choice comes first,
+    /// then the row they asked for. A post that mentions the reader gets no
+    /// row treatment, as in Mattermost; its mention chip is highlighted.
     fn row_highlight(&self, row: usize, post: &Post) -> MessageHighlight {
         if self.selection == Some(row) {
             MessageHighlight::Selected
         } else if self.permalink.as_ref() == Some(&post.id) {
             MessageHighlight::Permalink
-        } else if post.mentions_me {
-            MessageHighlight::Mention
         } else {
             MessageHighlight::None
         }
@@ -5090,13 +5151,14 @@ impl ChannelView {
         });
         let picker = self.picker.clone();
         let picker_open = self.picker_open;
+        let picker_at = self.picker_at;
         let emoji_tool = tool(
             "composer.emoji",
             t!("chan-emoji"),
             LucideIcon::FaceSlightlySmiling,
         );
         let emoji_popover = popover("composer.emoji.popover")
-            .open(picker_open)
+            .open(picker_open && picker_at.is_none())
             .offset(px(6.))
             .trigger_with(move |_, _, _| {
                 style::tipped_when(
@@ -5515,6 +5577,7 @@ impl Render for ChannelView {
             .child(self.composer(cx))
             .child(Self::typing_line(&channel, cx))
             .children(overlay)
+            .children(self.post_picker(window, cx))
             // Zero-size host for the shared post menu; it opens at the pointer.
             // Disabled so the empty host is not a tab stop.
             .child(
@@ -6186,6 +6249,7 @@ mod tests {
             body: "hi".into(),
             reactions: vec![],
             mentions_me: false,
+            own_mentions: Default::default(),
             edited: false,
             continues: false,
             mine: false,

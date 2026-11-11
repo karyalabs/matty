@@ -40,10 +40,17 @@ pub(crate) trait PostHost: Sized + 'static {
     fn discard_post(&mut self, id: SharedString, window: &mut Window, cx: &mut Context<Self>);
     /// Adds or removes the user's `emoji` on post `id`.
     fn react_to(&mut self, id: SharedString, emoji: SharedString, cx: &mut Context<Self>);
-    /// Opens the emoji picker to react to post `id`.
-    fn pick_reaction(&mut self, id: SharedString, cx: &mut Context<Self>);
-    /// Whether the pane's post menu is open, which hides the toolbar's
-    /// tooltips so they don't sit over it.
+    /// Opens the emoji picker to react to post `id` beside `at`, the
+    /// pointer on the button that asked for it, or closes it when it is
+    /// already open for `id`.
+    fn pick_reaction(
+        &mut self,
+        id: SharedString,
+        at: Option<Point<Pixels>>,
+        cx: &mut Context<Self>,
+    );
+    /// Whether the pane's post menu or a post's reaction picker is open,
+    /// which hides the toolbar's tooltips so they don't sit over it.
     fn post_menu_open(&self, cx: &App) -> bool;
     /// Opens the More menu for `post` at `at`.
     fn open_post_menu_at(
@@ -229,8 +236,9 @@ pub(crate) fn post_message<H: PostHost>(
         // The chip row gets an add button; posts without reactions use the
         // hover toolbar, so the transcript stays quiet.
         let (view, id) = (view.clone(), id.clone());
-        row = row.on_add_reaction(move |_, _, cx| {
-            with(&view, cx, |this, cx| this.pick_reaction(id.clone(), cx))
+        row = row.on_add_reaction(move |event, _, cx| {
+            let at = pointer(event);
+            with(&view, cx, |this, cx| this.pick_reaction(id.clone(), at, cx))
         });
     }
     if let Some((menus, collapsed)) = parts.embeds.filter(|_| !post.embeds.is_empty()) {
@@ -297,6 +305,7 @@ fn body<H: PostHost>(
             with(&link_view, cx, |this, cx| this.open_post_link(url, cx))
         },
         Some(link_menu),
+        &post.own_mentions,
         cx,
     )
     .into_any_element()
@@ -445,9 +454,10 @@ pub(crate) fn hover_actions<H: PostHost>(
                     !menu_open,
                     tip,
                     label,
-                    button.on_click(move |_, _, cx| {
+                    button.on_click(move |event, _, cx| {
+                        let at = pointer(event);
                         with(&react_view, cx, |this, cx| {
-                            this.pick_reaction(react_id.clone(), cx)
+                            this.pick_reaction(react_id.clone(), at, cx)
                         })
                     }),
                 )
@@ -527,4 +537,73 @@ pub(crate) fn link_items<H: PostHost>(view: &WeakEntity<H>, url: &SharedString) 
     }
     items.push(MenuItem::separator());
     items
+}
+
+/// Where a press `event` was, or `None` for a key press, which has no
+/// pointer to open a picker beside.
+pub(crate) fn pointer(event: &gpui_kit::ClickEvent) -> Option<Point<Pixels>> {
+    (!event.is_keyboard()).then(|| event.position())
+}
+
+/// Whether the press `at` on post `id`'s reaction button is the press that
+/// just closed its picker (`closed`): a press outside the picker closes it
+/// before the button sees the click, so the button must not open it again.
+pub(crate) fn closed_by_press(
+    closed: Option<(SharedString, Point<Pixels>)>,
+    id: &SharedString,
+    at: Option<Point<Pixels>>,
+) -> bool {
+    let (Some((post, closed)), Some(at)) = (closed, at) else {
+        return false;
+    };
+    let near = gpui_kit::px(4.);
+    &post == id && (closed.x - at.x).abs() < near && (closed.y - at.y).abs() < near
+}
+
+/// A post's reaction picker, opened beside the button at `at` as in
+/// Mattermost: below it in the top half of the window and above it in the
+/// bottom half, toward the window's middle. A press outside it calls
+/// `on_dismiss` with where the press was.
+pub(crate) fn reaction_picker(
+    picker: &Entity<crate::ui::emoji_picker::EmojiPickerState>,
+    at: Point<Pixels>,
+    on_dismiss: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    use gpui_kit::{Anchor, anchored, deferred, point, px};
+    let viewport = window.viewport_size();
+    let up = at.y > viewport.height / 2.;
+    let left = at.x > viewport.width / 2.;
+    // Clear of the button the pointer is on.
+    let gap = px(18.);
+    let corner = match (up, left) {
+        (false, false) => Anchor::TopLeft,
+        (false, true) => Anchor::TopRight,
+        (true, false) => Anchor::BottomLeft,
+        (true, true) => Anchor::BottomRight,
+    };
+    let position = point(at.x, if up { at.y - gap } else { at.y + gap });
+    picker.update(cx, |picker, cx| picker.open(window, cx));
+    let popup = crate::channel::emoji_popup(
+        crate::ui::emoji_picker::EmojiPicker::new(picker).bordered(false),
+        cx,
+    );
+    deferred(
+        anchored()
+            .position(position)
+            .anchor(corner)
+            .snap_to_window_with_margin(px(8.))
+            .child(
+                div()
+                    .id("reaction-picker")
+                    .occlude()
+                    .on_mouse_down_out(move |event, window, cx| {
+                        on_dismiss(event.position, window, cx)
+                    })
+                    .child(popup),
+            ),
+    )
+    .with_priority(1)
+    .into_any_element()
 }
