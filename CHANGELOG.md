@@ -9,6 +9,25 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.24] - 2026-11-12
+
+Images that stayed blank after launch, notifications that look like
+Mattermost's, and a tidier Direct messages list.
+
+### Fixed
+
+- Images on screen when Matty starts load again. Matty asked for them
+  before your account had loaded, dropped the requests and never asked
+  again, so any image not yet cached stayed an empty box until a restart
+  (#882).
+- Notifications are laid out exactly as the official app lays them out
+  (#880).
+
+### Added
+
+- Direct messages sort by recent activity, and you can message yourself
+  (#876).
+
 ## [0.1.0-beta.23] - 2026-11-12
 
 Images that never loaded, and post headers that didn't line up.
