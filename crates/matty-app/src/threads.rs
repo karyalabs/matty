@@ -133,7 +133,9 @@ impl ThreadsView {
     }
 
     /// Replaces the list and keeps the selection when its thread is still
-    /// there; otherwise the first thread opens.
+    /// there. Nothing opens by itself: a thread opens, and its replies are
+    /// read, only when the user picks it
+    /// (docs/specs/sidebar-places-and-switching.md §1).
     pub fn set_model(&mut self, model: ThreadsModel, cx: &mut Context<Self>) {
         self.model = model;
         self.loading_more = false;
@@ -142,8 +144,13 @@ impl ThreadsView {
             .as_ref()
             .filter(|id| self.model.threads.iter().any(|row| row.id() == *id))
             .cloned();
-        let next = keep.or_else(|| self.model.threads.first().map(|row| row.id().clone()));
-        self.select(next, cx);
+        self.select(keep, cx);
+    }
+
+    /// Arriving at Threads starts with no thread open, so nothing is read
+    /// before the user picks one.
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        self.select(None, cx);
     }
 
     fn select(&mut self, id: Option<SharedString>, cx: &mut Context<Self>) {
@@ -584,7 +591,23 @@ impl Render for ThreadsView {
             .flex()
             .bg(theme.colors.background)
             .child(list)
-            .child(div().flex_1().min_w_0().h_full().child(self.detail.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(if self.selected.is_some() {
+                        self.detail.clone().into_any_element()
+                    } else {
+                        style::centered_empty(
+                            LucideIcon::MessageSquareText,
+                            t!("threads-pick"),
+                            t!("threads-pick-hint"),
+                            cx,
+                        )
+                        .into_any_element()
+                    }),
+            )
     }
 }
 
@@ -677,11 +700,13 @@ mod tests {
             cx.run_until_parked();
         };
         draw(&mut cx);
-        // The first thread opens beside the list, which reads it.
+        // Nothing opens by itself, so nothing is read on arrival
+        // (docs/specs/sidebar-places-and-switching.md §1).
         assert_eq!(
             view.read_with(&cx, |view, _| view.selected().cloned()),
-            Some("p2".into())
+            None
         );
+        assert_eq!(view.read_with(&cx, |view, _| view.model().unread()), 3);
         assert!(cx.debug_bounds("threads.p6.mentions").is_some());
         assert!(cx.debug_bounds("threads.p5.mentions").is_none());
 

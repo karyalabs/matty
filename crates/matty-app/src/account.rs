@@ -431,6 +431,13 @@ impl AccountView {
                 },
             ),
         );
+        // Help left the sidebar footer for this menu
+        // (docs/specs/sidebar-places-and-switching.md §5).
+        items.push(
+            MenuItem::new("account.help", t!("account-help")).on_click(|_, window, cx| {
+                window.dispatch_action(Box::new(crate::actions::ShowShortcuts), cx);
+            }),
+        );
         let sign_out = self.sign_out.clone();
         items.push(
             MenuItem::new("account.sign-out", t!("account-sign-out-item"))

@@ -832,7 +832,20 @@ impl MainWindow {
     /// Forward, the one that ends it carries the window controls, and every
     /// header drags the window.
     pub(super) fn sync_chrome(&mut self, window: &Window, cx: &mut Context<Self>) {
-        use crate::chrome::PaneChrome;
+        use crate::chrome::{PaneChrome, Panel};
+        let full = self.threads_open || self.drafts_open;
+        let right = self.right_pane_open && !full && !Self::narrow_right_pane(window);
+        // The Mentions and Saved buttons show pressed while their listing
+        // is open beside the place, drawer or docked.
+        let panel = if self.right_pane_open && !full {
+            match self.right_pane.read(cx).content() {
+                Some(RightPaneContent::Mentions(_)) => Some(Panel::Mentions),
+                Some(RightPaneContent::Saved(_)) => Some(Panel::Saved),
+                _ => None,
+            }
+        } else {
+            None
+        };
         let nav = PaneChrome {
             leading: true,
             back: self.history_at > 0,
@@ -845,6 +858,7 @@ impl MainWindow {
                 _ => 0,
             },
             hidden_unread: self.badge != matty_notify::Badge::Clear,
+            panel,
         };
         let plain = PaneChrome {
             drag: true,
@@ -854,8 +868,6 @@ impl MainWindow {
             controls: true,
             ..chrome
         };
-        let full = self.threads_open || self.drafts_open;
-        let right = self.right_pane_open && !full && !Self::narrow_right_pane(window);
         let split = self.shown_split().cloned();
         let (mut main, mut second, mut pane) = (nav, plain, plain);
         if !full {

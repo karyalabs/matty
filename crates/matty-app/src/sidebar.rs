@@ -25,15 +25,6 @@ use crate::ui::{
     toggle::{Toggle, ToggleSize},
 };
 
-/// A right-pane listing the fixed rows open; the row shows selected while
-/// its listing is the right pane's content (spec §2.3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Listing {
-    Unreads,
-    Mentions,
-    Saved,
-}
-
 /// The hover group of a category header: its + and options show while
 /// the pointer is over it.
 const SECTION_GROUP: &str = "sidebar-section";
@@ -543,12 +534,6 @@ pub const CHANNELS_ID: &str = "channels";
 pub const DIRECT_ID: &str = "direct";
 /// The `selected` id that marks the Drafts row.
 pub const DRAFTS_ID: &str = "~drafts";
-/// The Unreads row's element id; it opens a listing, not a place.
-const UNREADS_ID: &str = "~unreads";
-/// The Mentions row's element id.
-const MENTIONS_ID: &str = "~mentions";
-/// The Saved row's element id.
-const SAVED_ID: &str = "~saved";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SidebarEvent {
@@ -635,8 +620,6 @@ pub struct SidebarView {
     row_menu: Entity<MenuState>,
     /// The Unreads filter is on: only rows that need reading show.
     unreads_only: bool,
-    /// The listing the right pane shows, for the fixed rows' selection.
-    listing: Option<Listing>,
     /// The signed-in user, drawn in the footer.
     account: Option<Entity<crate::account::AccountView>>,
     /// The tree's scroll position, for the unread pills.
@@ -704,7 +687,6 @@ impl SidebarView {
             menu,
             row_menu,
             unreads_only: false,
-            listing: None,
             account: None,
             scroll: gpui_kit::ScrollHandle::new(),
             painted: Default::default(),
@@ -738,14 +720,6 @@ impl SidebarView {
         cx.notify();
     }
 
-    /// Which right-pane listing is open, for the fixed rows.
-    pub fn set_listing(&mut self, listing: Option<Listing>, cx: &mut Context<Self>) {
-        if self.listing != listing {
-            self.listing = listing;
-            cx.notify();
-        }
-    }
-
     /// The signed-in user the footer shows; the footer redraws as they
     /// change presence or status.
     pub fn set_account(
@@ -756,11 +730,6 @@ impl SidebarView {
         cx.observe(&account, |_, _, cx| cx.notify()).detach();
         self.account = Some(account);
         cx.notify();
-    }
-
-    /// The listing the fixed rows show selected.
-    pub fn listing(&self) -> Option<Listing> {
-        self.listing
     }
 
     /// Whether the Unreads filter is on.
@@ -1283,6 +1252,43 @@ impl SidebarView {
                 .bg(theme.colors.sidebar_accent)
                 .text_color(quiet),
             );
+        // The unread filter as a visible toggle (it was the Unreads row and
+        // a section menu item; docs/specs/sidebar-places-and-switching.md §4).
+        let on = self.unreads_only;
+        let filter = Toggle::new("sidebar.filter")
+            .variant(crate::ui::toggle::ToggleVariant::Sidebar)
+            .size(ToggleSize::Sm)
+            .pressed(on)
+            .px_0()
+            .disabled(loading)
+            .aria_label(t!("sidebar-show-unread-only"))
+            .w(height)
+            .h(height)
+            .rounded(scaled(&theme, 7.))
+            .border_1()
+            .map(|toggle| {
+                if on {
+                    toggle
+                        .bg(theme.colors.sidebar_primary)
+                        .border_color(theme.colors.sidebar_primary)
+                } else {
+                    toggle
+                        .bg(palette.sidebar_field)
+                        .border_color(theme.colors.sidebar_border)
+                }
+            })
+            .on_change(|_, window, cx| {
+                window.dispatch_action(Box::new(crate::actions::UnreadsFilter), cx)
+            })
+            .child(
+                lucide(LucideIcon::ListFilter)
+                    .size(scaled(&theme, metrics::ICON))
+                    .text_color(if on {
+                        theme.colors.sidebar_primary_foreground
+                    } else {
+                        quiet
+                    }),
+            );
         let button_theme = theme.clone();
         let compose = Menu::new(&self.menu, t!("sidebar-new"))
             .trigger(
@@ -1311,66 +1317,36 @@ impl SidebarView {
             .gap(theme.space(1.5))
             .child(jump)
             .child(style::tipped(
+                "sidebar.filter.tip",
+                crate::actions::tooltip_text(&t!("sidebar-show-unread-only"), "Unreads filter"),
+                filter,
+            ))
+            .child(style::tipped(
                 "sidebar.compose.tip",
                 t!("sidebar-new-label"),
                 compose,
             ))
     }
 
-    /// Spec §2.6: the account button, Do not disturb, Help and Settings.
+    /// The account button and Settings
+    /// (`docs/specs/sidebar-places-and-switching.md` §5); Do not disturb and
+    /// Help live in the account menu.
     fn footer(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        let dnd = self
-            .account
-            .as_ref()
-            .is_some_and(|account| account.read(cx).account().presence == Presence::Dnd);
-        let icon = |glyph: LucideIcon, theme: &UiTheme| {
-            lucide(glyph)
-                .size(scaled(theme, metrics::ICON))
-                .text_color(theme.colors.sidebar_muted_foreground())
-        };
-        let account = self.account.clone();
-        let dnd_button = Toggle::new("sidebar.dnd")
-            .variant(crate::ui::toggle::ToggleVariant::Sidebar)
-            .size(ToggleSize::Sm)
-            .pressed(dnd)
-            .disabled(account.is_none())
-            .aria_label(t!("sidebar-dnd"))
-            .on_change(move |&on, _, cx| {
-                if let Some(account) = &account {
-                    let presence = if on { Presence::Dnd } else { Presence::Online };
-                    account.update(cx, |account, cx| account.set_presence(presence, None, cx));
-                }
+        let settings = Button::new("sidebar.settings")
+            .variant(ButtonVariant::Sidebar)
+            .size(ButtonSize::IconSm)
+            .w(scaled(&theme, 28.))
+            .h(scaled(&theme, 28.))
+            .aria_label(t!("sidebar-settings"))
+            .on_click(|_, window, cx| {
+                window.dispatch_action(Box::new(crate::actions::OpenSettings), cx)
             })
-            .when(dnd, |toggle| {
-                toggle
-                    .bg(theme.colors.sidebar_accent)
-                    .text_color(theme.colors.sidebar_accent_foreground)
-            })
-            .child(icon(
-                if dnd {
-                    LucideIcon::BellOff
-                } else {
-                    LucideIcon::Bell
-                },
-                &theme,
-            ));
-        let action_button = |id: &'static str,
-                             label: SharedString,
-                             glyph: LucideIcon,
-                             action: Box<dyn gpui_kit::Action>,
-                             theme: &UiTheme| {
-            Button::new(id)
-                .variant(ButtonVariant::Sidebar)
-                .size(ButtonSize::IconSm)
-                .w(scaled(theme, 28.))
-                .h(scaled(theme, 28.))
-                .aria_label(label)
-                .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
-                .child(icon(glyph, theme))
-        };
-        let narrow = crate::settings::SettingsStore::try_global(cx)
-            .is_some_and(|store| store.read(cx).get().sidebar_width < 232.);
+            .child(
+                lucide(LucideIcon::SlidersHorizontal)
+                    .size(scaled(&theme, metrics::ICON))
+                    .text_color(theme.colors.sidebar_muted_foreground()),
+            );
         div()
             .h(scaled(&theme, 48.))
             .w_full()
@@ -1389,33 +1365,9 @@ impl SidebarView {
                     .children(self.account.clone()),
             )
             .child(style::tipped(
-                "sidebar.dnd.tip",
-                t!("sidebar-dnd"),
-                dnd_button,
-            ))
-            .when(!narrow, |footer| {
-                footer.child(style::tipped(
-                    "sidebar.help.tip",
-                    crate::actions::tooltip_text("Keyboard shortcuts", &t!("sidebar-help")),
-                    action_button(
-                        "sidebar.help",
-                        t!("sidebar-help"),
-                        LucideIcon::CircleQuestionMark,
-                        Box::new(crate::actions::ShowShortcuts),
-                        &theme,
-                    ),
-                ))
-            })
-            .child(style::tipped(
                 "sidebar.settings.tip",
                 crate::actions::tooltip_text("Settings", &t!("sidebar-settings")),
-                action_button(
-                    "sidebar.settings",
-                    t!("sidebar-settings"),
-                    LucideIcon::SlidersHorizontal,
-                    Box::new(crate::actions::OpenSettings),
-                    &theme,
-                ),
+                settings,
             ))
     }
 
@@ -1979,21 +1931,18 @@ impl SidebarView {
             )
     }
 
-    /// Spec §2.3: Unreads, Threads, Mentions, Drafts and Saved above the
-    /// tree, drawn like channel rows with a count badge where there is
-    /// something to read or finish.
+    /// The places above the tree (`docs/specs/sidebar-places-and-switching.md`
+    /// §2): Threads always, Drafts while there are drafts, drawn like
+    /// channel rows with a count badge where there is something to read or
+    /// finish. Listings (mentions, saved) are panels, not rows.
     fn fixed_entries(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        enum Opens {
-            Event(SidebarEvent),
-            Action(Box<dyn gpui_kit::Action>),
-        }
         let entry = |id: &'static str,
                      label: SharedString,
                      glyph: LucideIcon,
                      count: EntryCount,
                      selected: bool,
-                     opens: Opens,
+                     opens: SidebarEvent,
                      cx: &mut Context<Self>| {
             let strong = count != EntryCount::None;
             let mut item = SidebarItem::new(id, label)
@@ -2015,14 +1964,7 @@ impl SidebarView {
             if selected {
                 item = item.bg(Palette::read(cx).sidebar_selected);
             }
-            item = match opens {
-                Opens::Event(event) => {
-                    item.on_activate(cx.listener(move |_, _, _, cx| cx.emit(event.clone())))
-                }
-                Opens::Action(action) => item.on_activate(move |_, window, cx| {
-                    window.dispatch_action(action.boxed_clone(), cx)
-                }),
-            };
+            item = item.on_activate(cx.listener(move |_, _, _, cx| cx.emit(opens.clone())));
             let badge = match count {
                 EntryCount::None => None,
                 // A plain count is a quiet chip in the sidebar's own colors,
@@ -2056,61 +1998,32 @@ impl SidebarView {
             item
         };
         let selected = |id: &str| self.model.selected.as_deref() == Some(id);
-        let unreads = match self.model.unread_count() {
-            0 => EntryCount::None,
-            count => EntryCount::Count(count),
-        };
         let drafts = match self.model.drafts {
             0 => EntryCount::None,
             count => EntryCount::Count(count),
         };
-        let rows = [
-            entry(
-                UNREADS_ID,
-                t!("sidebar-unreads"),
-                LucideIcon::Inbox,
-                unreads,
-                self.listing == Some(Listing::Unreads),
-                Opens::Action(Box::new(crate::actions::AllUnreads)),
-                cx,
-            ),
-            entry(
-                THREADS_ID,
-                t!("sidebar-threads"),
-                LucideIcon::MessageSquareText,
-                self.model.threads_count(),
-                selected(THREADS_ID),
-                Opens::Event(SidebarEvent::OpenThreads),
-                cx,
-            ),
-            entry(
-                MENTIONS_ID,
-                t!("sidebar-mentions"),
-                LucideIcon::AtSign,
-                EntryCount::None,
-                self.listing == Some(Listing::Mentions),
-                Opens::Action(Box::new(crate::actions::RecentMentions)),
-                cx,
-            ),
-            entry(
+        let mut rows = vec![entry(
+            THREADS_ID,
+            t!("sidebar-threads"),
+            LucideIcon::MessageSquareText,
+            self.model.threads_count(),
+            selected(THREADS_ID),
+            SidebarEvent::OpenThreads,
+            cx,
+        )];
+        // Drafts is a place only while there is something to finish
+        // (spec §2), or while its view is open.
+        if self.model.drafts > 0 || selected(DRAFTS_ID) {
+            rows.push(entry(
                 DRAFTS_ID,
                 t!("sidebar-drafts"),
                 LucideIcon::FilePenLine,
                 drafts,
                 selected(DRAFTS_ID),
-                Opens::Event(SidebarEvent::OpenDrafts),
+                SidebarEvent::OpenDrafts,
                 cx,
-            ),
-            entry(
-                SAVED_ID,
-                t!("sidebar-saved"),
-                LucideIcon::Bookmark,
-                EntryCount::None,
-                self.listing == Some(Listing::Saved),
-                Opens::Action(Box::new(crate::actions::SavedMessages)),
-                cx,
-            ),
-        ];
+            ));
+        }
         div()
             .flex()
             .flex_col()
