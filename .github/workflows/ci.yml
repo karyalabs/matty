@@ -111,6 +111,8 @@ jobs:
             code:
               - '!**/*.md'
               - '!docs/**'
+              - '!site/**'
+              - '!.github/workflows/site.yml'
               - '!LICENSE'
               - '!NOTICE'
           predicate-quantifier: every
