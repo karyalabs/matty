@@ -982,7 +982,10 @@ mod tests {
         let picture = || {
             let mut bytes = Vec::new();
             image::DynamicImage::new_rgba8(4, 4)
-                .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+                .write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Png,
+                )
                 .unwrap();
             png(&bytes)
         };
@@ -996,10 +999,8 @@ mod tests {
         assert!(waiting.height > gpui_kit::px(100.), "{waiting:?}");
         // Without a size from the server, a fixed tile holds the place.
         let unsized_waiting = files_size(vec![file(None, 0, 0)], cx);
-        let unsized_arrived = files_size(
-            vec![file(Some(UploadSource::Image(picture())), 0, 0)],
-            cx,
-        );
+        let unsized_arrived =
+            files_size(vec![file(Some(UploadSource::Image(picture())), 0, 0)], cx);
         assert_eq!(unsized_waiting, unsized_arrived);
         // A file that is not an image stays a card.
         let pdf = PostFile {
