@@ -2318,6 +2318,17 @@ impl Live {
                 content_type,
             } => {
                 let Some(format) = image_format(bytes, content_type) else {
+                    // Not a picture Matty can read: the tile says so rather
+                    // than waiting for ever.
+                    tracing::warn!(
+                        ?size,
+                        content_type,
+                        len = bytes.len(),
+                        "a file's image is in no known format"
+                    );
+                    if self.missing_images.insert(file_id.clone()) {
+                        self.file_image_changed(file_id, &mut update);
+                    }
                     return update;
                 };
                 let image = Arc::new(gpui_kit::Image::from_bytes(format, bytes.to_vec()));
