@@ -9,6 +9,18 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.26] - 2026-11-12
+
+Link previews laid out like Mattermost's.
+
+### Fixed
+
+- A link preview no longer starts with an empty row holding only the
+  collapse arrow. The arrow sits on the image's top-left corner, as in
+  Mattermost, and a hidden image leaves "Show image preview" in its place.
+  The image keeps its own size, up to 392 × 240, instead of stretching
+  across the card (#891, gpuicn 0.11.8).
+
 ## [0.1.0-beta.25] - 2026-11-12
 
 A sidebar header that switches servers, and teams as tabs.
@@ -482,7 +494,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.25...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.26...HEAD
+[0.1.0-beta.26]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.26
 [0.1.0-beta.25]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.25
 [0.1.0-beta.24]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.24
 [0.1.0-beta.23]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.23
