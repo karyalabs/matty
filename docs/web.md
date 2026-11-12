@@ -161,11 +161,13 @@ Launch, with nothing cached in the browser:
   build served locally (1.75 s against 0.7 s, beta.16 bench).
 - Even then the page itself was a round trip to Cloudflare, about 380 ms
   before any script ran (1.17 s ready against 0.67 s locally). `sw.js`, a
-  service worker registered on hosted (https) builds, serves `index.html`
-  and the app's files from the browser's copy and checks the page in the
-  background, fetching a new deploy's files then, so a deploy shows on the
-  launch after the one that saw it. A copy that fails to start unregisters
-  it. `?sw=1` tries it on a local build.
+  service worker registered on hosted (https) builds, serves the app's
+  files from the browser's copy. It asks the host for `index.html` first,
+  so a reload always shows the latest deploy (the demo once lagged a
+  release behind when the page came from the copy too), and falls back to
+  the kept page when the host doesn't answer within 1.5 s or at all. A
+  copy that fails to start unregisters it. `?sw=1` tries it on a local
+  build.
 - Sync loads drafts, scheduled messages and emoji beside the teams, and
   fetches the channel the server last opened on with the account
   (`Command::Prefetch`, `Settings::opens_on`), so the first channel doesn't

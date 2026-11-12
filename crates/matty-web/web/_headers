@@ -9,9 +9,9 @@
 
 # The page is checked on every load; it names the app's files, which
 # scripts/web names by their content, so the browser keeps those for good
-# (and Chrome reuses the compiled app). sw.js, which serves both from the
-# browser's copy so a launch doesn't wait on this host at all, and the demo
-# keep their names, so they are checked each time.
+# (and Chrome reuses the compiled app). sw.js, which keeps the app's files
+# in the browser's copy, and the demo keep their names, so they are checked
+# each time.
 /*.html
   Cache-Control: no-cache
 /matty/
