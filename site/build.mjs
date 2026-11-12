@@ -15,7 +15,7 @@ const dist = join(here, "dist");
 const REPO = "karyalabs/matty";
 // The karyalabs/assets commit the screenshots come from. Move it when the
 // images under matty/site/ change.
-const ASSETS_REF = "main";
+const ASSETS_REF = "fa0271b62492e0b48320fef6f1bbfdb01b2dbdc7";
 
 // Which release file each /download/<kind> serves.
 const KINDS = {
