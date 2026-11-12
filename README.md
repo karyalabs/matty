@@ -124,12 +124,14 @@ repository so you can run it on yours.
 ## What works today
 
 - **Sign in** with a password, MFA or single sign-on (GitLab, Google,
-  Office 365, OpenID, SAML). Use several teams and servers, and switch from
-  the tiles at the top of the sidebar.
-- **Sidebar:** Unreads, Threads, Mentions, Drafts and Saved up top, then
-  your own categories with favorites, unread and mention badges, "Show
-  unread only", pills that point at unread channels above and below, and a
-  peek card on unread rows. The window is full height with no title bar,
+  Office 365, OpenID, SAML). Use several servers and teams: the sidebar
+  header switches servers, and each team is a tab under it with its own
+  mention count.
+- **Sidebar:** Threads (and Drafts while you have some) up top, then your
+  own categories with favorites, unread and mention badges, a "Show unread
+  only" filter, pills that point at unread channels above and below, and a
+  peek card on unread rows. Recent mentions and Saved messages open beside
+  the channel from buttons in its header. The window is full height with no title bar,
   and a hidden sidebar slides in from the left edge.
 - **Messages:** Markdown with highlighted code blocks and tables, reactions,
   image and file attachments with a lightbox, uploads and downloads, edit
