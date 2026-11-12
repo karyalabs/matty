@@ -16,7 +16,7 @@ publish = false
 # Every shared dependency version lives here. Upstream UI pins are exact and
 # move together; see docs/PINS.md before changing any of them.
 [workspace.dependencies]
-gpuicn = "=0.11.6"
+gpuicn = "=0.11.7"
 gpui-kit = { version = "=0.9.1", default-features = false, features = ["component"] }
 # Compiles matty.exe's icon and version resource (crates/matty/build.rs).
 embed-resource = "=3.0.12"
