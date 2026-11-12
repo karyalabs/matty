@@ -1,5 +1,5 @@
-//! Switching teams (#89) over the preview's three teams: the header's team
-//! switcher (#735) and
+//! Switching teams (#89) over the preview's three teams: the team tabs
+//! under the sidebar header and their More menu (matty#879) and
 //! Cmd/Ctrl+Alt+1…9 and Up/Down show the picked team's sidebar, open its
 //! town square the first time and where the user last was after that, and
 //! Back returns to the other team's channel.
@@ -90,10 +90,12 @@ fn picking_a_team_shows_its_sidebar_and_remembers_where_you_were(
     assert_eq!(open_row(&mut cx), "general");
     assert!(has(&mut cx, "help-desk") && !has(&mut cx, "critique"));
 
-    // The switcher: Design Guild's sidebar, at its town square.
-    // The team name in the sidebar header opens the switcher.
-    click(&mut cx, "Matty");
-    click(&mut cx, "Design Guild");
+    // The team tabs: at the default width Matty and Design Guild have
+    // tabs (Design Guild's says it has mentions) and Open Source is under
+    // More.
+    assert!(has(&mut cx, "Matty"), "the current team has a tab");
+    assert!(has(&mut cx, "More teams"), "Open Source is under More");
+    click(&mut cx, "Design Guild, 3 mentions");
     assert!(has(&mut cx, "critique"), "Design Guild's channels show");
     assert!(!has(&mut cx, "help-desk"), "Matty's channels are gone");
     assert!(has(&mut cx, "Lena Fischer"), "direct messages stay");

@@ -251,21 +251,27 @@ machine falls back to Plex, and Settings says so.
 - **Sidebar** (default 260px, 200 to 400) is the `sidebar` surface with a
   hairline on its right, top to bottom: header, jump row, fixed rows, tree,
   footer; only the tree scrolls.
-  - **Header** (46px): the team button, a menu trigger with the 22px team
-    tile (icon, or initials on `primary` for the current team), the name in
-    15.5px SemiBold and a chevron. Its menu (#735) lists the server's teams
-    (Cmd/Ctrl+Alt+1…9), Join another team, the other servers (Cmd/Ctrl+1…9),
-    Add a server and Manage servers. After it, a 22px `secondary` tile per
-    other team, each one click away with its own mention pill
-    (`sidebar-primary`) or unread dot at its corner; past three other teams,
-    two tiles and a "+N" that opens the menu. A round tile shows another
-    server's count when something waits there and no "+N" says so.
-  - **Jump row**: a 30px field look-alike ("Jump to or search", ⌘K) that
-    opens the quick switcher, and a 30px outline New button.
-  - **Fixed rows**: Unreads (the digest; `secondary` count of unread
-    unmuted channels), Threads, Mentions, Drafts and Saved, drawn like
-    channel rows. Unreads, Mentions and Saved show selected while their
-    listing is open in the right pane.
+  - **Header** (46px): the server button, filling the row: a 24px server
+    tile (initials on `primary`), the server name in 14.5px SemiBold and a
+    chevron, then at its right end the mentions on other servers as a
+    `sidebar-primary` pill, or a dot when they only have unreads. Its menu
+    lists the saved servers only (30px tile, name, host, a check on the
+    current one, else its count or dot), then Add a server, Join a team
+    (only when the server has one team) and Manage servers
+    (`docs/specs/sidebar-places-and-switching.md` §6).
+  - **Team tabs** (two or more teams): line tabs under the header, 13px,
+    each with its own mention pill or unread dot; tabs that do not fit go
+    under "More" (with the hidden teams' count), and a + joins another team
+    when nothing overflows. The current team always has a tab. Team
+    shortcuts (Cmd/Ctrl+Alt+1…9) are unchanged.
+  - **Jump row**: a 30px field look-alike ("Jump to…", ⌘K) that opens the
+    quick switcher, a 30px unread filter toggle (pressed: `sidebar-primary`)
+    and a 30px New button.
+  - **Places**: Threads always, and Drafts while there are drafts, drawn
+    like channel rows. The sidebar is a list of places: exactly one row is
+    selected. Recent mentions and Saved messages are panels: toggles at the
+    end of the leading pane header, pressed while their listing is open
+    (spec §1 to §4).
   - **Tree**: categories are collapsible sentence-case 12px Medium names;
     hovering a header shows + (Browse channels, or New message for direct
     messages) and ⋯ (the category menu, which starts with Show unread only).
@@ -280,10 +286,11 @@ machine falls back to Plex, and Settings says so.
     are `primary` pills. A channel with an unsent draft shows a
     `muted-foreground` pencil in its icon slot while another channel is
     open, as Mattermost does.
-  - **Footer** (48px, hairline on top): the account button (26px avatar
-    with the presence dot, the name in `ui_strong`, the custom status or
-    presence in `meta`), which opens the account menu upward, then Do not
-    disturb (a toggle), Help and Settings. Under 232px Help goes.
+  - **Footer** (48px, hairline on top): the account button, filling the
+    row up to Settings (26px avatar with the presence dot, the name in
+    `ui_strong`, the custom status or presence in `meta`), which opens the
+    account menu upward (presence and Do not disturb, status, profile,
+    Settings, Help, sign out); then Settings.
 - **Channel view** has a 46px header (name in `title`, star, member count,
   pinned count, info) over the post list and the composer. Posts use 20px
   horizontal gutters, 32px avatars, Medium author and `meta` time, grouped

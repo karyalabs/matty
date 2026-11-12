@@ -869,7 +869,11 @@ impl Render for AccountView {
             .min_w_0()
             .items_center()
             .child(
+                // The whole row up to the footer's buttons opens the menu,
+                // not just the avatar and name.
                 Menu::new(&self.menu, label)
+                    .flex_1()
+                    .min_w_0()
                     .trigger(self.trigger(cx))
                     .trigger_style_with(move |button| {
                         style_button(

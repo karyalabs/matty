@@ -198,11 +198,12 @@ pub fn queued() -> usize {
 /// The saved servers: `MATTY_PREVIEW=servers` has three, the
 /// first current (#206); the other previews have the one.
 pub fn servers() -> Vec<crate::teams::Server> {
+    let community = crate::teams::Server::new("Matty Community").host("community.matty.example");
     if value().as_deref() != Some("servers") {
-        return Vec::new();
+        return vec![community];
     }
     vec![
-        crate::teams::Server::new("Matty Community").host("community.matty.example"),
+        community,
         crate::teams::Server::new("Acme Corp")
             .host("chat.acme.example")
             .mentions(4),

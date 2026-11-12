@@ -1,7 +1,6 @@
-//! The team switcher in the sidebar header (#735) lists the teams and the
-//! other saved servers with every control named, over the
-//! `MATTY_PREVIEW=servers` fixtures, and the header says what waits
-//! elsewhere.
+//! The server switcher in the sidebar header (matty#879) lists the saved
+//! servers with every control named, over the `MATTY_PREVIEW=servers`
+//! fixtures, and the header says what waits on other servers.
 #![allow(clippy::unwrap_used)]
 
 use gpui_kit::{AnyView, IntoElement, Render, VisualTestContext};
@@ -42,18 +41,12 @@ fn the_switcher_lists_teams_and_servers(cx: &mut gpui_kit::TestAppContext) {
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
 
-    // No rail: a tile in the header counts the other server's mentions, and
-    // the team name beside it is the switcher.
+    // The header is the current server, and its name says how many
+    // mentions wait on the other servers.
     let drawn = labels(&mut cx);
-    assert!(
-        drawn
-            .iter()
-            .any(|(label, _)| label == "Acme Corp, 4 mentions"),
-        "no server tile in the header: {drawn:?}"
-    );
     let (_, header) = drawn
         .iter()
-        .find(|(label, _)| label == "Matty")
+        .find(|(label, _)| label == "Matty Community, 4 mentions on other servers")
         .unwrap_or_else(|| panic!("no switcher in the header: {drawn:?}"))
         .clone();
     cx.simulate_click(header, gpui_kit::Modifiers::none());
@@ -61,10 +54,10 @@ fn the_switcher_lists_teams_and_servers(cx: &mut gpui_kit::TestAppContext) {
 
     let drawn: Vec<String> = labels(&mut cx).into_iter().map(|(l, _)| l).collect();
     for expected in [
+        "Matty Community",
         "Acme Corp",
         "chat.example.org",
-        "Join another team\u{2026}",
-        "Add server\u{2026}",
+        "Add a server\u{2026}",
         "Manage servers\u{2026}",
     ] {
         assert!(
@@ -72,6 +65,8 @@ fn the_switcher_lists_teams_and_servers(cx: &mut gpui_kit::TestAppContext) {
             "{expected} did not draw: {drawn:?}"
         );
     }
+    // The server has three teams, so joining one lives on the tabs.
+    assert!(!drawn.iter().any(|label| label.starts_with("Join")));
     let unnamed = cx.update(|window, _| gpuicn::audit::unnamed_controls(window));
     assert!(unnamed.is_empty(), "unnamed controls: {unnamed:?}");
 }
