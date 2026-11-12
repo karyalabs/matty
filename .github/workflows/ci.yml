@@ -115,6 +115,9 @@ jobs:
               - '!.github/workflows/site.yml'
               - '!LICENSE'
               - '!NOTICE'
+              - '!flake.nix'
+              - '!flake.lock'
+              - '!nix/**'
           predicate-quantifier: every
       - if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
         uses: dorny/paths-filter@v3

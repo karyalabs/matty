@@ -532,6 +532,62 @@ jobs:
           gh pr create --repo "$TAP" --head "$branch" --title "matty $VERSION" \
             --body "Bumps the cask to [Matty $VERSION](https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION)."
 
+  nix:
+    # Points the Nix flake (docs/nix.md) at the release just published,
+    # betas included, and refreshes its nixpkgs pin. It builds the package
+    # and runs it before opening the pull request, which merges itself:
+    # nix/ and the flake are outside CI's code filter, so CI checks nothing.
+    name: Nix package bump
+    needs: [build, linux, publish]
+    if: always() && needs.publish.result == 'success' && needs.linux.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - id: bot
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.KARYA_BOT_APP_ID }}
+          private-key: ${{ secrets.KARYA_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ steps.bot.outputs.token }}
+      - uses: cachix/install-nix-action@v31
+      - name: Update the flake and check that it builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP"
+          scripts/nix-release "$VERSION" "$RUNNER_TEMP/SHA256SUMS"
+          nix flake update
+          nix build .#matty
+          ./result/bin/matty --version | grep -F "$VERSION"
+      - name: Open the pull request and let it merge itself
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if [[ -z "$(git status --porcelain -- nix/release.json flake.lock)" ]]; then
+            echo "The flake is already at $VERSION"
+            exit 0
+          fi
+          branch="nix-$VERSION"
+          git config user.name "karya-karta[bot]"
+          git config user.email "karya-karta[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add nix/release.json flake.lock
+          git commit -m "Update the Nix package to $VERSION"
+          git push --force origin "$branch"
+          url="$(gh pr list --head "$branch" --state open --json url --jq '.[0].url // ""')"
+          if [[ -z "$url" ]]; then
+            url="$(gh pr create --head "$branch" --title "Update the Nix package to $VERSION" \
+              --body "Points the Nix flake at [Matty $VERSION](https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION) and refreshes nixpkgs. The Release workflow built it and ran \`matty --version\` before opening this.")"
+          fi
+          gh pr merge "$url" --auto --squash
+
   # The browser build (docs/web.md) from the release commit, built while the
   # platforms build so the deploy after publishing only uploads it.
   web-build:

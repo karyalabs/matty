@@ -18,7 +18,8 @@ green master, plus a hotfix beta when a release-blocking fix lands.
    commit, waits for that commit's `ci` check to pass, then creates the
    tag `v<version>` and the GitHub release with the changelog entry on top,
    signs the update manifest, bumps the Homebrew cask (stable versions
-   only) and deploys the web build to karyalabs.dev/matty and
+   only), opens a self-merging pull request that points the Nix flake at
+   the release ([nix.md](nix.md)) and deploys the web build to karyalabs.dev/matty and
    demo.karyalabs.dev/matty.
 3. Nothing else is pushed by hand: no tags.
 
