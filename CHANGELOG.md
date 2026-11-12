@@ -9,6 +9,25 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.25] - 2026-11-12
+
+A sidebar header that switches servers, and teams as tabs.
+
+### Changed
+
+- The sidebar header is a server switcher. It shows the current server
+  and how many mentions wait on your other servers, and its menu lists
+  only servers, with Add a server and Manage servers (#887).
+- Teams are named tabs under the header, each with its own mention count
+  or unread dot. Teams that don't fit go under "More", the team you're on
+  always keeps a tab, and with one team there is no tab row. The tile
+  strip and the team popover are gone (#887).
+
+### Fixed
+
+- The whole account row at the bottom of the sidebar opens the account
+  menu, not just the name and avatar (#887).
+
 ## [0.1.0-beta.24] - 2026-11-12
 
 Images that stayed blank after launch, notifications that look like
@@ -463,7 +482,9 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.23...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.25...HEAD
+[0.1.0-beta.25]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.25
+[0.1.0-beta.24]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.24
 [0.1.0-beta.23]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.23
 [0.1.0-beta.22]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.22
 [0.1.0-beta.21]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.21
