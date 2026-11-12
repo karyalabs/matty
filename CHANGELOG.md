@@ -23,6 +23,13 @@ Mattermost's, and a tidier Direct messages list.
 - Notifications are laid out exactly as the official app lays them out
   (#880).
 
+### Changed
+
+- The sidebar is a list of places with exactly one row selected. The
+  Unreads, Mentions and Saved rows are gone: Recent mentions and Saved
+  messages are buttons in the sidebar header, Threads opens with no
+  thread picked, and the unread filter is a visible toggle (#883).
+
 ### Added
 
 - Direct messages sort by recent activity, and you can message yourself
