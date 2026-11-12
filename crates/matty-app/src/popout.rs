@@ -112,6 +112,7 @@ pub enum Ask {
         post: Option<SharedString>,
     },
     OpenLink(SharedString),
+    /// The direct message with this user id.
     OpenDirect(SharedString),
     ViewProfile(UserProfile),
     Pinned(SharedString),
@@ -1287,9 +1288,7 @@ impl PopOutView {
             ChannelEvent::OpenLink(url) => Some(Ask::OpenLink(url.clone())),
             ChannelEvent::OpenPinned => Some(Ask::Pinned(channel.clone())),
             ChannelEvent::OpenInfo => Some(Ask::Info(channel.clone())),
-            ChannelEvent::OpenDirect { display_name, .. } => {
-                Some(Ask::OpenDirect(display_name.clone()))
-            }
+            ChannelEvent::OpenDirect { user_id, .. } => Some(Ask::OpenDirect(user_id.clone())),
             ChannelEvent::ViewProfile(profile) => Some(Ask::ViewProfile(profile.clone())),
             ChannelEvent::OpenPermalink { channel, post } => Some(Ask::Show {
                 channel: channel.clone(),
@@ -1518,9 +1517,7 @@ impl PopOutView {
             RightPaneEvent::Slash(request) => return self.slash(request, cx),
             RightPaneEvent::Offline(action) => Some(Ask::Offline(action)),
             RightPaneEvent::OpenLink(url) => Some(Ask::OpenLink(url.clone())),
-            RightPaneEvent::OpenDirect { display_name, .. } => {
-                Some(Ask::OpenDirect(display_name.clone()))
-            }
+            RightPaneEvent::OpenDirect { user_id, .. } => Some(Ask::OpenDirect(user_id.clone())),
             RightPaneEvent::ViewProfile(profile) => Some(Ask::ViewProfile(profile.clone())),
             RightPaneEvent::Forward(post) => Some(Ask::Forward {
                 channel: channel.clone(),

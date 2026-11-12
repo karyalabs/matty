@@ -1991,9 +1991,31 @@ impl Live {
     /// format (#156), any other channel's as the server names it.
     fn sidebar_name(&self, channel: &SidebarChannel) -> String {
         match &channel.dm_user {
+            // The user's own direct message, as the web app names it.
+            Some(person) if person.id == self.me.0 => crate::t!(
+                "sidebar-direct-you",
+                name = crate::transcript::display_name_as(person, self.names)
+            )
+            .to_string(),
             Some(person) => crate::transcript::display_name_as(person, self.names),
             None => channel.display_name.clone(),
         }
+    }
+
+    /// A category's channels in the order its sorting asks for, as the web
+    /// app's `makeSortChannels` puts them: by recent activity, newest first;
+    /// alphabetically by the name the sidebar shows; or as the user placed
+    /// them (`manual`, and the server default).
+    fn sorted<'a>(&self, section: &'a SidebarSection) -> Vec<&'a SidebarChannel> {
+        let mut channels: Vec<&SidebarChannel> = section.channels.iter().collect();
+        match section.sorting.as_str() {
+            "recent" => channels.sort_by_key(|channel| std::cmp::Reverse(channel.active_at)),
+            "alpha" => {
+                channels.sort_by_cached_key(|channel| self.sidebar_name(channel).to_lowercase())
+            }
+            _ => {}
+        }
+        channels
     }
 
     /// The team on screen.
@@ -2222,10 +2244,21 @@ impl Live {
                 for user in users.iter() {
                     self.avatars.learn(&user.id, user.last_picture_update);
                 }
+                // The user can message themselves, as in the web app, where
+                // they are listed as "(you)".
                 let mut people: Vec<_> = users
                     .iter()
-                    .filter(|user| user.id != self.me.0 && user.delete_at == 0 && !user.is_bot)
-                    .map(|user| self.profile(user))
+                    .filter(|user| user.delete_at == 0 && !user.is_bot)
+                    .map(|user| {
+                        let mut person = self.profile(user);
+                        if user.id == self.me.0 {
+                            person.display_name = crate::t!(
+                                "sidebar-direct-you",
+                                name = person.display_name.to_string()
+                            );
+                        }
+                        person
+                    })
                     .collect();
                 people.sort_by_key(|person| person.display_name.to_lowercase());
                 update.people = Some(people);
@@ -2975,14 +3008,14 @@ impl Live {
         sections
             .iter()
             .map(|section| {
+                let channels = self.sorted(section);
                 let shown = if section.kind == "direct_messages" {
-                    shown_conversations(&section.channels, self.dm_limit, open)
+                    shown_conversations(&channels, self.dm_limit, open)
                 } else {
-                    vec![true; section.channels.len()]
+                    vec![true; channels.len()]
                 };
-                let rows = section
-                    .channels
-                    .iter()
+                let rows = channels
+                    .into_iter()
                     .zip(shown)
                     .filter_map(|(channel, shown)| shown.then_some(channel))
                     .map(|channel| {
@@ -3037,6 +3070,7 @@ impl Live {
                     Category::new(section.id.clone(), section.display_name.clone(), rows);
                 category.collapsed = section.collapsed;
                 category.kind = crate::sidebar::CategoryKind::from_server(&section.kind);
+                category.sorting = crate::sidebar::Sorting::from_server(&section.sorting);
                 category
             })
             .collect()
@@ -3061,9 +3095,13 @@ fn dm_limit(preferences: &[matty_api::models::Preference]) -> usize {
 /// Which of a Direct messages category's conversations show (#619), in
 /// its order: the `limit` most recent, and any older one that is unread or
 /// open, as the web app does.
-fn shown_conversations(channels: &[SidebarChannel], limit: usize, open: Option<&str>) -> Vec<bool> {
+fn shown_conversations(
+    channels: &[&SidebarChannel],
+    limit: usize,
+    open: Option<&str>,
+) -> Vec<bool> {
     let mut recent: Vec<usize> = (0..channels.len()).collect();
-    recent.sort_by_key(|&index| std::cmp::Reverse(channels[index].last_post_at));
+    recent.sort_by_key(|&index| std::cmp::Reverse(channels[index].active_at));
     let mut shown = vec![false; channels.len()];
     for index in recent.into_iter().take(limit) {
         shown[index] = true;
@@ -3422,6 +3460,7 @@ mod tests {
             },
             muted: false,
             last_post_at: 0,
+            active_at: 0,
         }
     }
 
@@ -3441,13 +3480,17 @@ mod tests {
     fn direct_messages_show_the_most_recent_plus_unread_and_open() {
         let dms: Vec<SidebarChannel> = (0..30)
             .map(|at| SidebarChannel {
-                last_post_at: at,
+                active_at: at,
                 ..channel(&format!("d{at}"), "D", 0, 0)
             })
             .collect();
         let shown = |dms: &[SidebarChannel], limit, open| {
             dms.iter()
-                .zip(shown_conversations(dms, limit, open))
+                .zip(shown_conversations(
+                    &dms.iter().collect::<Vec<_>>(),
+                    limit,
+                    open,
+                ))
                 .filter(|(_, shown)| *shown)
                 .map(|(dm, _)| dm.id.clone())
                 .collect::<Vec<_>>()
@@ -3782,6 +3825,50 @@ mod tests {
         ])));
         assert!(update.categories.is_none());
         assert!(update.profiles.is_none());
+    }
+
+    #[test]
+    fn categories_sort_as_their_sorting_says_and_name_the_users_own_dm() {
+        let live = live();
+        let dm = |id: &str, user: &str, username: &str, active_at: i64| SidebarChannel {
+            dm_user_id: Some(user.into()),
+            dm_user: Some(User {
+                id: user.into(),
+                username: username.into(),
+                ..User::default()
+            }),
+            display_name: username.into(),
+            active_at,
+            ..channel(id, "D", 0, 0)
+        };
+        let dms = vec![
+            dm("a", "u-zoe", "zoe", 10),
+            dm("b", "me", "me", 30),
+            dm("c", "u-ada", "ada", 20),
+        ];
+        let names = |sorting: &str| {
+            let section = SidebarSection {
+                kind: "direct_messages".into(),
+                sorting: sorting.into(),
+                ..section("dms", dms.clone())
+            };
+            let categories = live.categories(&[section]);
+            assert_eq!(
+                categories[0].sorting,
+                crate::sidebar::Sorting::from_server(sorting)
+            );
+            categories[0]
+                .rows
+                .iter()
+                .map(|row| row.name.to_string())
+                .collect::<Vec<_>>()
+        };
+        // Newest activity first, as the web app sorts Direct messages.
+        assert_eq!(names("recent"), ["me (you)", "ada", "zoe"]);
+        assert_eq!(names("alpha"), ["ada", "me (you)", "zoe"]);
+        // Manual, and the server default, keep the category's own order.
+        assert_eq!(names("manual"), ["zoe", "me (you)", "ada"]);
+        assert_eq!(names(""), ["zoe", "me (you)", "ada"]);
     }
 
     #[test]
@@ -4873,7 +4960,7 @@ mod tests {
     }
 
     #[test]
-    fn people_leave_out_the_user_and_bots() {
+    fn people_list_the_user_as_you_and_leave_out_bots() {
         let mut live = live();
         live.apply(&ChangeSet::Unreads {
             teams: Arc::from(vec![team("t1")]),
@@ -4893,13 +4980,11 @@ mod tests {
                 person("ada", false),
             ]),
         });
-        let names: Vec<_> = update
-            .people
-            .unwrap()
-            .iter()
-            .map(|p| p.username.to_string())
-            .collect();
-        assert_eq!(names, ["ada", "zed"]);
+        let people = update.people.unwrap();
+        let names: Vec<_> = people.iter().map(|p| p.username.to_string()).collect();
+        assert_eq!(names, ["ada", "me", "zed"]);
+        // The user can message themselves, named as the web app names them.
+        assert_eq!(people[1].display_name.as_ref(), "me (you)");
     }
 
     #[test]

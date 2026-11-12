@@ -183,6 +183,9 @@ pub struct Channel {
     pub delete_at: i64,
     /// Milliseconds since the epoch.
     pub update_at: i64,
+    /// Milliseconds since the epoch the channel was made; the sidebar's
+    /// recency sort counts a channel with no posts from then.
+    pub create_at: i64,
 }
 
 /// A role and the permissions it grants (`POST roles/names`).

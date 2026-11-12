@@ -3,6 +3,8 @@
 sidebar-favorites = Favorites
 sidebar-channels = Channels
 sidebar-direct-messages = Direct messages
+# The user's own direct message, and their row in New message.
+sidebar-direct-you = { $name } (you)
 sidebar-new-message = New message
 sidebar-browse-channels = Browse channels
 sidebar-create-channel = Create channel
@@ -27,6 +29,10 @@ sidebar-rename-category = Rename category
 sidebar-category-up = Move category up
 sidebar-category-down = Move category down
 sidebar-delete-category = Delete category
+sidebar-sort = Sort
+sidebar-sort-alpha = Alphabetically
+sidebar-sort-recent = Recent activity
+sidebar-sort-manual = Manually
 sidebar-team-menu = Team menu
 sidebar-new = New
 sidebar-new-label = New…

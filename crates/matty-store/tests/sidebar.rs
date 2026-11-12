@@ -363,6 +363,34 @@ fn sidebar_snapshot_counts_per_crt_mode() {
 }
 
 #[test]
+fn a_channel_is_active_from_its_newest_post_per_crt_mode_or_its_creation() {
+    let store = seeded();
+    let conn = store.conn();
+    let mut town = channel("town", "t1", "O");
+    town.last_post_at = 300; // a reply
+    town.last_root_post_at = 200;
+    town.create_at = 100;
+    let mut fresh = channel(&format!("{ME}__u1"), "", "D");
+    fresh.create_at = 500; // no posts yet
+    sidebar::upsert_channels(conn, &[town, fresh]).unwrap();
+    let active = |mode| {
+        let sections = sidebar::sidebar_snapshot(conn, "t1", ME, mode).unwrap();
+        sections
+            .iter()
+            .flat_map(|s| s.channels.iter())
+            .map(|c| (c.id.clone(), c.active_at))
+            .collect::<HashMap<_, _>>()
+    };
+    let crt = active(UnreadMode::CollapsedThreads);
+    let all = active(UnreadMode::AllPosts);
+    assert_eq!(crt["town"], 200);
+    assert_eq!(all["town"], 300);
+    assert_eq!(crt[&format!("{ME}__u1")], 500);
+    // A channel cached before creation times were kept counts from 0.
+    assert_eq!(crt["dev"], 0);
+}
+
+#[test]
 fn a_muted_category_mutes_its_channels() {
     let store = seeded();
     let mut muted = category("chan", "channels", &["town"]);

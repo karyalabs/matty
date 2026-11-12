@@ -519,9 +519,11 @@ impl MainWindow {
                 }
             }
             // A direct message asked for here opens here.
-            PaneEvent::Ask(Ask::OpenDirect(name)) => {
-                if let Some(id) = self.direct_channel(name, cx) {
+            PaneEvent::Ask(Ask::OpenDirect(user_id)) => {
+                if let Some(id) = self.direct_channel(user_id, cx) {
                     self.open_in_split(id, window, cx);
+                } else {
+                    self.open_direct(user_id.clone(), window, cx);
                 }
             }
             PaneEvent::Ask(Ask::Forward { post, .. }) => {

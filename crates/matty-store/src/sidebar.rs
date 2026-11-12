@@ -448,8 +448,12 @@ pub struct SidebarChannel {
     pub unreads: Unreads,
     /// Muted: the member's `mark_unread` is `mention`, or the category is muted.
     pub muted: bool,
-    /// When the last post arrived, for recency sorting.
+    /// When the last post arrived.
     pub last_post_at: i64,
+    /// When the channel last saw activity, as the web app's recency sort
+    /// reads it: its newest post (newest root post with Collapsed Reply
+    /// Threads on), or when it was made if that is later.
+    pub active_at: i64,
 }
 
 /// A category and its channels, in sidebar order.
@@ -478,7 +482,8 @@ const SNAPSHOT: &str = "
            ch.total_msg_count, ch.total_msg_count_root,
            m.msg_count, m.mention_count, m.msg_count_root, m.mention_count_root,
            m.urgent_mention_count, m.notify_props,
-           u.username, u.first_name, u.last_name, u.nickname
+           u.username, u.first_name, u.last_name, u.nickname,
+           ch.last_root_post_at, coalesce(json_extract(ch.data, '$.create_at'), 0)
     FROM categories cat
     LEFT JOIN category_channels cc ON cc.category_id = cat.id
     LEFT JOIN channels ch ON ch.id = cc.channel_id AND ch.delete_at = 0
@@ -589,6 +594,12 @@ pub fn sidebar_snapshot(
             Some(username) => username,
             None => row.get(9)?,
         };
+        let last_post_at: i64 = row.get(10)?;
+        let newest = match mode {
+            UnreadMode::CollapsedThreads => row.get(23)?,
+            UnreadMode::AllPosts => last_post_at,
+        };
+        let created: i64 = row.get(24)?;
         section.channels.push(SidebarChannel {
             id: channel_id,
             muted: section.muted || member.is_muted(),
@@ -598,7 +609,8 @@ pub fn sidebar_snapshot(
             display_name,
             dm_user_id,
             dm_user,
-            last_post_at: row.get(10)?,
+            last_post_at,
+            active_at: newest.max(created),
         });
     }
     Ok(sections)
