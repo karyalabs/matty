@@ -35,6 +35,7 @@ switches channels without a spinner, and keeps working offline.
 | --- | --- |
 | **macOS** 13 or later, Apple silicon and Intel | `Matty-<version>.dmg` from [Releases](https://github.com/karyalabs/matty/releases). Signed and notarized, and it updates itself. |
 | **Linux** x86_64 | `.deb`, `.rpm`, AppImage or tarball from [Releases](https://github.com/karyalabs/matty/releases). |
+| **Nix, NixOS** x86_64 | `nix run github:karyalabs/matty`, or add the flake to your system ([docs/nix.md](docs/nix.md)). |
 | **Windows** x86_64 | The `.msi` from [Releases](https://github.com/karyalabs/matty/releases). It installs for you alone, with no administrator prompt. |
 | **Web** | <https://karyalabs.dev/matty/> for your own server, after a one-time [server setting](docs/web.md#what-the-server-needs). |
 | **Just looking** | <https://demo.karyalabs.dev/matty/> opens a sample workspace in your browser. No account, no server. |
@@ -183,6 +184,10 @@ chmod +x Matty-<version>-x86_64.AppImage && ./Matty-<version>-x86_64.AppImage
 ```
 
 There is a plain tarball too. To update, install the newer package.
+
+**Nix and NixOS.** `nix run github:karyalabs/matty` runs the latest
+release; [docs/nix.md](docs/nix.md) covers installing it with
+`nix profile` or a NixOS or Home Manager flake, and how updates work there.
 
 **Windows.** Run `Matty-<version>-x86_64.msi`. It is not code signed yet,
 so SmartScreen may warn: choose **More info**, then **Run anyway**. To

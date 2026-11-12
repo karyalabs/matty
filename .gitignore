@@ -5,3 +5,6 @@ __pycache__/
 /bench/.venv/
 site/dist/
 site/.wrangler/
+
+# nix build
+/result
