@@ -9,6 +9,22 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.23] - 2026-11-12
+
+Images that never loaded, and post headers that didn't line up.
+
+### Fixed
+
+- An image attachment no longer stays an empty box when the server has no
+  usable preview of it. Matty now loads the file itself, as Mattermost's
+  own clients do, and when even that fails the tile becomes a card that
+  says "Image didn't load" and opens the file (#872).
+- A post's name, time and its Saved or Pinned marker sit on one line.
+  The time and the marker sat a few pixels high (#872, gpuicn 0.11.6).
+- Settings pages keep a readable width in wide windows (#867). On the web,
+  Settings fills the page and clicks no longer reach the workspace behind
+  it (#865), and a reload shows the latest deploy (#863).
+
 ## [0.1.0-beta.22] - 2026-11-11
 
 A fix for the theme editor's preview.
@@ -421,7 +437,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.22...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.23...HEAD
+[0.1.0-beta.23]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.23
 [0.1.0-beta.22]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.22
 [0.1.0-beta.21]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.21
 [0.1.0-beta.20]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.20
