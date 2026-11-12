@@ -140,6 +140,3 @@ taffy = { opt-level = "s" }
 harfrust = { opt-level = "s" }
 gpui-base = { opt-level = "s" }
 gpui-component = { opt-level = "s" }
-
-[patch.crates-io]
-gpuicn = { path = "../gpuicn/crates/ui" }
