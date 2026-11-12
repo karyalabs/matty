@@ -385,6 +385,8 @@ impl Arrival {
                 root_id: post.root_id.clone(),
                 author_id: post.user_id.clone(),
                 author_name: arrived.sender_name.trim_start_matches('@').to_owned(),
+                author_label: arrived.sender_name.clone(),
+                team_name: arrived.team_display_name.clone(),
                 channel_name: arrived.channel_display_name.clone(),
                 channel_kind,
                 message: post.message.clone(),
@@ -4044,6 +4046,7 @@ mod tests {
             channel_type: "O".into(),
             channel_display_name: "Town Square".into(),
             sender_name: "@sam".into(),
+            team_display_name: String::new(),
             mentioned: false,
             followed: false,
             channel_props: channel_props

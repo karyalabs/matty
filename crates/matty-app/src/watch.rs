@@ -518,6 +518,7 @@ mod tests {
             channel_type: "D".into(),
             channel_display_name: "sam".into(),
             sender_name: "@sam".into(),
+            team_display_name: String::new(),
             mentioned: false,
             followed: false,
             channel_props: HashMap::new(),

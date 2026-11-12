@@ -192,7 +192,7 @@ fn build(notification: &Notification) -> notify_rust::Notification {
     built
         .appname("Matty")
         .summary(&notification.title)
-        .body(&escape(&notification.combined_body()))
+        .body(&escape(&notification.body))
         .icon(DESKTOP_ENTRY)
         .action("default", "Open")
         .hint(Hint::DesktopEntry(DESKTOP_ENTRY.into()))
@@ -280,8 +280,7 @@ mod tests {
     fn a_notification_names_matty_and_its_desktop_entry() {
         let built = build(&Notification {
             title: "town-square".into(),
-            subtitle: "Ada".into(),
-            body: "<hi>".into(),
+            body: "Ada: <hi>".into(),
             image: None,
             channel_id: "c1".into(),
             post_id: "p1".into(),

@@ -49,7 +49,13 @@ pub(crate) fn apply(
                 let channel_props = sidebar::channel_member(conn, &post.channel_id, me)?
                     .map(|member| member.notify_props)
                     .unwrap_or_default();
+                let team_display_name = if posted.team_id.is_empty() {
+                    String::new()
+                } else {
+                    sidebar::team_display_name(conn, &posted.team_id)?.unwrap_or_default()
+                };
                 dirty.direct.push(ChangeSet::Arrived(Arc::new(Arrived {
+                    team_display_name,
                     followed: posted.followers.iter().any(|id| id == me),
                     post,
                     channel_type: posted.channel_type,

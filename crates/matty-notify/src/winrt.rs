@@ -47,20 +47,14 @@ impl Notifier for Toasts {
             root_id: notification.root_id.clone(),
         };
         let title = notification.title.clone();
-        let (subtitle, body) = (notification.subtitle.clone(), notification.body.clone());
+        let body = notification.body.clone();
         let image = notification.image.clone();
         let shown = std::thread::Builder::new()
             .name("toast".into())
             .spawn(move || {
-                // Matty plays its own sounds. The author's name and the
-                // message take a line each under the channel, and their
-                // picture, cropped round, stands in for the app's logo.
-                let mut toast = Toast::new(APP_USER_MODEL_ID).title(&title);
-                toast = if subtitle.is_empty() {
-                    toast.text1(&body)
-                } else {
-                    toast.text1(&subtitle).text2(&body)
-                };
+                // Matty plays its own sounds. The author's picture, cropped
+                // round, stands in for the app's logo.
+                let mut toast = Toast::new(APP_USER_MODEL_ID).title(&title).text1(&body);
                 if let Some(image) = &image {
                     toast = toast.icon(image, IconCrop::Circular, "");
                 }
