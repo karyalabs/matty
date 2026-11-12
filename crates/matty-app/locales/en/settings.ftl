@@ -14,6 +14,7 @@ prefs-section-keyboard = Keyboard
 prefs-section-advanced = Advanced
 
 prefs-summary-general = How Matty starts, where files go and how it updates.
+prefs-summary-general-web = Which version of Matty this is.
 prefs-summary-appearance = How Matty looks on this computer.
 prefs-summary-messages = How messages read and how you write them.
 prefs-summary-notifications = What notifies you, and how.
@@ -272,6 +273,7 @@ prefs-update-beta-hint = Betas and alphas too, before they're released.
 prefs-check-updates = Check for updates
 prefs-version = Matty { $version }
 prefs-update-status-unsupported = This copy of Matty is updated by your package manager.
+prefs-update-web = Matty on the web runs the latest release. Reload the page to pick up a new one.
 prefs-update-status-not-checked = Matty checks for updates every few hours.
 prefs-update-status-checking = Checking for updates…
 prefs-update-status-up-to-date = { $minutes ->

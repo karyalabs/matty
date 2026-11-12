@@ -449,13 +449,13 @@ impl Render for SettingsView {
                 .child(div().flex_1().min_h_0().flex().child(sidebar).child(body))
                 .child(self.toasts.clone())
                 .into_any_element(),
-            // The title bar stays above the overlay.
+            // Over the whole page: signed in, the main window draws no title
+            // bar to stay clear of. `occlude` keeps clicks, hovers and
+            // scrolling from reaching the workspace underneath.
             Host::Overlay => root
                 .absolute()
-                .left_0()
-                .right_0()
-                .bottom_0()
-                .top(px(metrics::TITLE_BAR_HEIGHT))
+                .inset_0()
+                .occlude()
                 .child(div().flex_1().min_h_0().flex().child(sidebar).child(body))
                 .child(self.toasts.clone())
                 .into_any_element(),

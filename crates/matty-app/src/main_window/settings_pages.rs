@@ -99,6 +99,7 @@ impl Section {
     /// The META sentence under the page title.
     fn summary(self) -> SharedString {
         match self {
+            Self::General if cfg!(target_family = "wasm") => t!("prefs-summary-general-web"),
             Self::General => t!("prefs-summary-general"),
             Self::Appearance => t!("prefs-summary-appearance"),
             Self::Messages => t!("prefs-summary-messages"),
@@ -816,6 +817,19 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<Group> {
+        // A browser tab has no login items, tray, download folder or
+        // updater: the page loads the latest Matty each time.
+        if cfg!(target_family = "wasm") {
+            return vec![
+                Group::new("preferences.updates", t!("prefs-updates")).row(
+                    Row::new(
+                        "preferences.version",
+                        t!("prefs-version", version = crate::VERSION),
+                    )
+                    .description(t!("prefs-update-web")),
+                ),
+            ];
+        }
         let settings = self.settings.read(cx).get().clone();
         let download_folder = settings
             .download_folder
