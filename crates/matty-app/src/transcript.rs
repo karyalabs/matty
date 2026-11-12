@@ -900,6 +900,7 @@ mod tests {
                 preview: None,
                 width: 640,
                 height: 400,
+                missing: false,
             }]
         );
     }

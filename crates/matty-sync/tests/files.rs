@@ -537,3 +537,65 @@ async fn emoji_images_and_team_icons_are_fetched_once_per_version_and_kept() {
     assert_eq!(fetches("/emoji/e1/image").await, 1);
     assert_eq!(fetches("/teams/t1/image").await, 2);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_without_a_preview_loads_the_file_itself() {
+    let server = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/files/f1/preview"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "id": "api.file.get_file_preview.no_preview.app_error",
+            "message": "File doesn't have a preview image.",
+            "status_code": 400
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/files/f1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "image/png")
+                .set_body_bytes(b"png".to_vec()),
+        )
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+
+    sync.send(Command::LoadImage {
+        file_id: "f1".into(),
+        size: ImageSize::Preview,
+    });
+    let ChangeSet::Image { size, bytes, .. } =
+        next(&changes, |c| matches!(c, ChangeSet::Image { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!((size, &*bytes), (ImageSize::Preview, &b"png"[..]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_the_server_will_not_give_is_reported_missing() {
+    let server = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/files/f1/preview"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/files/f1"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+
+    sync.send(Command::LoadImage {
+        file_id: "f1".into(),
+        size: ImageSize::Preview,
+    });
+    let ChangeSet::ImageMissing { file_id, size } =
+        next(&changes, |c| matches!(c, ChangeSet::ImageMissing { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!((file_id.as_str(), size), ("f1", ImageSize::Preview));
+}

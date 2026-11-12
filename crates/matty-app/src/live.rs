@@ -132,6 +132,8 @@ pub struct Live {
     /// Image files' thumbnails by file id, and those asked for.
     thumbnails: HashMap<String, Arc<gpui_kit::Image>>,
     asked_thumbnails: std::collections::HashSet<String>,
+    /// Image files whose preview and file both failed to load.
+    missing_images: std::collections::HashSet<String>,
     /// Roles' permissions as the server sent them, by role name, and the
     /// names already asked for (#208).
     roles: HashMap<String, Vec<String>>,
@@ -726,6 +728,7 @@ impl Live {
                 uploads: HashMap::new(),
                 thumbnails: HashMap::new(),
                 asked_thumbnails: std::collections::HashSet::new(),
+                missing_images: std::collections::HashSet::new(),
                 roles: HashMap::new(),
                 asked_roles: std::collections::HashSet::new(),
                 team_roles: None,
@@ -997,9 +1000,7 @@ impl Live {
                 .iter_mut()
                 .chain(embeds.iter_mut().flat_map(crate::embeds::Embed::files_mut))
         }) {
-            if let Some(image) = self.thumbnails.get(file.id.as_ref()) {
-                file.preview = Some(crate::attachments::UploadSource::Image(image.clone()));
-            }
+            self.fill_file(file);
         }
         for image in model
             .posts
@@ -1031,6 +1032,49 @@ impl Live {
             .chain(self.search_files.iter())
             .find(|file| file.id == file_id)
             .map(|file| file.name.clone())
+    }
+
+    /// Redraws the views that show `file_id`'s tile, after its image came
+    /// or could not be had.
+    fn file_image_changed(&mut self, file_id: &str, update: &mut Update) {
+        let shown = self.shown.as_ref().is_some_and(|posts| {
+            posts
+                .iter()
+                .flat_map(|post| {
+                    post.files
+                        .iter()
+                        .chain(post.embeds.iter().flat_map(crate::embeds::Embed::files))
+                })
+                .any(|file| file.id.as_ref() == file_id)
+        });
+        if shown {
+            update.channel = self.channel_update();
+        }
+        // The thread pane shows the same tiles (#617).
+        update.thread = self.thread_model().filter(|thread| {
+            std::iter::once(&thread.root)
+                .chain(&thread.replies)
+                .flat_map(|post| {
+                    post.files
+                        .iter()
+                        .chain(post.embeds.iter().flat_map(crate::embeds::Embed::files))
+                })
+                .any(|file| file.id.as_ref() == file_id)
+        });
+        if self.search_files.iter().any(|file| file.id == file_id) {
+            update.search = self.search_model();
+        }
+        if self.listed_file(file_id) {
+            update.channel_files = self.channel_files_model();
+        }
+    }
+
+    /// A posted file's tile image, when here, or that it could not be had.
+    fn fill_file(&self, file: &mut crate::attachments::PostFile) {
+        if let Some(image) = self.thumbnails.get(file.id.as_ref()) {
+            file.preview = Some(crate::attachments::UploadSource::Image(image.clone()));
+        }
+        file.missing = self.missing_images.contains(file.id.as_ref());
     }
 
     /// Asks sync for the thumbnails of the found image files (#207).
@@ -1829,9 +1873,7 @@ impl Live {
                     .chain(embeds.iter_mut().flat_map(crate::embeds::Embed::files_mut))
             })
         {
-            if let Some(image) = self.thumbnails.get(file.id.as_ref()) {
-                file.preview = Some(crate::attachments::UploadSource::Image(image.clone()));
-            }
+            self.fill_file(file);
         }
         // The cards' images and controls, as in the channel (#211).
         for image in std::iter::once(&mut model.root)
@@ -1865,9 +1907,7 @@ impl Live {
         viewer: &crate::transcript::Viewer<'_>,
     ) -> crate::right_pane::FoundFile {
         let mut file = crate::attachments::PostFile::from_info(info);
-        if let Some(image) = self.thumbnails.get(&info.id) {
-            file.preview = Some(crate::attachments::UploadSource::Image(image.clone()));
-        }
+        self.fill_file(&mut file);
         let today = viewer.now.to_zoned(viewer.zone.clone()).date();
         let (_, day, _) = crate::transcript::when(info.create_at, viewer.zone, today);
         crate::right_pane::FoundFile {
@@ -2262,6 +2302,21 @@ impl Live {
                         });
                     }),
                 );
+                if *size == ImageSize::Preview {
+                    // A preview Matty cannot decode gives way to the file
+                    // itself, as a browser would still show that.
+                    let sync = self.sync.clone();
+                    let asked = file_id.clone();
+                    crate::decoded_images::fallback(
+                        &image,
+                        std::rc::Rc::new(move || {
+                            sync.send(Command::LoadImage {
+                                file_id: asked.clone(),
+                                size: ImageSize::Original,
+                            });
+                        }),
+                    );
+                }
                 if matches!(size, ImageSize::Preview | ImageSize::Original) {
                     self.full_images.insert(file_id.clone(), image.clone());
                     update.full_image = Some((file_id.as_str().into(), image.clone()));
@@ -2270,35 +2325,14 @@ impl Live {
                     return update;
                 }
                 self.thumbnails.insert(file_id.clone(), image);
-                let shown = self.shown.as_ref().is_some_and(|posts| {
-                    posts
-                        .iter()
-                        .flat_map(|post| {
-                            post.files
-                                .iter()
-                                .chain(post.embeds.iter().flat_map(crate::embeds::Embed::files))
-                        })
-                        .any(|file| file.id.as_ref() == file_id)
-                });
-                if shown {
-                    update.channel = self.channel_update();
-                }
-                // The thread pane shows the same tiles (#617).
-                update.thread = self.thread_model().filter(|thread| {
-                    std::iter::once(&thread.root)
-                        .chain(&thread.replies)
-                        .flat_map(|post| {
-                            post.files
-                                .iter()
-                                .chain(post.embeds.iter().flat_map(crate::embeds::Embed::files))
-                        })
-                        .any(|file| file.id.as_ref() == file_id)
-                });
-                if self.search_files.iter().any(|file| &file.id == file_id) {
-                    update.search = self.search_model();
-                }
-                if self.listed_file(file_id) {
-                    update.channel_files = self.channel_files_model();
+                self.missing_images.remove(file_id);
+                self.file_image_changed(file_id, &mut update);
+            }
+            ChangeSet::ImageMissing { file_id, .. } => {
+                // A tile that has an image keeps showing it unless that
+                // image would not decode either (see `PostFile::shown_as`).
+                if self.missing_images.insert(file_id.clone()) {
+                    self.file_image_changed(file_id, &mut update);
                 }
             }
             ChangeSet::Picture {
@@ -5290,6 +5324,49 @@ mod tests {
             content_type: "image/png".into(),
         });
         assert!(update.channel.is_none());
+    }
+
+    #[test]
+    fn an_image_the_server_will_not_give_shows_as_missing() {
+        let mut live = live();
+        live.open(ChannelRow::new("c1", "town", ChannelKind::Public));
+        let mut post = matty_api::models::Post {
+            id: "p1".into(),
+            user_id: "ada".into(),
+            ..Default::default()
+        };
+        post.metadata.files.push(matty_api::models::FileInfo {
+            id: "f1".into(),
+            name: "menu.png".into(),
+            ..Default::default()
+        });
+        live.apply(&ChangeSet::Posts {
+            channel_id: "c1".into(),
+            posts: Arc::from(vec![post]),
+        });
+        let update = live.apply(&ChangeSet::ImageMissing {
+            file_id: "f1".into(),
+            size: ImageSize::Preview,
+        });
+        let Some(ChannelUpdate::Patch { updated, .. }) = update.channel else {
+            panic!("expected a patch, got {:?}", update.channel);
+        };
+        assert!(updated[0].files[0].missing);
+        assert!(matches!(
+            updated[0].files[0].shown_as(),
+            crate::attachments::Shown::Missing
+        ));
+        // The image coming after all puts the tile back.
+        let update = live.apply(&ChangeSet::Image {
+            file_id: "f1".into(),
+            size: ImageSize::Preview,
+            bytes: Arc::from(&b"png"[..]),
+            content_type: "image/png".into(),
+        });
+        let Some(ChannelUpdate::Patch { updated, .. }) = update.channel else {
+            panic!("expected a patch, got {:?}", update.channel);
+        };
+        assert!(!updated[0].files[0].missing);
     }
 
     #[test]

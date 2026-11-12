@@ -2744,7 +2744,17 @@ impl Engine {
         matty_api::rt::spawn(async move {
             let fetched = match size {
                 ImageSize::Thumbnail => client.file_thumbnail(&file_id, None).await,
-                ImageSize::Preview => client.file_preview(&file_id, None).await,
+                ImageSize::Preview => match client.file_preview(&file_id, None).await {
+                    // The server keeps no preview of an image it could not
+                    // read as it came in, and says so in the file's
+                    // `has_preview_image`; Mattermost's own clients show the
+                    // file itself then, and so does Matty.
+                    Err(error) => {
+                        tracing::debug!(%error, file_id, "no preview, loading the file");
+                        client.file(&file_id, None).await
+                    }
+                    fetched => fetched,
+                },
                 ImageSize::Original => client.file(&file_id, None).await,
             };
             let image = match fetched {
@@ -3673,6 +3683,8 @@ impl Engine {
                         bytes: Arc::from(bytes),
                         content_type,
                     });
+                } else {
+                    dirty.direct.push(ChangeSet::ImageMissing { file_id, size });
                 }
             }
             Loaded::LinkPreview { url, graph } => {
