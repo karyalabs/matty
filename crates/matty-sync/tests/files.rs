@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{connected, next, server};
+use common::{connected, next, server, server_slow_account};
 use matty_sync::{ChangeSet, Command, ImageSize, Picture, UploadState};
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -598,4 +598,37 @@ async fn an_image_the_server_will_not_give_is_reported_missing() {
         unreachable!()
     };
     assert_eq!((file_id.as_str(), size), ("f1", ImageSize::Preview));
+}
+
+/// At launch the window asks for the images of the posts it has cached
+/// before the account has loaded; they still come once it has.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_asked_for_before_the_account_loads_still_comes() {
+    let server = server_slow_account(std::time::Duration::from_millis(500)).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/files/f1/preview"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "image/png")
+                .set_body_bytes(b"png".to_vec()),
+        )
+        .mount(&server)
+        .await;
+    let sync = matty_sync::spawn(matty_store::Store::open_in_memory().unwrap()).unwrap();
+    let changes = sync.subscribe();
+    sync.send(Command::Connect {
+        client: matty_api::Client::new(server.uri())
+            .unwrap()
+            .with_token("token"),
+    });
+    sync.send(Command::LoadImage {
+        file_id: "f1".into(),
+        size: ImageSize::Preview,
+    });
+    let ChangeSet::Image { file_id, bytes, .. } =
+        next(&changes, |c| matches!(c, ChangeSet::Image { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!((file_id.as_str(), &*bytes), ("f1", &b"png"[..]));
 }

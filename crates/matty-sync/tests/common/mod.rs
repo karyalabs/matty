@@ -59,6 +59,23 @@ pub async fn server_licensed(overrides: Value) -> MockServer {
     account_on(server, overrides).await
 }
 
+/// [`server`] whose account answers only after `delay`, so commands sent
+/// at connect arrive before the account has loaded.
+pub async fn server_slow_account(delay: Duration) -> MockServer {
+    let server = MockServer::start().await;
+    // Mounted first, so it answers before the quick one.
+    Mock::given(method("GET"))
+        .and(path("/api/v4/users/me"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"id": ME, "username": "me"}))
+                .set_delay(delay),
+        )
+        .mount(&server)
+        .await;
+    account_on(server, json!({})).await
+}
+
 async fn account_on(server: MockServer, overrides: Value) -> MockServer {
     let mut config = fixture("config_client");
     for (key, value) in overrides.as_object().unwrap() {

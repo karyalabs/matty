@@ -1289,6 +1289,9 @@ struct Session {
     /// The channel to fetch once the account has loaded
     /// ([`Command::Prefetch`]).
     prefetch: Option<String>,
+    /// Images asked for before the account loaded; they are fetched once
+    /// it has. Dropping them left those tiles blank for the whole run (#881).
+    waiting_images: Vec<(String, ImageSize)>,
     load: JoinHandle<()>,
     /// The WebSocket; dropping it closes the connection.
     socket: WsClient,
@@ -1427,9 +1430,7 @@ impl Engine {
                 }
                 // The engine holds a sender, so this never closes.
                 _ = loaded_inbox.recv_many(&mut results, BATCH) => {
-                    if let Err(error) = self.write_all(results.drain(..), &mut dirty) {
-                        tracing::error!(%error, "could not store loaded data");
-                    }
+                    self.write_all(results.drain(..), &mut dirty);
                 }
             }
             self.publish(dirty);
@@ -1536,6 +1537,7 @@ impl Engine {
                         collapsed_threads: cached_crt(&tx)?,
                         fetched: BTreeSet::new(),
                         prefetch: None,
+                        waiting_images: Vec::new(),
                         load,
                         socket,
                         was_connected: false,
@@ -2754,9 +2756,13 @@ impl Engine {
                 Err(error) => tracing::warn!(%error, "could not read the media cache"),
             }
         }
-        let Some(session) = self.session.as_ref().filter(|s| !s.user_id.is_empty()) else {
+        let Some(session) = self.session.as_mut() else {
             return;
         };
+        if session.user_id.is_empty() {
+            session.waiting_images.push((file_id, size));
+            return;
+        }
         if !self.fetching.insert(key) {
             return;
         }
@@ -2786,7 +2792,7 @@ impl Engine {
                 }) => Some((bytes, content_type.unwrap_or_else(|| "image/jpeg".into()))),
                 Ok(matty_api::Fetched::NotModified) => None,
                 Err(error) => {
-                    tracing::debug!(%error, file_id, ?size, "no image");
+                    tracing::warn!(%error, ?size, "a file's image did not load");
                     None
                 }
             };
@@ -3185,22 +3191,30 @@ impl Engine {
 
     /// Writes loaded results in order. Runs of WebSocket events share one
     /// transaction, like a batch of commands.
-    fn write_all(
-        &mut self,
-        results: impl Iterator<Item = Loaded>,
-        dirty: &mut Dirty,
-    ) -> Result<(), StoreError> {
+    /// Writes each result on its own: one that fails, as when another
+    /// process holds the database past the busy timeout, is logged and the
+    /// rest still land. Stopping at the first error dropped the results
+    /// after it, among them images that then never came (#881).
+    fn write_all(&mut self, results: impl Iterator<Item = Loaded>, dirty: &mut Dirty) {
         let mut events = Vec::new();
         for result in results {
             match result {
                 Loaded::Ws(WsSignal::Event(raw)) => events.push(WsEvent::decode(&raw)),
                 other => {
-                    self.apply_events(std::mem::take(&mut events), dirty)?;
-                    self.write_loaded(other, dirty)?;
+                    self.write_events(std::mem::take(&mut events), dirty);
+                    if let Err(error) = self.write_loaded(other, dirty) {
+                        tracing::error!(%error, "could not store loaded data");
+                    }
                 }
             }
         }
-        self.apply_events(events, dirty)
+        self.write_events(events, dirty);
+    }
+
+    fn write_events(&mut self, events: Vec<WsEvent>, dirty: &mut Dirty) {
+        if let Err(error) = self.apply_events(events, dirty) {
+            tracing::error!(%error, "could not store server events");
+        }
     }
 
     fn apply_events(&mut self, events: Vec<WsEvent>, dirty: &mut Dirty) -> Result<(), StoreError> {
@@ -3475,6 +3489,14 @@ impl Engine {
                 }
                 if let Some(channel_id) = self.session.as_mut().and_then(|s| s.prefetch.take()) {
                     self.prefetch_channel(&channel_id);
+                }
+                let waiting = self
+                    .session
+                    .as_mut()
+                    .map(|s| std::mem::take(&mut s.waiting_images))
+                    .unwrap_or_default();
+                for (file_id, size) in waiting {
+                    self.image(file_id, size, dirty);
                 }
             }
             Loaded::Team {
