@@ -3,3 +3,5 @@
 __pycache__/
 /bench/out/
 /bench/.venv/
+site/dist/
+site/.wrangler/

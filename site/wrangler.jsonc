@@ -1,0 +1,18 @@
+// The Matty website, https://matty.karyalabs.dev (site/README.md).
+// `site/build` writes ./dist; the Worker answers only what no file matches.
+{
+  "name": "matty-site",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "routes": [
+    // Needs a proxied DNS record for matty.karyalabs.dev (site/README.md).
+    { "pattern": "matty.karyalabs.dev/*", "zone_name": "karyalabs.dev" }
+  ],
+  "workers_dev": false
+}
