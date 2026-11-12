@@ -1,5 +1,5 @@
 // The Matty website, https://matty.karyalabs.dev (site/README.md).
-// `site/build` writes ./dist; the Worker answers only what no file matches.
+// `build.mjs` writes ./dist; the Worker answers only what no file matches.
 {
   "name": "matty-site",
   "main": "worker.js",
@@ -10,6 +10,11 @@
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "none"
   },
+  // The download counter (worker.js): one SQLite-backed Durable Object.
+  "durable_objects": {
+    "bindings": [{ "name": "DOWNLOADS", "class_name": "DownloadCounter" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DownloadCounter"] }],
   "routes": [
     // Needs a proxied DNS record for matty.karyalabs.dev (site/README.md).
     { "pattern": "matty.karyalabs.dev/*", "zone_name": "karyalabs.dev" }

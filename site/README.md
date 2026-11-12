@@ -7,7 +7,7 @@ Cloudflare Worker on the `karyalabs.dev` zone.
 | --- | --- |
 | `public/` | The pages, styles, script and fonts. `{{NAME}}` placeholders are filled by the build. |
 | `build.mjs` | Writes `dist/`: copies `public/`, fills in the newest release, and fetches the screenshots. |
-| `worker.js` | Answers what no file matches: `/download/<kind>` and the 404 page. |
+| `worker.js` | Answers what no file matches: `/download/<kind>`, `/api/downloads` and the 404 page, plus the download counter. |
 | `wrangler.jsonc` | The Worker and its route. |
 
 ## Downloads and privacy
@@ -17,9 +17,15 @@ Cloudflare Worker on the `karyalabs.dev` zone.
 `linux-tar`, `checksums`). The build writes the addresses into
 `release.json`, so the Worker never calls GitHub at request time.
 
-The site has no cookies, no analytics and no third-party requests. Download
-numbers are GitHub's own per-file counters; `/stats` sums them in the
-browser from the public releases API.
+Each GET of `/download/<kind>` adds one to a row in the `DownloadCounter`
+Durable Object (SQLite): day, kind, version, and whether the User-Agent
+looked automated. Nothing else about the request is read or stored.
+`/api/downloads` returns the rows, and `/stats` shows them next to GitHub's
+per-file counters. GitHub's counters alone overstate real use: every file of
+every release gets about one automated download soon after publishing.
+
+The site has no cookies, no analytics and no third-party requests (`/stats`
+also reads the public GitHub releases API from the browser).
 
 ## Screenshots
 
