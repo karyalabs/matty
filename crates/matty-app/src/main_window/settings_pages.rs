@@ -369,13 +369,19 @@ fn render_group(group: Group, theme: &UiTheme) -> Div {
 }
 
 /// A page: its title, one sentence, then its groups 24px apart.
+/// The widest a Settings page gets: a bit more than it has in the window at
+/// its default size, so that size looks as before.
+const PAGE_MAX_WIDTH: f32 = 760.;
+
 fn render_page(
     title: SharedString,
     summary: Option<SharedString>,
     groups: impl IntoIterator<Item = Div>,
     theme: &UiTheme,
 ) -> Div {
-    div()
+    let page = div()
+        .w_full()
+        .max_w(scaled(theme, PAGE_MAX_WIDTH))
         .flex()
         .flex_col()
         .px(theme.space(8.))
@@ -403,7 +409,10 @@ fn render_page(
                 .flex_col()
                 .gap(theme.space(6.))
                 .children(groups),
-        )
+        );
+    // Centred in a wide window (the web page, a maximised window) rather
+    // than stretched across it.
+    div().w_full().flex().justify_center().child(page)
 }
 
 // Mirroring the account's settings (#156, #157).
