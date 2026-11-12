@@ -29,3 +29,5 @@ threads-empty-unread = No unread threads
 threads-empty-unread-hint = You are caught up. New replies will show here.
 threads-empty = No followed threads
 threads-empty-hint = Reply in a thread, or choose Follow on one, and it shows up here.
+threads-pick = Pick a thread to read it
+threads-pick-hint = Nothing is marked read until you open it.

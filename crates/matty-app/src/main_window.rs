@@ -2569,13 +2569,12 @@ impl MainWindow {
     /// Shows the followed threads in place of the channel.
     fn show_threads(&mut self, cx: &mut Context<Self>) {
         self.threads_open = true;
-        // The thread beside the list is the one sync follows now.
-        let selected = self.threads.read(cx).selected().cloned();
+        // Threads opens with no thread picked, so arriving reads nothing
+        // (docs/specs/sidebar-places-and-switching.md §1).
+        self.threads
+            .update(cx, |threads, cx| threads.clear_selection(cx));
         if let Some(live) = &mut self.live {
             live.close_thread();
-            if let Some(root) = selected {
-                live.open_thread(&root);
-            }
         }
         self.drafts_open = false;
         self.right_pane_open = false;
@@ -3359,8 +3358,14 @@ impl MainWindow {
 
     pub(super) fn show_listing(&mut self, content: RightPaneContent, cx: &mut Context<Self>) {
         self.leave_thread();
-        self.threads_open = false;
-        self.drafts_open = false;
+        // A listing is a panel beside a channel: leaving Threads or Drafts
+        // for it goes back to the channel, and the sidebar selects that
+        // channel's row again (docs/specs/sidebar-places-and-switching.md §1).
+        if std::mem::take(&mut self.threads_open) | std::mem::take(&mut self.drafts_open) {
+            let channel = self.selected_channel.clone();
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.select(channel, cx));
+        }
         self.right_pane
             .update(cx, |pane, cx| pane.set_content(Some(content), cx));
         self.right_pane_open = true;
@@ -3781,25 +3786,6 @@ impl MainWindow {
     /// controls only.
     fn title_bar(&self) -> impl IntoElement + use<> {
         TitleBar::new().page(true).h(px(metrics::TITLE_BAR_HEIGHT))
-    }
-
-    /// Tells the sidebar which listing the right pane shows, so its
-    /// Unreads, Mentions and Saved rows read as selected (spec §2.3).
-    fn sync_sidebar_listing(&mut self, cx: &mut Context<Self>) {
-        let listing = if self.right_pane_open && !self.threads_open && !self.drafts_open {
-            match self.right_pane.read(cx).content() {
-                Some(RightPaneContent::Unreads(_)) => Some(crate::sidebar::Listing::Unreads),
-                Some(RightPaneContent::Mentions(_)) => Some(crate::sidebar::Listing::Mentions),
-                Some(RightPaneContent::Saved(_)) => Some(crate::sidebar::Listing::Saved),
-                _ => None,
-            }
-        } else {
-            None
-        };
-        if self.sidebar.read(cx).listing() != listing {
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.set_listing(listing, cx));
-        }
     }
 
     /// Puts the unread and mention totals on the dock icon (#141); signed
@@ -4644,7 +4630,6 @@ impl Render for MainWindow {
             None
         };
         let narrow_sidebar = Self::narrow_sidebar(window);
-        self.sync_sidebar_listing(cx);
         self.sync_chrome(window, cx);
         let content = self.content(window, cx);
         let frame = if self.sidebar_visible && !narrow_sidebar {

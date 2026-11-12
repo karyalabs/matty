@@ -40,6 +40,18 @@ pub struct PaneChrome {
     /// and server: mentions as a pill on the toggle, else a dot for unread.
     pub hidden_mentions: usize,
     pub hidden_unread: bool,
+    /// The listing the right pane shows, for the pressed state of the
+    /// Mentions and Saved buttons that end a leading header.
+    pub panel: Option<Panel>,
+}
+
+/// A panel the leading header's buttons open beside a place
+/// (`docs/specs/sidebar-places-and-switching.md` §3). Panels never select a
+/// sidebar row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Panel {
+    Mentions,
+    Saved,
 }
 
 gpui_kit::actions!(
@@ -86,6 +98,85 @@ pub fn leading(chrome: PaneChrome, window: &Window, cx: &App) -> Option<AnyEleme
                 Box::new(HistoryForward),
                 chrome.forward,
                 cx,
+            ))
+            .into_any_element(),
+    )
+}
+
+/// Recent mentions and Saved messages, for a header that starts the top
+/// row: they open their listing beside the current place and show pressed
+/// while it is open; pressed, a click closes the right pane (spec §3).
+pub fn panels(chrome: PaneChrome, separated: bool, cx: &App) -> Option<AnyElement> {
+    use gpui_kit::prelude::FluentBuilder as _;
+    if !chrome.leading {
+        return None;
+    }
+    let theme = UiTheme::read(cx);
+    let button = |id: &'static str,
+                  label: &'static str,
+                  glyph: LucideIcon,
+                  panel: Panel,
+                  action: Box<dyn gpui_kit::Action>| {
+        let pressed = chrome.panel == Some(panel);
+        let button = crate::ui::toggle::Toggle::new(id)
+            .size(crate::ui::toggle::ToggleSize::Sm)
+            .w(scaled(theme, 28.))
+            .h(scaled(theme, 28.))
+            .aria_label(label)
+            .pressed(pressed)
+            .px_0()
+            .when(pressed, |toggle| toggle.bg(theme.colors.accent))
+            .on_change(move |&on, window, cx| {
+                if on {
+                    window.dispatch_action(action.boxed_clone(), cx)
+                } else {
+                    window.dispatch_action(Box::new(actions::CloseRightPane), cx)
+                }
+            })
+            .child(
+                lucide(glyph)
+                    .size(scaled(theme, metrics::ICON))
+                    .text_color(if pressed {
+                        theme.colors.accent_foreground
+                    } else {
+                        theme.colors.muted_foreground
+                    }),
+            );
+        style::tipped(
+            SharedString::from(format!("{id}.tooltip")),
+            actions::tooltip_text(label, label),
+            button,
+        )
+    };
+    Some(
+        div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(2.))
+            .pr(theme.space(2.))
+            .when(separated, |group| {
+                group.child(
+                    div()
+                        .w(style::hairline())
+                        .h(scaled(theme, 18.))
+                        .mr(theme.space(1.))
+                        .bg(theme.colors.border),
+                )
+            })
+            .child(button(
+                "chrome.mentions",
+                "Recent mentions",
+                LucideIcon::AtSign,
+                Panel::Mentions,
+                Box::new(actions::RecentMentions),
+            ))
+            .child(button(
+                "chrome.saved",
+                "Saved messages",
+                LucideIcon::Bookmark,
+                Panel::Saved,
+                Box::new(actions::SavedMessages),
             ))
             .into_any_element(),
     )
@@ -247,8 +338,15 @@ pub fn frame(
             .child(group)
             .into_any_element()
     });
+    // The channel header's own buttons come first; a hairline parts them.
+    // The Threads list header is too narrow for them, and leaving Threads
+    // is what a panel does anyway; their shortcuts still work there.
+    let panels = (id != "threads.header")
+        .then(|| panels(chrome, id == "channel.header", cx))
+        .flatten()
+        .map(|group| edge(div()).child(group));
     let trailing = trailing(chrome, window).map(|controls| edge(div()).child(controls));
-    if leading.is_none() && trailing.is_none() && !chrome.drag {
+    if leading.is_none() && panels.is_none() && trailing.is_none() && !chrome.drag {
         return header.into_any_element();
     }
     let row = gpui_kit::InteractiveElement::id(div(), id)
@@ -258,6 +356,7 @@ pub fn frame(
         .min_w_0()
         .children(leading)
         .child(div().flex_1().min_w_0().child(header))
+        .children(panels)
         .children(trailing);
     drag(
         gpui_kit::ElementId::Name(format!("{id}.drag").into()),
