@@ -144,6 +144,42 @@ pub fn source(image: &Arc<Image>, fit: Fit) -> ImageSource {
     })
 }
 
+/// How a picture's decode went, for a caller that says when it failed
+/// instead of drawing a blank box.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decoded {
+    /// Decoded, on its way, or not tried yet.
+    Fine,
+    /// It would not decode, and its [`fallback`] was asked for.
+    FallingBack,
+    /// It would not decode, and there is nothing else to try.
+    Failed,
+}
+
+/// How `image`'s decode at `fit` went.
+pub fn decoded(image: &Arc<Image>, fit: Fit) -> Decoded {
+    STORE.with(|store| {
+        let store = store.borrow();
+        let failed = store
+            .entries
+            .get(&(image.id, fit))
+            .is_some_and(|entry| matches!(entry.state, State::Failed));
+        if !failed {
+            Decoded::Fine
+        } else if store.fell_back.contains(&image.id) {
+            Decoded::FallingBack
+        } else {
+            Decoded::Failed
+        }
+    })
+}
+
+/// What to ask for when `image` will not decode, such as the original file
+/// for a server preview Matty cannot read; asked at most once.
+pub fn fallback(image: &Arc<Image>, fallback: Refetch) {
+    STORE.with(|store| store.borrow_mut().fallback.insert(image.id, fallback));
+}
+
 /// Asks for a held picture's bytes again; they come back through [`hold`].
 pub type Refetch = std::rc::Rc<dyn Fn()>;
 
@@ -163,6 +199,9 @@ pub fn hold(image: Arc<Image>, refetch: Refetch) -> Arc<Image> {
     });
     let woken = STORE.with(|store| {
         let mut store = store.borrow_mut();
+        // A fallback that brought the very same bytes leaves nothing more
+        // to try: the picture has failed for good.
+        store.fell_back.remove(&image.id);
         store.refetch.insert(image.id, refetch);
         store.hold(image)
     });
@@ -212,6 +251,10 @@ struct Store {
     held_size: usize,
     /// How to ask for each held picture's bytes again.
     refetch: HashMap<u64, Refetch>,
+    /// What to ask for instead when a picture will not decode.
+    fallback: HashMap<u64, Refetch>,
+    /// Pictures that would not decode and whose fallback was asked for.
+    fell_back: HashSet<u64>,
     /// Pictures whose bytes were asked for again: their arrival wakes the
     /// task that decodes them.
     awaited: HashMap<u64, async_channel::Sender<()>>,
@@ -428,26 +471,37 @@ fn decode_in_background(key: Key, image: Arc<Image>, side: u32, cx: &mut App) {
 /// A decode finished: keep it, redraw who asked, and start a pass when the
 /// cache went over budget.
 fn landed(key: Key, decoded: Result<RenderImage, String>, cx: &mut App) {
-    let (waiting, over) = STORE.with(|store| {
+    let (waiting, over, fallback) = STORE.with(|store| {
         let mut store = store.borrow_mut();
         let Some(entry) = store.entries.get_mut(&key) else {
-            return (Vec::new(), false);
+            return (Vec::new(), false, None);
         };
         let mut added = 0;
+        let mut failed = false;
         entry.state = match decoded {
             Ok(image) => {
                 added = bytes_of(&image);
                 State::Ready(Arc::new(image), added)
             }
             Err(error) => {
-                tracing::debug!(%error, "could not decode an image");
+                tracing::warn!(%error, "could not decode an image");
+                failed = true;
                 State::Failed
             }
         };
         let waiting: Vec<_> = entry.waiting.drain().collect();
         store.kept += added;
-        (waiting, store.kept > BUDGET)
+        let fallback = failed
+            .then(|| store.fallback.remove(&key.0))
+            .flatten()
+            .inspect(|_| {
+                store.fell_back.insert(key.0);
+            });
+        (waiting, store.kept > BUDGET, fallback)
     });
+    if let Some(fallback) = fallback {
+        fallback();
+    }
     for view in waiting {
         cx.notify(view);
     }
@@ -716,6 +770,33 @@ mod tests {
         assert_eq!((size.width.0, size.height.0), (200, 100));
         // Red in RGBA is blue's slot in BGRA.
         assert_eq!(&decoded.as_bytes(0).unwrap()[..4], &[0, 0, 255, 255]);
+    }
+
+    #[gpui_kit::test]
+    fn a_picture_that_will_not_decode_asks_for_its_fallback_once(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let broken = Arc::new(Image::from_bytes(ImageFormat::Png, b"not a png".to_vec()));
+        let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counter = asked.clone();
+        fallback(
+            &broken,
+            std::rc::Rc::new(move || counter.set(counter.get() + 1)),
+        );
+        let _ = source(&broken, Fit::Tile);
+        let key = (broken.id, Fit::Tile);
+        assert_eq!(decoded(&broken, Fit::Tile), Decoded::Fine);
+        cx.update(|cx| landed(key, decode(&broken, Fit::Tile.max_side()), cx));
+        assert_eq!(asked.get(), 1);
+        assert_eq!(decoded(&broken, Fit::Tile), Decoded::FallingBack);
+        // A second failure has nothing more to ask for.
+        cx.update(|cx| landed(key, decode(&broken, Fit::Tile.max_side()), cx));
+        assert_eq!(asked.get(), 1);
+        // Without a fallback, a failure is final.
+        let other = Arc::new(Image::from_bytes(ImageFormat::Png, b"nor this".to_vec()));
+        let _ = source(&other, Fit::Tile);
+        cx.update(|cx| landed((other.id, Fit::Tile), Err("broken".into()), cx));
+        assert_eq!(decoded(&other, Fit::Tile), Decoded::Failed);
     }
 
     #[test]

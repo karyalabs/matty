@@ -976,6 +976,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
                 }),
                 width: 640,
                 height: 400,
+                missing: false,
             },
             PostFile {
                 id: "f-mockup-dark".into(),
@@ -988,6 +989,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
                 }),
                 width: 640,
                 height: 400,
+                missing: false,
             },
             PostFile {
                 id: "f-notes".into(),
@@ -996,6 +998,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
                 preview: None,
                 width: 0,
                 height: 0,
+                missing: false,
             },
         ],
         ..post(

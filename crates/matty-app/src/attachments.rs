@@ -426,6 +426,9 @@ pub struct PostFile {
     /// thumbnail before it loads; 0 when unknown or not an image.
     pub width: u32,
     pub height: u32,
+    /// The image could not be had: the server sent neither a preview nor
+    /// the file, so the tile says so rather than staying blank.
+    pub missing: bool,
 }
 
 impl PostFile {
@@ -439,6 +442,7 @@ impl PostFile {
             preview: None,
             width: u32::try_from(file.width).unwrap_or(0),
             height: u32::try_from(file.height).unwrap_or(0),
+            missing: false,
         }
     }
 
@@ -452,6 +456,7 @@ impl PostFile {
             preview,
             width: 0,
             height: 0,
+            missing: false,
         }
     }
 
@@ -465,8 +470,19 @@ impl PostFile {
     /// How the file shows under its post: an image thumbnail, an image
     /// whose thumbnail has not arrived yet (#105), or a file card.
     pub fn shown_as(&self) -> Shown {
+        // Bytes that came but would not decode show as missing too, once
+        // there is nothing else to try.
+        if let Some(UploadSource::Image(image)) = &self.preview {
+            use crate::decoded_images::{Decoded, Fit, decoded};
+            match decoded(image, Fit::Tile) {
+                Decoded::Fine => {}
+                Decoded::FallingBack if !self.missing => {}
+                Decoded::FallingBack | Decoded::Failed => return Shown::Missing,
+            }
+        }
         match self.image() {
             Some(image) => Shown::Image(image),
+            None if self.missing && is_image(&self.name) => Shown::Missing,
             None if self.preview.is_none() && is_image(&self.name) => Shown::Loading,
             None => Shown::Card,
         }
@@ -550,6 +566,9 @@ pub enum Shown {
     /// image's size holds its place, so the transcript does not jump when
     /// it arrives.
     Loading,
+    /// An image that could not be loaded or decoded: a card that says so
+    /// and opens the file, instead of a blank tile.
+    Missing,
     Card,
 }
 
@@ -601,19 +620,36 @@ pub fn post_files(
                         }),
                 );
             }
-            Shown::Card => {
+            shown @ (Shown::Card | Shown::Missing) => {
+                let missing = matches!(shown, Shown::Missing);
                 let file_id = file.id.clone();
                 let open = on_file.clone();
                 let download = Downloads::get(cx, &file.id);
                 cards.push(
                     Attachment::new(id, file.name.clone())
-                        .meta(download.map_or_else(|| file.meta(), |state| state.meta(file)))
-                        .icon(
-                            download.map_or_else(
-                                || icon_for(&file.name),
-                                |state| state.icon(&file.name),
-                            ),
-                        )
+                        .meta(download.map_or_else(
+                            || {
+                                if missing {
+                                    t!(
+                                        "attachments-image-unavailable",
+                                        meta = file.meta().to_string()
+                                    )
+                                } else {
+                                    file.meta()
+                                }
+                            },
+                            |state| state.meta(file),
+                        ))
+                        .icon(download.map_or_else(
+                            || {
+                                if missing {
+                                    LucideIcon::ImageOff
+                                } else {
+                                    icon_for(&file.name)
+                                }
+                            },
+                            |state| state.icon(&file.name),
+                        ))
                         .on_click(move |_, window, cx| {
                             cx.stop_propagation();
                             open(file_id.clone(), window, cx)
@@ -940,21 +976,31 @@ mod tests {
             preview,
             width,
             height,
+            missing: false,
+        };
+        // A real picture: bytes that will not decode show as missing.
+        let picture = || {
+            let mut bytes = Vec::new();
+            image::DynamicImage::new_rgba8(4, 4)
+                .write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Png,
+                )
+                .unwrap();
+            png(&bytes)
         };
         // The thumbnail is still on its way, then it lands.
         let waiting = files_size(vec![file(None, 1200, 800)], cx);
         let arrived = files_size(
-            vec![file(Some(UploadSource::Image(png(&[0; 8]))), 1200, 800)],
+            vec![file(Some(UploadSource::Image(picture())), 1200, 800)],
             cx,
         );
         assert_eq!(waiting, arrived, "the transcript does not jump");
         assert!(waiting.height > gpui_kit::px(100.), "{waiting:?}");
         // Without a size from the server, a fixed tile holds the place.
         let unsized_waiting = files_size(vec![file(None, 0, 0)], cx);
-        let unsized_arrived = files_size(
-            vec![file(Some(UploadSource::Image(png(&[0; 8]))), 0, 0)],
-            cx,
-        );
+        let unsized_arrived =
+            files_size(vec![file(Some(UploadSource::Image(picture())), 0, 0)], cx);
         assert_eq!(unsized_waiting, unsized_arrived);
         // A file that is not an image stays a card.
         let pdf = PostFile {
@@ -1010,6 +1056,7 @@ mod tests {
             preview: None,
             width: 0,
             height: 0,
+            missing: false,
         }
     }
 

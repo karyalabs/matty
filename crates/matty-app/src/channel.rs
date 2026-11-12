@@ -101,9 +101,8 @@ impl PostReaction {
 
 /// The header markers after a post's time: "Pinned", "Saved" and "(edited)",
 /// in that order, as Mattermost shows them. Pinned and Saved carry their
-/// icon so they read at a glance without competing with the author. The
-/// icon is its own header child because the header aligns on baselines and
-/// a nested row would sit low.
+/// icon so they read at a glance without competing with the author. Each
+/// is its own header child, which centres it on the name and time.
 pub fn post_markers(post: &Post, theme: &UiTheme) -> Vec<gpui_kit::AnyElement> {
     let muted = theme.colors.muted_foreground;
     let label = |text: SharedString| {

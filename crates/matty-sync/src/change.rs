@@ -214,6 +214,15 @@ pub enum ChangeSet {
         /// Where it went, or why not.
         state: DownloadState,
     },
+    /// A file's image could not be had: the server answered
+    /// [`Command::LoadImage`](crate::Command::LoadImage) with an error, or
+    /// the request did not reach it.
+    ImageMissing {
+        /// The file.
+        file_id: String,
+        /// Which rendition was asked for.
+        size: ImageSize,
+    },
     /// A file's image: the answer to
     /// [`Command::LoadImage`](crate::Command::LoadImage).
     Image {

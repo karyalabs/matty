@@ -12,6 +12,8 @@ attachments-downloading-percent = Downloading… { $percent }%
 attachments-downloading-size = Downloading… { $size }
 attachments-downloaded = Downloaded · { $meta }
 attachments-download-failed = Download failed · Click to retry
+# An image attachment that would not load; $meta is "PNG · 1.2 MB".
+attachments-image-unavailable = Image didn't load · { $meta }
 attachments-waiting = Waiting for uploads
 attachments-sends-when-done = Sends when the uploads finish…
 attachments-queued-offline = Queued: files upload when you're back online. You can send now.
