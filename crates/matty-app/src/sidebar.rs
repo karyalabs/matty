@@ -1231,43 +1231,37 @@ impl SidebarView {
             )
     }
 
-    /// Spec §2.1: the team button, then a tile per other team (and one
-    /// for another server with something waiting).
+    /// The server button (docs/specs/sidebar-places-and-switching.md §6),
+    /// then the team tabs when the server has more than one team (§7).
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        let (team, tiles) = match &self.switcher {
+        let width = crate::settings::SettingsStore::try_global(cx)
+            .map_or(260., |store| store.read(cx).get().sidebar_width);
+        let (server, tabs) = match &self.switcher {
             Some(switcher) => {
                 let name = self.team_name.clone();
                 let entity = switcher.clone();
                 switcher.update(cx, |model, cx| {
                     (
                         model.header_button(name, false, cx),
-                        model.header_tiles(&entity, cx),
+                        model.team_tabs(&entity, width - 16., cx),
                     )
                 })
             }
-            None => (
-                self.plain_team_button(&theme).into_any_element(),
-                Vec::new(),
-            ),
+            None => (self.plain_team_button(&theme).into_any_element(), None),
         };
         div()
-            .h(scaled(&theme, SIDEBAR_HEADER))
-            .px(theme.space(2.))
             .flex()
-            .items_center()
-            .justify_between()
-            .gap(theme.space(2.))
-            .child(div().min_w_0().flex().child(team))
+            .flex_col()
             .child(
                 div()
+                    .h(scaled(&theme, SIDEBAR_HEADER))
+                    .px(theme.space(2.))
                     .flex()
-                    .flex_shrink_0()
                     .items_center()
-                    .gap(scaled(&theme, 5.))
-                    .pr(theme.space(1.))
-                    .children(tiles),
+                    .child(div().flex_1().min_w_0().flex().child(server)),
             )
+            .children(tabs.map(|tabs| div().pb(theme.space(2.5)).child(tabs)))
     }
 
     /// Spec §2.2: a search field look-alike that opens the quick switcher,
