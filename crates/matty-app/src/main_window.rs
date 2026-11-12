@@ -668,8 +668,8 @@ impl MainWindow {
                 ChannelEvent::OpenInfo => this.show_channel_info(cx),
                 ChannelEvent::SwapPanes => this.swap_panes(window, cx),
                 ChannelEvent::ClosePane => this.close_main_pane(window, cx),
-                ChannelEvent::OpenDirect { display_name, .. } => {
-                    this.open_direct(display_name.clone(), window, cx)
+                ChannelEvent::OpenDirect { user_id, .. } => {
+                    this.open_direct(user_id.clone(), window, cx)
                 }
                 ChannelEvent::ViewProfile(profile) => {
                     this.show_listing(RightPaneContent::Profile(profile.clone()), cx)
@@ -1074,6 +1074,15 @@ impl MainWindow {
                             live.send(matty_sync::Command::MoveCategory {
                                 category_id: id.to_string(),
                                 up: *up,
+                            });
+                        }
+                        return;
+                    }
+                    SidebarEvent::SortCategory { id, sorting } => {
+                        if let Some(live) = &this.live {
+                            live.send(matty_sync::Command::SortCategory {
+                                category_id: id.to_string(),
+                                sorting: sorting.server_name().to_owned(),
                             });
                         }
                         return;
@@ -2646,19 +2655,7 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let existing = self
-            .sidebar
-            .read(cx)
-            .model()
-            .categories
-            .iter()
-            .flat_map(|category| category.rows.iter())
-            .find(|row| {
-                matches!(row.kind, crate::sidebar::ChannelKind::Direct { .. })
-                    && row.name == profile.display_name
-            })
-            .map(|row| row.id.clone());
-        if let Some(id) = existing {
+        if let Some(id) = self.direct_channel(&profile.user_id, cx) {
             return self.open_channel(id, window, cx);
         }
         // Sync finds or creates it, and it opens once in the sidebar.
@@ -3046,21 +3043,26 @@ impl MainWindow {
         cx.notify();
     }
 
-    /// Opens the direct message with `display_name` in the focused pane;
-    /// until sync can create one, only an existing sidebar row can be opened.
+    /// Opens the direct message with `user_id` (the user's own included)
+    /// in the focused pane. One not in the sidebar yet is asked of sync,
+    /// which finds or creates it and opens it once it is there.
     fn open_direct(
         &mut self,
-        display_name: gpui_kit::SharedString,
+        user_id: gpui_kit::SharedString,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(id) = self.direct_channel(&display_name, cx) {
+        if let Some(id) = self.direct_channel(&user_id, cx) {
             self.open_in_focused_pane(id, window, cx);
+        } else if let Some(live) = &self.live {
+            live.send(matty_sync::Command::OpenDirect {
+                user_ids: vec![user_id.to_string()],
+            });
         }
     }
 
-    /// The sidebar's direct message with `display_name`.
-    fn direct_channel(&self, display_name: &str, cx: &gpui_kit::App) -> Option<SharedString> {
+    /// The sidebar's direct message with the person `user_id`.
+    fn direct_channel(&self, user_id: &str, cx: &gpui_kit::App) -> Option<SharedString> {
         self.sidebar
             .read(cx)
             .model()
@@ -3069,7 +3071,7 @@ impl MainWindow {
             .flat_map(|category| category.rows.iter())
             .find(|row| {
                 matches!(row.kind, crate::sidebar::ChannelKind::Direct { .. })
-                    && row.name == display_name
+                    && row.person.as_deref() == Some(user_id)
             })
             .map(|row| row.id.clone())
     }
@@ -3172,8 +3174,8 @@ impl MainWindow {
                     live.load_members();
                 }
             }
-            RightPaneEvent::OpenDirect { display_name, .. } => {
-                self.open_direct(display_name.clone(), window, cx)
+            RightPaneEvent::OpenDirect { user_id, .. } => {
+                self.open_direct(user_id.clone(), window, cx)
             }
             RightPaneEvent::ViewProfile(profile) => {
                 self.show_listing(RightPaneContent::Profile(profile.clone()), cx)

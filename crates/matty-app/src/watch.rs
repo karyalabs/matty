@@ -341,6 +341,7 @@ mod tests {
             },
             muted,
             last_post_at: 0,
+            active_at: 0,
         }
     }
 

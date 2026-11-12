@@ -105,7 +105,7 @@ impl MainWindow {
                 }
             }
             Ask::OpenLink(url) => self.open_message_link(url, window, cx),
-            Ask::OpenDirect(display_name) => self.open_direct(display_name, window, cx),
+            Ask::OpenDirect(user_id) => self.open_direct(user_id, window, cx),
             Ask::ViewProfile(profile) => self.show_listing(RightPaneContent::Profile(profile), cx),
             Ask::Pinned(channel) => {
                 self.open_channel(channel, window, cx);

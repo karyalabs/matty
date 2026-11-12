@@ -226,7 +226,7 @@ fn a_direct_message_asked_for_in_the_second_pane_opens_there(cx: &mut gpui_kit::
     cx.update(|_, cx| {
         matty_app::test_support::split_ask(
             &main,
-            matty_app::popout::Ask::OpenDirect("Lena Fischer".into()),
+            matty_app::popout::Ask::OpenDirect("u-lena".into()),
             cx,
         )
     });

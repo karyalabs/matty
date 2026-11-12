@@ -319,6 +319,15 @@ pub enum Command {
         /// Up (towards the top) or down.
         up: bool,
     },
+    /// Sorts a category's channels `alpha`, `recent` or `manual`, as its
+    /// Sort menu does in the web app;
+    /// [`ChangeSet::Sidebar`](crate::ChangeSet::Sidebar) follows.
+    SortCategory {
+        /// The category to sort.
+        category_id: String,
+        /// `alpha`, `recent` or `manual`.
+        sorting: String,
+    },
     /// Puts a category at `index` in its team's sidebar, as dragging its
     /// header does; [`ChangeSet::Sidebar`](crate::ChangeSet::Sidebar)
     /// follows.
@@ -992,6 +1001,7 @@ impl std::fmt::Debug for Command {
                 .finish(),
             Self::MoveCategory { .. } => f.write_str("MoveCategory"),
             Self::MoveChannel { .. } => f.write_str("MoveChannel"),
+            Self::SortCategory { .. } => f.write_str("SortCategory"),
             Self::PlaceCategory { .. } => f.write_str("PlaceCategory"),
             Self::PlaceChannel { .. } => f.write_str("PlaceChannel"),
             Self::OpenDirect { user_ids } => f
@@ -2150,6 +2160,17 @@ impl Engine {
                         && step(&mut category.channel_ids, &channel_id, up)
                     {
                         category.sorting = "manual".into();
+                        writes.push(category_write(self.me.as_deref(), category));
+                    }
+                }
+                Message::Command(Command::SortCategory {
+                    category_id,
+                    sorting,
+                }) => {
+                    if let Some(mut category) = sidebar::category(&tx, &category_id)?
+                        && category.sorting != sorting
+                    {
+                        category.sorting = sorting;
                         writes.push(category_write(self.me.as_deref(), category));
                     }
                 }

@@ -598,3 +598,49 @@ async fn a_custom_status_is_set_then_cleared_and_the_user_reloads() {
     }
     panic!("the status was never cleared");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_category_sorts_as_its_sort_menu_picks() {
+    let server = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/users/me/teams/t1/channels/categories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "categories": [
+                {"id": "dms", "team_id": "t1", "type": "direct_messages", "display_name": "DMs",
+                 "sorting": "recent", "channel_ids": ["d1", "d2"]}
+            ],
+            "order": ["dms"]
+        })))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v4/users/me/teams/t1/channels/categories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let (sync, _changes) = connected(&server).await;
+
+    // Already sorted that way: nothing is sent.
+    sync.send(Command::SortCategory {
+        category_id: "dms".into(),
+        sorting: "recent".into(),
+    });
+    sync.send(Command::SortCategory {
+        category_id: "dms".into(),
+        sorting: "alpha".into(),
+    });
+    let mut sent = Vec::new();
+    for _ in 0..100 {
+        sent = category_requests(&server).await;
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let sorted = &sent[0].2[0];
+    assert_eq!(sorted["id"], "dms");
+    assert_eq!(sorted["sorting"], "alpha");
+    assert_eq!(sorted["channel_ids"], json!(["d1", "d2"]));
+}

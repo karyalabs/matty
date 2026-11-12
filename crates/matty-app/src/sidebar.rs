@@ -197,6 +197,38 @@ impl CategoryKind {
     }
 }
 
+/// How a category orders its channels, as its Sort menu picks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Sorting {
+    /// By name.
+    Alphabetical,
+    /// By recent activity, newest first.
+    Recent,
+    /// As the user placed them; the server's default.
+    #[default]
+    Manual,
+}
+
+impl Sorting {
+    /// A category's `sorting` as the server sends it.
+    pub fn from_server(sorting: &str) -> Self {
+        match sorting {
+            "alpha" => Self::Alphabetical,
+            "recent" => Self::Recent,
+            _ => Self::Manual,
+        }
+    }
+
+    /// The server's name for it.
+    pub fn server_name(self) -> &'static str {
+        match self {
+            Self::Alphabetical => "alpha",
+            Self::Recent => "recent",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Category {
     pub id: SharedString,
@@ -205,6 +237,8 @@ pub struct Category {
     /// Which of Mattermost's kinds it is; only custom ones can be renamed
     /// and deleted (#208).
     pub kind: CategoryKind,
+    /// How its rows are ordered; they arrive in that order.
+    pub sorting: Sorting,
     pub rows: Vec<ChannelRow>,
 }
 
@@ -219,6 +253,7 @@ impl Category {
             name: name.into(),
             collapsed: false,
             kind: CategoryKind::Channels,
+            sorting: Sorting::Manual,
             rows,
         }
     }
@@ -605,6 +640,8 @@ pub enum SidebarEvent {
     },
     /// "Move category up" or "down" from a category's menu.
     MoveCategory { id: SharedString, up: bool },
+    /// A choice in a category's Sort menu.
+    SortCategory { id: SharedString, sorting: Sorting },
     /// "Move up" or "Move down" in a row's Move to menu: within its
     /// category, which then sorts by hand.
     MoveChannel {
@@ -1008,6 +1045,39 @@ impl SidebarView {
                 },
             ));
         }
+        // As in the web app, Direct messages sort only by name or activity.
+        let choices: &[Sorting] = if category.kind == CategoryKind::Direct {
+            &[Sorting::Alphabetical, Sorting::Recent]
+        } else {
+            &[Sorting::Alphabetical, Sorting::Recent, Sorting::Manual]
+        };
+        let sorts: Vec<MenuItem> = choices
+            .iter()
+            .map(|&sorting| {
+                let (item, label) = match sorting {
+                    Sorting::Alphabetical => {
+                        ("sidebar.category.sort.alpha", t!("sidebar-sort-alpha"))
+                    }
+                    Sorting::Recent => ("sidebar.category.sort.recent", t!("sidebar-sort-recent")),
+                    Sorting::Manual => ("sidebar.category.sort.manual", t!("sidebar-sort-manual")),
+                };
+                emit(
+                    item,
+                    label,
+                    SidebarEvent::SortCategory {
+                        id: id.clone(),
+                        sorting,
+                    },
+                )
+                .checked(category.sorting == sorting)
+            })
+            .collect();
+        items.push(MenuItem::submenu(
+            "sidebar.category.sort",
+            t!("sidebar-sort"),
+            sorts,
+        ));
+        items.push(MenuItem::separator());
         items.push(emit(
             "sidebar.category.new",
             t!("sidebar-create-category"),
