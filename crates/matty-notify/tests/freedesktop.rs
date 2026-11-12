@@ -143,8 +143,7 @@ fn notifications_post_open_and_close_through_the_service() {
         let notifier = matty_notify::backend::platform(clicked_tx);
         notifier.show(&Notification {
             title: "town-square".into(),
-            subtitle: "Ada".into(),
-            body: "ship it <now>".into(),
+            body: "Ada: ship it <now>".into(),
             image: None,
             channel_id: "c1".into(),
             post_id: "p1".into(),
@@ -193,8 +192,7 @@ fn notifications_post_open_and_close_through_the_service() {
         // A second one closes when its channel is read.
         notifier.show(&Notification {
             title: "town-square".into(),
-            subtitle: "Ada".into(),
-            body: "and this".into(),
+            body: "Ada: and this".into(),
             image: None,
             channel_id: "c1".into(),
             post_id: "p2".into(),

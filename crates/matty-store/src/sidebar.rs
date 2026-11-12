@@ -724,6 +724,14 @@ pub fn channel(conn: &Connection, channel_id: &str) -> Result<Option<Channel>> {
     Ok(channel)
 }
 
+/// A cached team's display name, for a notification's title.
+pub fn team_display_name(conn: &Connection, team_id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .prepare_cached("SELECT display_name FROM teams WHERE id = ?1")?
+        .query_row([team_id], |row| row.get(0))
+        .optional()?)
+}
+
 /// A cached channel by its team and URL name, as channel links name it.
 pub fn channel_by_name(conn: &Connection, team_id: &str, name: &str) -> Result<Option<Channel>> {
     let id: Option<String> = conn

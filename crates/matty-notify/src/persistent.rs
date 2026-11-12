@@ -94,8 +94,7 @@ mod tests {
     fn notification(post: &str, channel: &str) -> Notification {
         Notification {
             title: "Town Square".into(),
-            subtitle: "Ada".into(),
-            body: "@me deploy is down".into(),
+            body: "Ada: @me deploy is down".into(),
             image: None,
             channel_id: channel.into(),
             post_id: post.into(),

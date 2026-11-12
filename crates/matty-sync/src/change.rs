@@ -491,6 +491,8 @@ pub struct Arrived {
     pub channel_display_name: String,
     /// The author's name, as the server formats it.
     pub sender_name: String,
+    /// The team's display name; empty for direct and group messages.
+    pub team_display_name: String,
     /// The server listed the user among those the post mentions.
     pub mentioned: bool,
     /// The server listed the user among the thread's followers.
