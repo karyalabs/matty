@@ -220,10 +220,27 @@ impl MainWindow {
         );
     }
 
-    /// Saves the rail's new order after a drag; the preview's rail keeps
-    /// its own.
+    /// Saves the servers' new order after a move or a drag; the preview
+    /// saves none, so it reorders its own list.
     pub(super) fn move_server(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
         if crate::preview::enabled() {
+            self.teams_model.update(cx, |model, cx| {
+                let mut servers = model.servers().to_vec();
+                if from >= servers.len() || to >= servers.len() {
+                    return;
+                }
+                let current = model.current_server().map(|shown| {
+                    let key = servers[shown].key.clone();
+                    let server = servers.remove(from);
+                    servers.insert(to, server);
+                    servers.iter().position(|s| s.key == key).unwrap_or(shown)
+                });
+                if current.is_none() {
+                    let server = servers.remove(from);
+                    servers.insert(to, server);
+                }
+                model.set_servers(servers, current, cx);
+            });
             return;
         }
         self.settings.update(cx, |settings, cx| {
