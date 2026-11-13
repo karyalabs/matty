@@ -1629,58 +1629,14 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let confirm = |id: &'static str,
-                       title: SharedString,
-                       description: SharedString,
-                       action: SharedString,
-                       cx: &mut Context<Self>| {
-            let theme = UiTheme::read(cx).clone();
-            dialog_popup(
-                gpui_kit::ElementId::Name(format!("{id}.popup").into()),
-                title.clone(),
-                cx,
-            )
-            .child(
-                dialog_title(gpui_kit::ElementId::Name(format!("{id}.title").into()), cx)
-                    .child(title),
-            )
-            .child(
-                dialog_description(
-                    gpui_kit::ElementId::Name(format!("{id}.description").into()),
-                    cx,
-                )
-                .child(description),
-            )
-            .child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .gap(theme.space(2.))
-                    .pt(theme.space(2.))
-                    .child(
-                        alert_dialog_cancel(gpui_kit::ElementId::Name(
-                            format!("{id}.cancel").into(),
-                        ))
-                        .variant(ButtonVariant::Outline)
-                        .label(t!("prefs-cancel")),
-                    )
-                    .child(
-                        alert_dialog_action(gpui_kit::ElementId::Name(
-                            format!("{id}.confirm").into(),
-                        ))
-                        .variant(ButtonVariant::Destructive)
-                        .label(action),
-                    ),
-            )
-        };
-        let clear_popup = confirm(
+        let clear_popup = confirm_popup(
             "preferences.clear-cache.dialog",
             t!("prefs-clear-cache-confirm-title"),
             t!("prefs-clear-cache-confirm-detail"),
             t!("prefs-clear-cache-confirm"),
             cx,
         );
-        let reset_popup = confirm(
+        let reset_popup = confirm_popup(
             "preferences.reset-all.dialog",
             t!("prefs-reset-all-confirm-title"),
             t!("prefs-reset-all-confirm-detail"),
@@ -1728,14 +1684,14 @@ impl MainWindow {
             .and_then(|index| self.teams_model.read(cx).servers().get(index).cloned())
             .map(|server| server.name.to_string())
             .unwrap_or_default();
-        let remove_popup = confirm(
+        let remove_popup = confirm_popup(
             "preferences.remove-server.dialog",
             t!("prefs-remove-title", server = server.clone()),
             t!("prefs-remove-detail"),
             t!("prefs-remove"),
             cx,
         );
-        let sign_out_popup = confirm(
+        let sign_out_popup = confirm_popup(
             "preferences.sign-out.dialog",
             t!("prefs-sign-out-title", server = server),
             t!("prefs-sign-out-detail"),
@@ -1783,8 +1739,43 @@ impl MainWindow {
                 true
             }
         });
+        let team_name = selects
+            .team_action
+            .borrow()
+            .as_ref()
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_default();
+        let leave_popup = confirm_popup(
+            "preferences.leave-team.dialog",
+            t!("teams-leave-title", team = team_name),
+            t!("teams-leave-detail"),
+            t!("teams-leave-confirm"),
+            cx,
+        );
+        let leave_team = alert_dialog(
+            "preferences.leave-team.dialog",
+            &selects.leave_team,
+            leave_popup,
+            window,
+            cx,
+        )
+        .on_ok({
+            let main = cx.entity().downgrade();
+            let chosen = selects.team_action.clone();
+            move |_, _, cx| {
+                if let Some((team, _)) = chosen.borrow_mut().take() {
+                    main.update(cx, |this, cx| {
+                        this.in_main_window(cx, move |this, window, cx| {
+                            this.leave_team(team, window, cx)
+                        })
+                    })
+                    .ok();
+                }
+                true
+            }
+        });
         let style_name = selects.style_target.borrow().clone().unwrap_or_default();
-        let delete_popup = confirm(
+        let delete_popup = confirm_popup(
             "preferences.delete-style.dialog",
             t!("prefs-style-delete-title", name = style_name.clone()),
             t!("prefs-style-delete-detail"),
@@ -1896,6 +1887,7 @@ impl MainWindow {
             .child(reset)
             .child(remove)
             .child(sign_out)
+            .child(leave_team)
             .child(delete_style)
             .child(rename_style)
             .into_any_element()
@@ -2630,18 +2622,20 @@ impl MainWindow {
                 let badge = (!shown)
                     .then(|| crate::teams::unread_badge(team.mentions, team.unread, cx))
                     .flatten();
+                let menu = self.team_menu(selects, team, cx);
                 let mut row = Row::new(id.clone(), team.name.clone())
                     .media(crate::teams::team_icon(team, cx));
                 if shown {
                     row = row.description(t!("prefs-team-current"));
-                } else {
-                    row = row.control(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(UiTheme::read(cx).space(2.))
-                            .children(badge)
-                            .child(
+                }
+                row.control(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(UiTheme::read(cx).space(2.))
+                        .children(badge)
+                        .when(!shown, |controls| {
+                            controls.child(
                                 Button::new(gpui_kit::ElementId::Name(
                                     format!("{id}.switch").into(),
                                 ))
@@ -2656,10 +2650,29 @@ impl MainWindow {
                                         })
                                     },
                                 )),
-                            ),
-                    );
-                }
-                row
+                            )
+                        })
+                        .child(
+                            Menu::new(&menu, t!("teams-options", team = team.name.to_string()))
+                                .trigger(
+                                    lucide(LucideIcon::Ellipsis)
+                                        .size(scaled(UiTheme::read(cx), metrics::ICON))
+                                        .text_color(UiTheme::read(cx).colors.muted_foreground),
+                                )
+                                .trigger_style_with({
+                                    let theme = UiTheme::read(cx).clone();
+                                    move |button| {
+                                        style_button(
+                                            button,
+                                            false,
+                                            ButtonVariant::Ghost,
+                                            ButtonSize::IconSm,
+                                            &theme,
+                                        )
+                                    }
+                                }),
+                        ),
+                )
             })
             .collect();
         groups.push(
@@ -2671,11 +2684,47 @@ impl MainWindow {
                             .variant(ButtonVariant::Outline)
                             .size(ButtonSize::Sm)
                             .label(t!("prefs-join-team"))
-                            .on_click(cx.listener(|this, _, _, cx| this.join_team(cx))),
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.in_main_window(cx, |this, window, cx| {
+                                    this.join_team(window, cx)
+                                })
+                            })),
                     ),
                 ),
         );
         groups
+    }
+
+    /// A team's ⋯ menu: Leave team…, which asks first (#745).
+    fn team_menu(
+        &mut self,
+        selects: &mut PageSelects,
+        team: &crate::teams::Team,
+        cx: &mut Context<Self>,
+    ) -> Entity<MenuState> {
+        let action = selects.team_action.clone();
+        let dialog = selects.leave_team.clone();
+        let chosen = (team.id.clone(), team.name.clone());
+        let items = vec![
+            MenuItem::new("preferences.team.leave", t!("teams-leave"))
+                .icon(LucideIcon::LogOut)
+                .on_click(move |_, window, cx| {
+                    action.replace(Some(chosen.clone()));
+                    dialog.open(window, cx);
+                }),
+        ];
+        match selects.team_menus.get(&team.id) {
+            Some(menu) => {
+                let menu = menu.clone();
+                menu.update(cx, |menu, cx| menu.set_items(items, cx));
+                menu
+            }
+            None => {
+                let menu = cx.new(|cx| MenuState::new(items, cx));
+                selects.team_menus.insert(team.id.clone(), menu.clone());
+                menu
+            }
+        }
     }
 
     /// A saved server's ⋯ menu: Move up and down, then Sign out… for the
@@ -2749,6 +2798,48 @@ impl MainWindow {
             .insert(key.clone(), (menu.clone(), built));
         menu
     }
+}
+
+/// A confirmation's popup: its title, what it does, Cancel and a
+/// destructive `action` button.
+pub(super) fn confirm_popup(
+    id: &'static str,
+    title: SharedString,
+    description: SharedString,
+    action: SharedString,
+    cx: &mut App,
+) -> gpui_kit::Stateful<Div> {
+    let theme = UiTheme::read(cx).clone();
+    dialog_popup(
+        gpui_kit::ElementId::Name(format!("{id}.popup").into()),
+        title.clone(),
+        cx,
+    )
+    .child(dialog_title(gpui_kit::ElementId::Name(format!("{id}.title").into()), cx).child(title))
+    .child(
+        dialog_description(
+            gpui_kit::ElementId::Name(format!("{id}.description").into()),
+            cx,
+        )
+        .child(description),
+    )
+    .child(
+        div()
+            .flex()
+            .justify_end()
+            .gap(theme.space(2.))
+            .pt(theme.space(2.))
+            .child(
+                alert_dialog_cancel(gpui_kit::ElementId::Name(format!("{id}.cancel").into()))
+                    .variant(ButtonVariant::Outline)
+                    .label(t!("prefs-cancel")),
+            )
+            .child(
+                alert_dialog_action(gpui_kit::ElementId::Name(format!("{id}.confirm").into()))
+                    .variant(ButtonVariant::Destructive)
+                    .label(action),
+            ),
+    )
 }
 
 /// Says that some of a Mattermost theme's color pairs fall below WCAG AA

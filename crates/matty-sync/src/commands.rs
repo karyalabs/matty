@@ -76,6 +76,16 @@ pub(crate) enum Write {
     OpenDirect {
         user_ids: Vec<String>,
     },
+    BrowseTeams,
+    JoinTeam {
+        team_id: String,
+    },
+    JoinTeamByInvite {
+        invite_id: String,
+    },
+    LeaveTeam {
+        team_id: String,
+    },
     Join {
         channel_id: String,
     },
@@ -248,6 +258,9 @@ impl Write {
             Self::AddEmoji { .. } => "add emoji",
             Self::DeleteEmoji { .. } => "delete emoji",
             Self::OpenDirect { .. } => "open direct message",
+            Self::BrowseTeams => "browse teams",
+            Self::JoinTeam { .. } | Self::JoinTeamByInvite { .. } => "join team",
+            Self::LeaveTeam { .. } => "leave team",
             Self::Join { .. } => "join channel",
             Self::Leave { .. } => "leave channel",
             Self::Archive { .. } => "archive channel",
@@ -320,7 +333,10 @@ impl Write {
             Self::DeleteEmoji { emoji_id } => emoji_id.clone(),
             Self::OpenDirect { user_ids } => user_ids.join(","),
             Self::Roles { names } => names.join(","),
-            Self::TeamRoles => user_id.to_owned(),
+            Self::TeamRoles | Self::BrowseTeams | Self::JoinTeamByInvite { .. } => {
+                user_id.to_owned()
+            }
+            Self::JoinTeam { team_id } | Self::LeaveTeam { team_id } => team_id.clone(),
             Self::Join { channel_id }
             | Self::Leave { channel_id }
             | Self::Archive { channel_id }
@@ -663,6 +679,30 @@ pub(crate) async fn run(
                     channel: Box::new(channel),
                     member: Box::new(member),
                 })
+            }
+            Write::BrowseTeams => {
+                let mut teams = Vec::new();
+                for page in 0..BROWSE_PAGES {
+                    let batch = client.teams(page, PAGE).await?;
+                    let last = batch.len() < PAGE as usize;
+                    teams.extend(batch);
+                    if last {
+                        break;
+                    }
+                }
+                Some(Loaded::JoinableTeams(teams))
+            }
+            Write::JoinTeam { team_id } => {
+                client.add_team_member(&team_id, &user_id).await?;
+                joined_team(&client, &user_id, team_id, &results).await?
+            }
+            Write::JoinTeamByInvite { invite_id } => {
+                let member = client.join_team_by_invite(&invite_id).await?;
+                joined_team(&client, &user_id, member.team_id, &results).await?
+            }
+            Write::LeaveTeam { team_id } => {
+                client.remove_team_member(&team_id, &user_id).await?;
+                Some(Loaded::LeftTeam { team_id })
             }
             Write::Join { channel_id } => {
                 let member = client.add_channel_member(&channel_id, &user_id).await?;
@@ -1009,6 +1049,27 @@ pub(crate) async fn run(
         },
     };
     let _ = results.send(message);
+}
+
+/// Loads a team the user just joined as the initial load would, then says
+/// it is joined. The `added_to_team` event may load it too; the store takes
+/// the same rows twice.
+async fn joined_team(
+    client: &Client,
+    user_id: &str,
+    team_id: String,
+    results: &UnboundedSender<Loaded>,
+) -> Result<Option<Loaded>, ApiError> {
+    let teams = client.my_teams().await?;
+    let Some(team) = teams.into_iter().find(|team| team.id == team_id) else {
+        return Ok(None);
+    };
+    // The engine is gone once the receiver is: nothing waits for these.
+    results.send(Loaded::TeamInfo(Box::new(team))).ok();
+    results
+        .send(crate::load::team(client, user_id, &team_id).await?)
+        .ok();
+    Ok(Some(Loaded::JoinedTeam { team_id }))
 }
 
 /// What the server said, or `None` when it could not be reached: the

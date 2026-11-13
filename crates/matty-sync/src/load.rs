@@ -86,6 +86,12 @@ pub(crate) enum Loaded {
     },
     /// An opened channel's counts.
     Stats(ChannelStats),
+    /// The teams open to join, the user's own among them.
+    JoinableTeams(Vec<matty_api::models::Team>),
+    /// The user joined a team, and its channels came before this.
+    JoinedTeam { team_id: String },
+    /// The server agreed that the user left a team.
+    LeftTeam { team_id: String },
     /// A team's public channels and their member counts.
     Directory {
         team_id: String,
@@ -494,7 +500,11 @@ async fn load_scheduled(client: &Client, team_ids: &[String], results: &Unbounde
     ));
 }
 
-async fn team(client: &Client, user_id: &str, team_id: &str) -> Result<Loaded, ApiError> {
+pub(crate) async fn team(
+    client: &Client,
+    user_id: &str,
+    team_id: &str,
+) -> Result<Loaded, ApiError> {
     let (channels, members, categories) = tokio::try_join!(
         client.my_channels(team_id),
         client.my_channel_members(user_id, team_id),

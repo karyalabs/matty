@@ -23,6 +23,12 @@ fn get(route: &str, body: serde_json::Value) -> Mock {
 /// unread mention and an icon.
 async fn two_teams() -> MockServer {
     let server = server().await;
+    two_teams_on(&server).await;
+    server
+}
+
+/// Puts the user in a second team, t2, on `server`.
+async fn two_teams_on(server: &MockServer) {
     for mock in [
         get(
             "users/me/teams",
@@ -48,9 +54,8 @@ async fn two_teams() -> MockServer {
                     "display_name": "Channels", "channel_ids": ["c2"]}], "order": ["cat2"]}),
         ),
     ] {
-        mock.mount(&server).await;
+        mock.mount(server).await;
     }
-    server
 }
 
 fn thread(id: &str, channel: &str) -> serde_json::Value {
@@ -140,4 +145,123 @@ async fn the_threads_list_follows_the_team_on_screen() {
     assert_eq!(roots[0].id, "r2");
     // Let the server calls land before the mocks check their counts.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn joining_an_open_team_loads_it_and_leaving_drops_it() {
+    let server = server().await;
+    get(
+        "teams",
+        json!([
+            {"id": "t1", "name": "one", "display_name": "One", "type": "O", "allow_open_invite": true},
+            {"id": "t3", "name": "zebra", "display_name": "Zebra", "type": "O", "allow_open_invite": true},
+            {"id": "t2", "name": "two", "display_name": "Two", "type": "O", "allow_open_invite": true},
+            {"id": "t4", "name": "gone", "display_name": "Gone", "type": "O", "delete_at": 9}
+        ]),
+    )
+    .mount(&server)
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/teams/t2/members"))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({"team_id": "t2", "user_id": ME})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/api/v4/teams/t2/members/{ME}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "OK"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+
+    sync.send(Command::BrowseTeams);
+    let ChangeSet::JoinableTeams(teams) =
+        next(&changes, |c| matches!(c, ChangeSet::JoinableTeams(_))).await
+    else {
+        unreachable!()
+    };
+    let names: Vec<_> = teams.iter().map(|t| t.display_name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Two", "Zebra"],
+        "teams the user is in and archived ones are left out, the rest by name"
+    );
+
+    // The server now counts the user in t2.
+    two_teams_on(&server).await;
+    sync.send(Command::JoinTeam {
+        team_id: "t2".into(),
+    });
+    next(
+        &changes,
+        |c| matches!(c, ChangeSet::TeamJoined { team_id } if team_id == "t2"),
+    )
+    .await;
+    next(
+        &changes,
+        |c| matches!(c, ChangeSet::Unreads { teams } if teams.iter().any(|t| t.id == "t2")),
+    )
+    .await;
+
+    sync.send(Command::LeaveTeam {
+        team_id: "t2".into(),
+    });
+    next(
+        &changes,
+        |c| matches!(c, ChangeSet::Unreads { teams } if teams.len() == 1 && teams[0].id == "t1"),
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_invite_link_joins_the_team_it_names() {
+    let server = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/teams/members/invite"))
+        .and(wiremock::matchers::query_param("invite_id", "abc123"))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({"team_id": "t2", "user_id": ME})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+    two_teams_on(&server).await;
+    sync.send(Command::JoinTeamByInvite {
+        invite_id: "abc123".into(),
+    });
+    next(
+        &changes,
+        |c| matches!(c, ChangeSet::TeamJoined { team_id } if team_id == "t2"),
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_join_says_so() {
+    let server = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/teams/t2/members"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "id": "api.context.permissions.app_error",
+            "message": "You do not have the appropriate permissions.",
+            "status_code": 403
+        })))
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+    sync.send(Command::JoinTeam {
+        team_id: "t2".into(),
+    });
+    next(&changes, |c| {
+        matches!(
+            c,
+            ChangeSet::Failed(matty_sync::CommandError::Server { action: "join team", target, .. })
+                if target == "t2"
+        )
+    })
+    .await;
 }

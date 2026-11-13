@@ -386,3 +386,46 @@ async fn people_not_in_a_channel_are_asked_of_the_team() {
         .unwrap();
     assert_eq!(users[0].username, "bo");
 }
+
+#[tokio::test]
+async fn joining_and_leaving_teams_use_the_expected_requests() {
+    let server = MockServer::start().await;
+    let member = json!({"team_id": "t2", "user_id": "me1", "roles": "team_user"});
+    let mocks = [
+        Mock::given(method("GET"))
+            .and(path("/api/v4/teams"))
+            .and(query_param("page", "0"))
+            .and(query_param("per_page", "200"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+                "id": "t2", "name": "design", "display_name": "Design", "type": "O",
+                "description": "Pixels and type", "allow_open_invite": true
+            }]))),
+        Mock::given(method("POST"))
+            .and(path("/api/v4/teams/t2/members"))
+            .and(body_json(json!({ "team_id": "t2", "user_id": "me1" })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(member.clone())),
+        Mock::given(method("POST"))
+            .and(path("/api/v4/teams/members/invite"))
+            .and(query_param("invite_id", "inv1"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(member)),
+        Mock::given(method("DELETE"))
+            .and(path("/api/v4/teams/t2/members/me1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "OK"}))),
+    ];
+    for mock in mocks {
+        mock.expect(1).mount(&server).await;
+    }
+    let client = Client::new(server.uri()).unwrap().with_token("t");
+    let teams = client.teams(0, 200).await.unwrap();
+    assert_eq!(teams[0].description, "Pixels and type");
+    assert!(teams[0].allow_open_invite);
+    assert_eq!(
+        client.add_team_member("t2", "me1").await.unwrap().team_id,
+        "t2"
+    );
+    assert_eq!(
+        client.join_team_by_invite("inv1").await.unwrap().team_id,
+        "t2"
+    );
+    client.remove_team_member("t2", "me1").await.unwrap();
+}

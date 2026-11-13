@@ -428,6 +428,28 @@ pub enum Command {
         /// The team.
         team_id: String,
     },
+    /// Lists the server's teams open to join that the user is not in
+    /// (#745); [`ChangeSet::JoinableTeams`](crate::ChangeSet::JoinableTeams)
+    /// answers.
+    BrowseTeams,
+    /// Joins an open team; once its channels are in,
+    /// [`ChangeSet::TeamJoined`](crate::ChangeSet::TeamJoined) follows.
+    JoinTeam {
+        /// The team.
+        team_id: String,
+    },
+    /// Joins the team an invite link names (its `?id=`), open or not;
+    /// [`ChangeSet::TeamJoined`](crate::ChangeSet::TeamJoined) follows.
+    JoinTeamByInvite {
+        /// The link's invite id.
+        invite_id: String,
+    },
+    /// Leaves a team; it drops out of the team list once the server
+    /// agrees.
+    LeaveTeam {
+        /// The team.
+        team_id: String,
+    },
     /// Lists the team's active people, for starting a direct message;
     /// [`ChangeSet::People`](crate::ChangeSet::People) answers.
     FindPeople {
@@ -1030,6 +1052,19 @@ impl std::fmt::Debug for Command {
                 .field("channel_id", channel_id)
                 .finish(),
             Self::Browse { team_id } => f.debug_struct("Browse").field("team_id", team_id).finish(),
+            Self::BrowseTeams => f.write_str("BrowseTeams"),
+            Self::JoinTeam { team_id } => f
+                .debug_struct("JoinTeam")
+                .field("team_id", team_id)
+                .finish(),
+            // The invite id lets anyone join, so it stays out of logs.
+            Self::JoinTeamByInvite { .. } => {
+                f.debug_struct("JoinTeamByInvite").finish_non_exhaustive()
+            }
+            Self::LeaveTeam { team_id } => f
+                .debug_struct("LeaveTeam")
+                .field("team_id", team_id)
+                .finish(),
             Self::Upload {
                 upload_id,
                 channel_id,
@@ -2072,6 +2107,16 @@ impl Engine {
                 }
                 Message::Command(Command::Browse { team_id }) => {
                     writes.push(Write::Browse { team_id });
+                }
+                Message::Command(Command::BrowseTeams) => writes.push(Write::BrowseTeams),
+                Message::Command(Command::JoinTeam { team_id }) => {
+                    writes.push(Write::JoinTeam { team_id });
+                }
+                Message::Command(Command::JoinTeamByInvite { invite_id }) => {
+                    writes.push(Write::JoinTeamByInvite { invite_id });
+                }
+                Message::Command(Command::LeaveTeam { team_id }) => {
+                    writes.push(Write::LeaveTeam { team_id });
                 }
                 Message::Command(Command::Upload {
                     upload_id,
@@ -3930,6 +3975,24 @@ impl Engine {
                 }
                 dirty.unreads = true;
                 dirty.channels.insert(channel.id);
+            }
+            Loaded::JoinableTeams(teams) => {
+                let mine = cached_team_ids(self.store.conn())?;
+                let mut teams: Vec<_> = teams
+                    .into_iter()
+                    .filter(|team| team.delete_at == 0 && !mine.contains(&team.id))
+                    .collect();
+                teams.sort_by_key(|team| team.display_name.to_lowercase());
+                dirty
+                    .direct
+                    .push(ChangeSet::JoinableTeams(Arc::from(teams)));
+            }
+            Loaded::JoinedTeam { team_id } => {
+                dirty.direct.push(ChangeSet::TeamJoined { team_id });
+            }
+            Loaded::LeftTeam { team_id } => {
+                sidebar::delete_team(self.store.conn(), &team_id)?;
+                dirty.unreads = true;
             }
             Loaded::TeamInfo(team) => {
                 sidebar::upsert_teams(self.store.conn(), std::slice::from_ref(&*team))?;

@@ -9,6 +9,14 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+### Added
+
+- Join and leave teams from inside Matty. "Join another team…" opens a
+  dialog of the server's open teams, with search and a field for an invite
+  link, and Matty shows the team once it has joined. "Leave team…" is in each
+  team's ⋯ menu in Settings › Servers and in a team tab's right-click menu,
+  and asks first (#745).
+
 ## [0.1.0-beta.26] - 2026-11-12
 
 Link previews laid out like Mattermost's.

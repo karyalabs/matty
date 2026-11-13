@@ -97,7 +97,7 @@ pub struct Session {
     pub last_activity_at: i64,
 }
 
-/// A team the user belongs to.
+/// A team: one the user belongs to, or one open to join.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Team {
@@ -110,6 +110,10 @@ pub struct Team {
     /// `O` (open) or `I` (invite only).
     #[serde(rename = "type")]
     pub kind: String,
+    /// What the team is for; may be empty.
+    pub description: String,
+    /// Anyone on the server may join it without an invite.
+    pub allow_open_invite: bool,
     /// Milliseconds since the epoch.
     pub last_team_icon_update: i64,
     /// Milliseconds since the epoch; nonzero when archived.

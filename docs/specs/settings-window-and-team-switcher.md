@@ -200,7 +200,10 @@ Tags: **synced** = a server preference (`set_synced` / notify props), **local** 
   "Other servers" order. "Add server…" outline button under the card (`AddServer`).
 - Teams on <server> (server-backed): one `Item` per team the user belongs to: 24px
   square icon/initials, name, "Leave team…" in a ⋯ menu where the server allows it;
-  "Join another team…" button under the card (`RailEvent::Join`'s target).
+  "Join another team…" button under the card (`RailEvent::Join`'s target). Join opens
+  the Join a team dialog over the main window: the server's open teams (`GET teams`,
+  minus the user's own) with search and Join, then an invite-link field that takes a
+  `…/signup_user_complete/?id=` link for this server (matty#745).
 - With one server and one team the section still exists (it is where Add server and
   Join team live).
 

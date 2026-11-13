@@ -183,6 +183,16 @@ pub enum ChangeSet {
         /// Members by channel id.
         members: Arc<std::collections::HashMap<String, i64>>,
     },
+    /// The server's teams open to join that the user is not in, by name:
+    /// the answer to [`Command::BrowseTeams`](crate::Command::BrowseTeams).
+    JoinableTeams(Arc<[matty_api::models::Team]>),
+    /// A team the user joined is in the cache, channels and all: the
+    /// answer to [`Command::JoinTeam`](crate::Command::JoinTeam) and
+    /// [`Command::JoinTeamByInvite`](crate::Command::JoinTeamByInvite).
+    TeamJoined {
+        /// The team.
+        team_id: String,
+    },
     /// Older posts came for a channel: the next
     /// [`ChangeSet::Posts`] reaches further back. `at_start` once the
     /// channel's first post is in it, so there is nothing more to load.

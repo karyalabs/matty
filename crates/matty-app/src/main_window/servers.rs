@@ -305,23 +305,166 @@ impl MainWindow {
             TeamsEvent::SelectServer(index) => self.switch_server(*index, window, cx),
             TeamsEvent::AddServer => self.add_server(None, window, cx),
             TeamsEvent::Select(team) => self.switch_team(team.clone(), window, cx),
-            TeamsEvent::Join => self.join_team(cx),
+            TeamsEvent::Join => self.join_team(window, cx),
+            TeamsEvent::Leave { id, name } => {
+                self.ask_leave_team(id.clone(), name.clone(), window, cx)
+            }
             TeamsEvent::ManageServers => {
                 self.open_settings(super::settings_pages::Section::Servers, window, cx)
             }
         }
     }
 
-    /// Join another team: Mattermost's team picker on the shown server, in
-    /// the browser; the joined team arrives through sync.
-    pub(super) fn join_team(&mut self, cx: &mut Context<Self>) {
-        let settings = self.settings.read(cx).get();
-        if let Some(account) = settings
-            .current_server()
-            .and_then(|index| settings.servers.get(index))
+    /// Join another team (#745): the Join a team dialog over this window,
+    /// listing the shown server's open teams, with a field for an invite
+    /// link. From Settings, this window comes forward with it.
+    pub(super) fn join_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let url = {
+            let settings = self.settings.read(cx).get();
+            settings
+                .current_server()
+                .and_then(|index| settings.servers.get(index))
+                .map(|account| account.server.clone())
+                .unwrap_or_default()
+        };
+        // The name the server menu shows: its `SiteName`, or its host.
+        let name = {
+            let model = self.teams_model.read(cx);
+            model
+                .current_server()
+                .and_then(|index| model.servers().get(index))
+                .map(|server| server.name.clone())
+                .unwrap_or_else(|| "Matty".into()) // i18n-ignore
+        };
+        if self.settings_host.overlay.is_some() {
+            self.close_settings(cx);
+        }
+        window.activate_window();
+        self.join_team_view
+            .update(cx, |view, cx| view.open(name, url, window, cx));
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::BrowseTeams);
+        } else if crate::preview::enabled() {
+            let mine = self.teams_model.read(cx).teams().to_vec();
+            let teams = crate::preview::joinable_teams()
+                .into_iter()
+                .filter(|team| !mine.iter().any(|joined| joined.id == team.id))
+                .collect();
+            self.join_team_view.update(cx, |view, cx| {
+                view.set_teams(crate::directory::JoinableTeams::Loaded(teams), cx)
+            });
+        }
+    }
+
+    pub(super) fn on_join_team_event(
+        &mut self,
+        _: &Entity<crate::directory::JoinTeamView>,
+        event: &crate::directory::JoinTeamEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::directory::{JoinTeamEvent, JoinableTeams};
+        if let Some(live) = &self.live {
+            // Sync joins and loads the team; the window switches to it once
+            // it is in the team list.
+            match event {
+                JoinTeamEvent::Join(id) => live.send(matty_sync::Command::JoinTeam {
+                    team_id: id.to_string(),
+                }),
+                JoinTeamEvent::Invite(invite_id) => {
+                    live.send(matty_sync::Command::JoinTeamByInvite {
+                        invite_id: invite_id.to_string(),
+                    })
+                }
+            }
+            return;
+        }
+        // The preview joins at once, with the first team's channels.
+        let JoinTeamEvent::Join(id) = event else {
+            return;
+        };
+        let JoinableTeams::Loaded(joinable) = self.join_team_view.read(cx).teams().clone() else {
+            return;
+        };
+        let Some(joined) = joinable.into_iter().find(|team| &team.id == id) else {
+            return;
+        };
+        let (mut teams, current) = {
+            let model = self.teams_model.read(cx);
+            (model.teams().to_vec(), model.current().cloned())
+        };
+        if !teams.iter().any(|team| team.id == joined.id) {
+            teams.push(crate::teams::Team::new(joined.id.clone(), joined.name));
+        }
+        self.teams_model
+            .update(cx, |model, cx| model.set_teams(teams, current, cx));
+        self.switch_team(joined.id, window, cx);
+    }
+
+    /// Shows the team sync just joined once it is in the team list, as
+    /// Mattermost does after a join.
+    pub(super) fn arrive_in_joined_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.joining.clone() else {
+            return;
+        };
+        if self
+            .teams_model
+            .read(cx)
+            .teams()
+            .iter()
+            .any(|team| team.id == id)
         {
-            let url = format!("{}/select_team", account.server.trim_end_matches('/'));
-            cx.open_url(&url);
+            self.joining = None;
+            self.switch_team(id, window, cx);
+        }
+    }
+
+    /// Asks "Leave {team}?" over this window, from a team tab's menu.
+    pub(super) fn ask_leave_team(
+        &mut self,
+        id: gpui_kit::SharedString,
+        name: gpui_kit::SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.leaving.replace(Some((id, name)));
+        self.leave_team_dialog.open(window, cx);
+        cx.notify();
+    }
+
+    /// Leaves `team` once the user confirmed: sync tells the server, and
+    /// the team drops out of the list when it agrees. Leaving the team on
+    /// screen moves the window to the next one.
+    pub(super) fn leave_team(
+        &mut self,
+        team: gpui_kit::SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(live) = &self.live {
+            return live.send(matty_sync::Command::LeaveTeam {
+                team_id: team.to_string(),
+            });
+        }
+        if crate::preview::enabled() {
+            let teams: Vec<_> = self
+                .teams_model
+                .read(cx)
+                .teams()
+                .iter()
+                .filter(|kept| kept.id != team)
+                .cloned()
+                .collect();
+            let current = self.teams_model.read(cx).current().cloned();
+            let next = teams.first().map(|next| next.id.clone());
+            if current.as_ref() == Some(&team)
+                && let Some(next) = next
+            {
+                self.switch_team(next, window, cx);
+            }
+            let current = self.teams_model.read(cx).current().cloned();
+            self.teams_model
+                .update(cx, |model, cx| model.set_teams(teams, current, cx));
         }
     }
 
