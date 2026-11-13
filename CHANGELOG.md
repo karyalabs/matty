@@ -9,6 +9,10 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.27] - 2026-11-13
+
+Join and leave teams, reorder servers, and Nix.
+
 ### Added
 
 - Join and leave teams from inside Matty. "Join another team…" opens a
@@ -16,6 +20,15 @@ Fixed, Removed.
   link, and Matty shows the team once it has joined. "Leave team…" is in each
   team's ⋯ menu in Settings › Servers and in a team tab's right-click menu,
   and asks first (#745).
+- Drag saved servers into a new order in Settings › Servers; the sidebar's
+  server switcher follows it (#744).
+- Run Matty with Nix: `nix run github:karyalabs/matty` (#894).
+
+### Fixed
+
+- Keyboard users can reach a sidebar section's + and ⋯ buttons: they show
+  while focus is on the section header or on them, not only on mouse hover
+  (#901, gpuicn 0.11.9).
 
 ## [0.1.0-beta.26] - 2026-11-12
 
@@ -502,7 +515,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.26...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.27...HEAD
+[0.1.0-beta.27]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.27
 [0.1.0-beta.26]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.26
 [0.1.0-beta.25]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.25
 [0.1.0-beta.24]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.24
