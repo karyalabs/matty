@@ -1,8 +1,9 @@
 //! Where notifications go: one backend per platform (PLAN §6.7). The macOS
 //! backend posts through UNUserNotificationCenter (#139) and the Linux one
 //! through the freedesktop notification service (#216), and the Windows one
-//! as WinRT toasts (#215); elsewhere, and on
-//! macOS outside an app bundle, notifications are only logged.
+//! as WinRT toasts (#215), and the web build's through the browser (#910);
+//! elsewhere, and on macOS outside an app bundle, notifications are only
+//! logged.
 
 use crate::Notification;
 
@@ -138,11 +139,13 @@ pub fn platform(clicked: async_channel::Sender<Clicked>) -> Box<dyn Notifier> {
     }
     #[cfg(target_os = "windows")]
     return Box::new(crate::winrt::Toasts::new(clicked));
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_family = "wasm")]
+    return Box::new(crate::web::Browser::new(clicked));
+    #[cfg(not(any(target_os = "windows", target_family = "wasm")))]
     drop(clicked);
     #[cfg(target_os = "macos")]
     return Box::new(crate::macos::DockOnly);
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_family = "wasm")))]
     Box::new(Logged)
 }
 

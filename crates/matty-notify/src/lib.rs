@@ -1,5 +1,5 @@
 //! Native OS notifications, dock and taskbar badges, and sounds, one backend
-//! per platform (PLAN §6.7).
+//! per platform (PLAN §6.7), and the browser's for the web build.
 
 pub mod backend;
 #[cfg(target_os = "linux")]
@@ -10,6 +10,8 @@ pub mod mention;
 pub mod persistent;
 pub mod policy;
 pub mod sound;
+#[cfg(target_family = "wasm")]
+mod web;
 #[cfg(target_os = "windows")]
 mod winrt;
 
