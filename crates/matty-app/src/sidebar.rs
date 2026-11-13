@@ -18,6 +18,7 @@ use crate::ui::{
     badge::{Badge, BadgeVariant},
     button::{Button, ButtonSize, ButtonVariant, style_button},
     collapsible::collapsible_trigger,
+    item::Reveal,
     menu::{Menu, MenuItem, MenuState},
     sidebar::{Sidebar, SidebarItem, SidebarItemSize, sidebar_menu_action, sidebar_menu_skeleton},
     sortable::{Sortable, SortableGroup, SortableMove, SortableRow, move_group},
@@ -26,7 +27,7 @@ use crate::ui::{
 };
 
 /// The hover group of a category header: its + and options show while
-/// the pointer is over it.
+/// the pointer is over it or keyboard focus is on it.
 const SECTION_GROUP: &str = "sidebar-section";
 
 /// Section names: sentence case, 12px Medium (spec §2.4).
@@ -2210,12 +2211,22 @@ impl SidebarView {
             }))
         });
         // Shift+F10 or the context-menu key on the focused header opens the
-        // same menu, for the keyboard (the hover buttons are pointer-only).
+        // same menu. The + and options show on hover, and while keyboard
+        // focus is on the header or on them (gpuicn#187).
+        let focus = window
+            .use_keyed_state(
+                element_id("sidebar.category.focus", &category.id),
+                cx,
+                |_, cx| cx.focus_handle(),
+            )
+            .read(cx)
+            .clone();
         let place = std::rc::Rc::new(std::cell::Cell::new(gpui_kit::Bounds::default()));
         let (painted_at, key_id) = (place.clone(), category.id.clone());
         div()
             .id(element_id("sidebar.category.head", &category.id))
             .group(SECTION_GROUP)
+            .track_focus(&focus)
             .relative()
             .w_full()
             .on_prepaint(move |bounds, _, _| painted_at.set(bounds))
@@ -2233,18 +2244,18 @@ impl SidebarView {
             )
             .child(trigger)
             .child(
-                div()
-                    .absolute()
-                    .right(theme.space(1.))
-                    .top_0()
-                    .bottom_0()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.))
-                    .opacity(0.)
-                    .group_hover(SECTION_GROUP, |style| style.opacity(1.))
-                    .children(add)
-                    .child(options),
+                Reveal::new(
+                    element_id("sidebar.category.actions", &category.id),
+                    SECTION_GROUP,
+                )
+                .focus_within(&focus)
+                .absolute()
+                .right(theme.space(1.))
+                .top_0()
+                .bottom_0()
+                .gap(px(2.))
+                .children(add)
+                .child(options),
             )
     }
 
