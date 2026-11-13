@@ -4934,6 +4934,8 @@ dependencies = [
  "objc2-user-notifications",
  "tauri-winrt-notification",
  "tracing",
+ "wasm-bindgen",
+ "web-sys",
  "windows 0.62.2",
  "zbus",
 ]
