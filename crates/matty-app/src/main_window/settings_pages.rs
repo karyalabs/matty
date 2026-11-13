@@ -39,6 +39,7 @@ use crate::ui::{
     menu::{Menu, MenuItem, MenuState},
     select::Select,
     sidebar::{Sidebar, SidebarItem},
+    sortable::{Sortable, SortableGroup, SortableRow},
     switch::Switch,
     tag::{Tag, TagVariant},
     theme::UiTheme,
@@ -275,7 +276,12 @@ pub(super) struct Group {
     pub(super) rows: Vec<Row>,
     /// Under the card, such as "Add server…".
     pub(super) after: Option<AnyElement>,
+    /// Rows drag to reorder, reported as `(from, to)` with `to` counted
+    /// after the row has left `from`.
+    pub(super) reorder: Option<Reorder>,
 }
+
+type Reorder = std::rc::Rc<dyn Fn(usize, usize, &mut Window, &mut App)>;
 
 impl Group {
     pub(super) fn new(id: impl Into<SharedString>, label: SharedString) -> Self {
@@ -285,6 +291,7 @@ impl Group {
             tag: GroupTag::None,
             rows: Vec::new(),
             after: None,
+            reorder: None,
         }
     }
 
@@ -310,6 +317,16 @@ impl Group {
 
     pub(super) fn after(mut self, element: impl IntoElement) -> Self {
         self.after = Some(element.into_any_element());
+        self
+    }
+
+    /// Lets the rows be dragged into a new order (and moved with
+    /// Alt+Shift+Up and Down), as gpuicn's `Sortable` does.
+    pub(super) fn reorder(
+        mut self,
+        handler: impl Fn(usize, usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.reorder = Some(std::rc::Rc::new(handler));
         self
     }
 }
@@ -352,13 +369,22 @@ fn group_label(label: SharedString, tag: &GroupTag, theme: &UiTheme) -> Div {
 
 /// One group: its label row, then its card.
 fn render_group(group: Group, theme: &UiTheme) -> Div {
-    let card = (!group.rows.is_empty()).then(|| {
-        let mut card = ItemGroup::new(group.id);
-        for row in group.rows {
-            card = card.child(row.render());
-        }
-        card
-    });
+    let card = match group.reorder {
+        Some(reorder) if group.rows.len() > 1 => Some(sortable_card(
+            group.id,
+            group.label.clone(),
+            group.rows,
+            reorder,
+            theme,
+        )),
+        _ => (!group.rows.is_empty()).then(|| {
+            let mut card = ItemGroup::new(group.id);
+            for row in group.rows {
+                card = card.child(row.render());
+            }
+            card.into_any_element()
+        }),
+    };
     div()
         .flex()
         .flex_col()
@@ -366,6 +392,66 @@ fn render_group(group: Group, theme: &UiTheme) -> Div {
         .child(group_label(group.label, &group.tag, theme))
         .children(card)
         .children(group.after.map(|after| div().flex().child(after)))
+}
+
+/// A card whose rows drag into a new order, drawn like an `ItemGroup`.
+fn sortable_card(
+    id: SharedString,
+    label: SharedString,
+    rows: Vec<Row>,
+    reorder: Reorder,
+    theme: &UiTheme,
+) -> AnyElement {
+    let border = theme.colors.border;
+    let (card, radius) = (theme.colors.card, theme.radius.lg);
+    let rows = rows.into_iter().enumerate().map(|(index, row)| {
+        let drag_id = SharedString::from(format!("{}.drag", row.id));
+        let (title, description) = (row.title.clone(), row.description.clone());
+        let preview_id = SharedString::from(format!("{}.preview", row.id));
+        // The row is built once per frame with its live controls; the drag
+        // preview, drawn later from the same closure, gets a plain copy.
+        let item = std::cell::RefCell::new(Some(row.render()));
+        SortableRow::new(
+            drag_id,
+            title.clone(),
+            move |_: &mut Window, _: &mut App| {
+                let item = item.borrow_mut().take().unwrap_or_else(|| {
+                    Item::new(preview_id.clone())
+                        .title(title.clone())
+                        .when_some(description.clone(), |item, d| item.description(d))
+                        .bg(card)
+                        .border_1()
+                        .border_color(border)
+                        .rounded(radius)
+                        .shadow_md()
+                });
+                div()
+                    .when(index > 0, |row| row.border_t_1().border_color(border))
+                    .child(item)
+            },
+        )
+    });
+    div()
+        .w_full()
+        .border_1()
+        .border_color(border)
+        .rounded(theme.radius.lg)
+        .bg(theme.colors.card)
+        .overflow_hidden()
+        .child(
+            Sortable::new(id.clone(), label.clone())
+                // One group, so no group header of its own: the page's
+                // label row names it.
+                .group(
+                    SortableGroup::new(id, label)
+                        .header(|_, _| div())
+                        .rows(rows),
+                )
+                .on_reorder(move |movement, window, cx| {
+                    reorder(movement.from.index, movement.to.index, window, cx)
+                }),
+        )
+        .into_any_element()
 }
 
 /// A page: its title, one sentence, then its groups 24px apart.
@@ -2414,6 +2500,7 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Vec<Group> {
         let settings = self.settings.read(cx).get().clone();
+        let main = cx.entity().downgrade();
         let model = self.teams_model.read(cx);
         let unread: Vec<_> = model.servers().to_vec();
         let teams: Vec<_> = model.teams().to_vec();
@@ -2512,6 +2599,10 @@ impl MainWindow {
             Group::new("preferences.servers", t!("prefs-servers"))
                 .note(t!("prefs-this-computer"))
                 .rows(rows)
+                .reorder(move |from, to, _, cx| {
+                    main.update(cx, |this, cx| this.move_server(from, to, cx))
+                        .ok();
+                })
                 .after(
                     div().child(
                         Button::new("preferences.add-server")
