@@ -15,10 +15,11 @@ use gpui_kit::{
 use crate::account::{Account, AccountEvent, AccountView};
 use crate::actions::{
     self, AllUnreads, BrowseChannels, ChannelInfo, CreateChannel, DirectMessagesMenu,
-    FocusComposer, FocusSearch, HistoryBack, HistoryForward, MarkAllRead, MarkChannelRead,
-    NextChannel, NextUnreadChannel, OpenInNewWindow, OpenSettings, PreviousChannel,
-    PreviousUnreadChannel, QuickSwitcher, RecentMentions, ResetZoom, SavedMessages, Search,
-    ShowShortcuts, ToggleRightPane, ToggleSidebar, UnreadsFilter, UploadFiles, ZoomIn, ZoomOut,
+    ExpandRightPane, FocusComposer, FocusSearch, HistoryBack, HistoryForward, MarkAllRead,
+    MarkChannelRead, NextChannel, NextUnreadChannel, OpenInNewWindow, OpenSettings,
+    PreviousChannel, PreviousUnreadChannel, QuickSwitcher, ReactToLastMessage, RecentMentions,
+    ResetZoom, SavedMessages, Search, ShowShortcuts, ToggleRightPane, ToggleSidebar, UnreadsFilter,
+    UploadFiles, ZoomIn, ZoomOut,
 };
 use crate::channel::{ChannelEvent, ChannelView};
 use crate::directory::{BrowseView, CreateChannelView, DirectoryEvent, NewMessageView};
@@ -264,6 +265,9 @@ pub struct MainWindow {
     team_places: std::collections::HashMap<SharedString, SharedString>,
     /// Holds threads, search results and the other right-pane views (M1).
     right_pane_open: bool,
+    /// The open right pane takes the channel's place instead of sitting
+    /// beside it (Expand, Cmd/Ctrl+Shift+.), until it closes.
+    right_pane_expanded: bool,
     /// In a narrow window the right pane is this drawer over the channel;
     /// `right_drawer_shown` says whether the handle was opened for the
     /// current `right_pane_open`, so a dismissal from the drawer (Escape,
@@ -276,8 +280,10 @@ pub struct MainWindow {
     sidebar_drawer: DrawerHandle,
     sidebar_drawer_open: bool,
     /// The hidden sidebar slid in over the content from the left edge
-    /// (spec §3), and the pending slide out after the pointer left it.
+    /// (spec §3), what the pointer rests on that keeps it there, and the
+    /// pending slide out after the pointer left them all.
     sidebar_peek: bool,
+    peek_hover: PeekHover,
     peek_hide: Option<gpui_kit::Task<()>>,
     sidebar_drawer_shown: bool,
     /// The Threads view stands in for the channel while the sidebar's
@@ -672,7 +678,10 @@ impl MainWindow {
             window,
             |this, _, event: &ChannelEvent, window, cx| match event {
                 ChannelEvent::Offline(action) => this.say_offline(action, cx),
-                ChannelEvent::OpenThread(post_id) => this.open_thread(post_id.clone(), cx),
+                ChannelEvent::OpenThread(post_id) => {
+                    this.open_thread(post_id.clone(), cx);
+                    this.right_pane.update(cx, |pane, cx| pane.focus_reply(cx));
+                }
                 ChannelEvent::OpenThreadWindow(root) => this.pop_out_thread(root.clone(), None, cx),
                 ChannelEvent::OpenPinned => this.show_pinned(cx),
                 ChannelEvent::OpenInfo => this.show_channel_info(cx),
@@ -1238,11 +1247,13 @@ impl MainWindow {
             teams_model,
             team_places: Default::default(),
             right_pane_open: false,
+            right_pane_expanded: false,
             right_drawer: DrawerHandle::new(false),
             right_drawer_shown: false,
             sidebar_drawer: DrawerHandle::new(false),
             sidebar_drawer_open: false,
             sidebar_peek: false,
+            peek_hover: PeekHover::default(),
             peek_hide: None,
             sidebar_drawer_shown: false,
             threads,
@@ -3114,6 +3125,7 @@ impl MainWindow {
                 self.right_pane_open = false;
                 cx.notify();
             }
+            RightPaneEvent::ToggleExpand => self.toggle_right_pane_expanded(cx),
             RightPaneEvent::Search(query) => self.search(query.clone(), window, cx),
             RightPaneEvent::PopOut(root) => self.pop_out_pane_thread(pane, root, cx),
             RightPaneEvent::CopyLink(post) => self.copy_link(post, cx),
@@ -3581,6 +3593,9 @@ impl MainWindow {
         if self.drafts_open {
             return cached_pane(&self.drafts);
         }
+        if self.right_pane_expanded() {
+            return cached_pane(&self.right_pane);
+        }
         if !self.right_pane_open || Self::narrow_right_pane(window) {
             return self.channel_area(window, cx);
         }
@@ -3607,6 +3622,88 @@ impl MainWindow {
             .into_any_element()
     }
 
+    /// Whether the right pane shows in the channel's place.
+    pub(super) fn right_pane_expanded(&self) -> bool {
+        self.right_pane_open && self.right_pane_expanded && !self.threads_open && !self.drafts_open
+    }
+
+    /// Expand in the right pane's header, or Cmd/Ctrl+Shift+.: the open
+    /// right pane takes the channel's place, or goes back beside it.
+    fn toggle_right_pane_expanded(&mut self, cx: &mut Context<Self>) {
+        if self.right_pane_open && !self.threads_open && !self.drafts_open {
+            self.right_pane_expanded = !self.right_pane_expanded;
+            cx.notify();
+        }
+    }
+
+    /// A character typed while nothing that takes keys has focus, as after
+    /// a click on a header button, a pane or a closed menu, goes to the
+    /// composer and puts the caret there, as in Mattermost and Slack: the
+    /// thread's reply box from its pane, the channel's from anywhere else.
+    /// Keys with Cmd or Ctrl, Space and Enter stay with whatever has focus.
+    fn type_to_composer(
+        &mut self,
+        event: &gpui_kit::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Only where focus rests on the window, a pane or a button of
+        // theirs: a text field, a menu, a dialog, a selected message and
+        // the sidebar's list have keys of their own.
+        const RESTING: [&str; 5] = [
+            actions::MAIN_WINDOW,
+            "SelectionRoot", // i18n-ignore: a key context
+            actions::CHANNEL_VIEW,
+            actions::RIGHT_PANE,
+            "Composer", // i18n-ignore: a key context
+        ];
+        let modifiers = event.keystroke.modifiers;
+        let Some(text) = event
+            .keystroke
+            .key_char
+            .clone()
+            .filter(|text| text.chars().all(|c| !c.is_control() && !c.is_whitespace()))
+            .filter(|text| !text.is_empty())
+        else {
+            return;
+        };
+        if modifiers.control || modifiers.platform || modifiers.function {
+            return;
+        }
+        let stack = window.context_stack();
+        let resting = stack.iter().all(|context| {
+            RESTING.iter().any(|name| context.contains(name)) && !context.contains("Input")
+        });
+        if !resting {
+            return;
+        }
+        // In a thread's pane the reply box is the one in reach.
+        let in_thread = stack
+            .iter()
+            .any(|context| context.contains(actions::RIGHT_PANE))
+            && matches!(
+                self.right_pane.read(cx).content(),
+                Some(RightPaneContent::Thread(_))
+            );
+        if in_thread {
+            self.right_pane
+                .update(cx, |pane, cx| pane.type_reply(text, window, cx));
+            cx.stop_propagation();
+            return;
+        }
+        let composer_shown = self.login.is_none()
+            && !self.threads_open
+            && !self.drafts_open
+            && !self.right_pane_expanded()
+            && self.split.main_focused();
+        if !composer_shown || !self.channel.read(cx).can_type() {
+            return;
+        }
+        self.channel
+            .update(cx, |channel, cx| channel.insert_text(text, window, cx));
+        cx.stop_propagation();
+    }
+
     /// Whether the window is too narrow to split the channel and the right
     /// pane side by side.
     fn narrow_right_pane(window: &Window) -> bool {
@@ -3622,9 +3719,16 @@ impl MainWindow {
     /// lets a dismissal from a drawer (Escape, the backdrop) clear the flag.
     fn sync_drawers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let signed_in = self.login.is_none();
+        if !self.right_pane_open {
+            self.right_pane_expanded = false;
+        }
+        let expanded = self.right_pane_expanded();
+        self.right_pane
+            .update(cx, |pane, cx| pane.set_expanded(expanded, cx));
         let right = self.right_pane_open
             && Self::narrow_right_pane(window)
             && signed_in
+            && !expanded
             && !self.threads_open
             && !self.drafts_open;
         if sync_drawer(
@@ -3716,36 +3820,66 @@ impl MainWindow {
         });
     }
 
-    /// Slides the hidden sidebar in, or out 200ms after the pointer left it
-    /// (spec §3).
-    fn peek_sidebar(&mut self, show: bool, cx: &mut Context<Self>) {
-        if show {
+    /// The pointer came to rest on, or left, one of the things that keep the
+    /// hidden sidebar peeking: it slides in at once, and out 200ms after the
+    /// pointer has left them all (spec §3).
+    fn peek_hover(&mut self, part: PeekPart, hovered: bool, cx: &mut Context<Self>) {
+        match part {
+            PeekPart::Toggle => self.peek_hover.toggle = hovered,
+            PeekPart::Edge => self.peek_hover.edge = hovered,
+            PeekPart::Panel => self.peek_hover.panel = hovered,
+        }
+        if self.peek_hover.any() {
             self.peek_hide = None;
             if !self.sidebar_visible && !self.sidebar_peek {
                 self.sidebar_peek = true;
                 cx.notify();
             }
-            return;
+        } else {
+            self.hide_peek_soon(cx);
         }
+    }
+
+    /// Slides the peeked sidebar out in 200ms unless the pointer comes back
+    /// first. While one of its menus is open or a row is dragged it stays,
+    /// and the wait starts over.
+    fn hide_peek_soon(&mut self, cx: &mut Context<Self>) {
         if !self.sidebar_peek || self.peek_hide.is_some() {
             return;
         }
         self.peek_hide = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(200))
-                .await;
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(200))
+                    .await;
+                let busy = this.update(cx, |this, cx| this.sidebar.read(cx).busy(cx));
+                if !matches!(busy, Ok(true)) {
+                    break;
+                }
+            }
             this.update(cx, |this, cx| {
                 this.peek_hide = None;
-                this.sidebar_peek = false;
-                cx.notify();
+                if !this.peek_hover.any() {
+                    this.sidebar_peek = false;
+                    cx.notify();
+                }
             })
             .ok();
         }));
     }
 
+    /// Ends the peek at once: the sidebar was shown, or hidden again.
+    fn end_peek(&mut self) {
+        self.sidebar_peek = false;
+        self.peek_hover = PeekHover::default();
+        self.peek_hide = None;
+    }
+
     /// While the docked sidebar is hidden: a 14px zone at the window's left
     /// edge that peeks it, and the sidebar itself sliding in over the
-    /// content, which it does not resize.
+    /// content, which it does not resize. Both start under the pane
+    /// headers, so Toggle sidebar stays in reach: clicking it while the
+    /// sidebar peeks pins it (spec §3).
     fn sidebar_peek_overlay(
         &mut self,
         narrow: bool,
@@ -3754,7 +3888,9 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Option<gpui_kit::AnyElement> {
         if self.sidebar_visible || narrow || self.login.is_some() {
-            self.sidebar_peek = false;
+            self.end_peek();
+            self.sidebar
+                .update(cx, |sidebar, cx| sidebar.set_floating(false, cx));
             return None;
         }
         let theme = UiTheme::read(cx).clone();
@@ -3765,23 +3901,25 @@ impl MainWindow {
             window,
             cx,
         );
+        let showing = shown > 0.001;
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.set_floating(showing, cx));
+        let top = scaled(&theme, metrics::HEADER_HEIGHT);
         let edge = div()
             .id("main.sidebar.edge")
             .absolute()
             .left_0()
-            .top_0()
+            .top(top)
             .bottom_0()
             .w(px(14.))
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                if *hovered {
-                    this.peek_sidebar(true, cx)
-                }
+                this.peek_hover(PeekPart::Edge, *hovered, cx)
             }));
-        let panel = (shown > 0.001).then(|| {
+        let panel = showing.then(|| {
             div()
                 .id("main.sidebar.peek")
                 .absolute()
-                .top_0()
+                .top(top)
                 .bottom_0()
                 .left(-width * (1. - shown))
                 .w(width)
@@ -3789,9 +3927,9 @@ impl MainWindow {
                 .shadow_lg()
                 .border_r(style::hairline())
                 .border_color(theme.colors.sidebar_border)
-                .on_hover(
-                    cx.listener(|this, hovered: &bool, _, cx| this.peek_sidebar(*hovered, cx)),
-                )
+                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                    this.peek_hover(PeekPart::Panel, *hovered, cx)
+                }))
                 .child(cached_pane(&self.sidebar))
         });
         Some(
@@ -4135,7 +4273,7 @@ impl MainWindow {
         let seen = Seen {
             // In split view, only while the main pane has focus (#222).
             focused: window.is_window_active() && self.split.main_focused(),
-            channel_shown: !self.threads_open && !self.drafts_open,
+            channel_shown: !self.threads_open && !self.drafts_open && !self.right_pane_expanded(),
             covered: self.right_drawer_shown || self.sidebar_drawer_shown,
             at_newest: self.channel.read(cx).at_newest(cx),
             unread: self.sidebar.read(cx).is_unread(&id),
@@ -4680,6 +4818,31 @@ impl MainWindow {
     }
 }
 
+/// What the pointer rests on that keeps the hidden sidebar peeking.
+#[derive(Clone, Copy, Debug, Default)]
+struct PeekHover {
+    toggle: bool,
+    edge: bool,
+    panel: bool,
+}
+
+impl PeekHover {
+    fn any(self) -> bool {
+        self.toggle || self.edge || self.panel
+    }
+}
+
+/// A part of the window that peeks the hidden sidebar while hovered.
+#[derive(Clone, Copy, Debug)]
+enum PeekPart {
+    /// Toggle sidebar, in the leading pane header.
+    Toggle,
+    /// The 14px zone at the window's left edge.
+    Edge,
+    /// The peeked sidebar itself.
+    Panel,
+}
+
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::decoded_images::frame_drawn();
@@ -4730,13 +4893,17 @@ impl Render for MainWindow {
                     this.sidebar_visible = !this.sidebar_visible;
                 }
                 // Clicking the toggle while peeking pins the sidebar.
-                this.sidebar_peek = false;
-                this.peek_hide = None;
+                this.end_peek();
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &crate::chrome::PeekSidebar, _, cx| {
-                this.peek_sidebar(true, cx)
+                this.peek_hover(PeekPart::Toggle, true, cx)
             }))
+            .on_action(
+                cx.listener(|this, _: &crate::chrome::UnpeekSidebar, _, cx| {
+                    this.peek_hover(PeekPart::Toggle, false, cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &ZoomIn, _, cx| this.zoom(Some(ZOOM_STEP), cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, _, cx| this.zoom(Some(-ZOOM_STEP), cx)))
             .on_action(cx.listener(|this, _: &ResetZoom, _, cx| this.zoom(None, cx)))
@@ -4797,6 +4964,16 @@ impl Render for MainWindow {
                 this.right_pane_open = !this.right_pane_open;
                 cx.notify();
             }))
+            .on_action(
+                cx.listener(|this, _: &ExpandRightPane, _, cx| this.toggle_right_pane_expanded(cx)),
+            )
+            // With focus outside the channel, as after a click on a header
+            // button; the channel's own handler is the same.
+            .on_action(cx.listener(|this, _: &ReactToLastMessage, _, cx| {
+                this.channel
+                    .update(cx, |channel, cx| channel.react_to_last_message(cx))
+            }))
+            .on_key_down(cx.listener(Self::type_to_composer))
             .on_action(cx.listener(|this, _: &ChannelInfo, _, cx| this.show_channel_info(cx)))
             .on_action(cx.listener(|this, _: &OpenInNewWindow, window, cx| {
                 this.open_in_new_window(window, cx)

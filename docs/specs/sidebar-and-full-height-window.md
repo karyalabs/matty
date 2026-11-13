@@ -166,9 +166,16 @@ opens while a menu or drag is active.
 - **Edge peek:** while hidden, moving the pointer within 14px of the window's left edge, or
   hovering the toggle, slides the sidebar in over the content as an overlay (140ms ease-out,
   instant under reduced motion; shadow `lg`; it does not resize the panes). It stays while
-  the pointer is over it or one of its menus or the peek card, and slides out 200ms after
-  the pointer leaves. Clicking a row navigates and leaves it open until the pointer leaves.
-  Clicking the toggle while peeking pins it (same as showing the sidebar).
+  the pointer is over it, the toggle, or one of its menus or the peek card, and slides out
+  200ms after the pointer leaves. Clicking a row navigates and leaves it open until the
+  pointer leaves. Clicking the toggle while peeking pins it (same as showing the sidebar).
+- The peeked sidebar hangs **under the pane headers**, from the header's bottom edge to
+  the window's, and draws no traffic-light strip. A full-height overlay covered the toggle
+  that had just been hovered, so the click that pins it landed on the sidebar and nothing
+  in the window could bring the sidebar back. The header, and with it the toggle, Back and
+  Forward, stays clickable throughout a peek.
+- Cmd/Ctrl+Shift+D toggles the sidebar from anywhere. Cmd/Ctrl+B does too, except in a
+  text field, where it is Bold.
 - The narrow-window drawer (`sidebar_drawer_open`) keeps its current behaviour; edge peek
   applies only when the window is wide enough for the docked sidebar.
 - Touch input has no hover: tapping the toggle shows the sidebar as today.

@@ -422,7 +422,7 @@ conventions or Matty additions. A Cmd/Ctrl+/ sheet lists them all.
 | Focus composer | Cmd+Shift+L (MM), or just start typing |
 | Mark channel read | Escape in the channel (Matty addition, from Slack) |
 | Mark all read | Shift+Escape (Matty addition, from Slack) |
-| Toggle sidebar | Cmd+Shift+D (Slack) |
+| Toggle sidebar | Cmd+Shift+D (Slack); Cmd+B too when not in a text field, where it is Bold |
 | Close right pane | Escape |
 | Zoom in / out / reset | Cmd+= / Cmd+- / Cmd+0 |
 | Settings | Cmd+, |
@@ -434,7 +434,14 @@ conventions or Matty additions. A Cmd/Ctrl+/ sheet lists them all.
 | Close the focused split pane | Cmd+Alt+W (Matty) |
 
 "Just start typing" focuses the composer when focus is anywhere in the
-channel view and no message is selected, as in Slack and Telegram.
+channel view, or rests on the window after a click on a header button or a
+closed menu, and no message is selected, as in Slack and Telegram.
+A shortcut in this table works wherever focus is in the window: with the
+caret in the composer or a reply, on a sidebar row, or on the window itself.
+A text field's own editing keys and the toolkit's global keys do not take it
+away, and a row that names Shift with a symbol key (Cmd+Shift+.) is bound in
+every form a platform reports it. `tests/keymap_reach.rs` presses every row
+from each of those places.
 Alt+Up/Down switch channels everywhere except inside a multi-line composer
 draft on macOS, where they keep their text-navigation meaning. Before M1,
 recheck the table against Mattermost's current shortcut page and each OS's

@@ -21,4 +21,8 @@ Host the images in karyalabs/assets (matty/<PR number>/), never in docs/.
 
 ## How it was tested
 
-<!-- Commands run, platforms checked, keyboard or screen reader journeys. -->
+<!--
+Commands run, platforms checked, keyboard or screen reader journeys.
+For a change to the window's chrome, focus or keymap: say where you ran the
+walk in docs/journeys/first-minutes.md (macOS, Linux, web).
+-->

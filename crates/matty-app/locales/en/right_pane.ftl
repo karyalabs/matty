@@ -13,6 +13,7 @@ pane-profile = Profile
 
 pane-open-in-window = Open in new window
 pane-expand = Expand
+pane-collapse = Collapse
 pane-close = Close
 pane-download = Download
 pane-message-actions = Message actions
