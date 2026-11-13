@@ -1944,7 +1944,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3039,7 +3039,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre"
 version = "0.3.12"
-source = "git+https://github.com/karyalabs/zed?branch=crates%2Fgpui-pre-0.3.12-perf#b5147ca569863b70b5860963ea44d5c4f3b31e3b"
+source = "git+https://github.com/karyalabs/zed?branch=crates%2Fgpui-pre-0.3.12-perf#74f7381f184fa7c2370ecf0f291072146dc7cd93"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -3110,7 +3110,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-apple"
 version = "0.3.12"
-source = "git+https://github.com/karyalabs/zed?branch=crates%2Fgpui-pre-0.3.12-perf#b5147ca569863b70b5860963ea44d5c4f3b31e3b"
+source = "git+https://github.com/karyalabs/zed?branch=crates%2Fgpui-pre-0.3.12-perf#74f7381f184fa7c2370ecf0f291072146dc7cd93"
 dependencies = [
  "anyhow",
  "async-task",
@@ -3269,7 +3269,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-macos"
 version = "0.3.12"
-source = "git+https://github.com/karyalabs/zed?branch=crates%2Fgpui-pre-0.3.12-perf#b5147ca569863b70b5860963ea44d5c4f3b31e3b"
+source = "git+https://github.com/karyalabs/zed?branch=crates%2Fgpui-pre-0.3.12-perf#74f7381f184fa7c2370ecf0f291072146dc7cd93"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3881,7 +3881,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -6567,7 +6567,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7218,7 +7218,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7285,7 +7285,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8172,7 +8172,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9456,7 +9456,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
