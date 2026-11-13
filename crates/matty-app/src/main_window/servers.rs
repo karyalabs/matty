@@ -302,15 +302,22 @@ impl MainWindow {
     /// listing the shown server's open teams, with a field for an invite
     /// link. From Settings, this window comes forward with it.
     pub(super) fn join_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (name, url) = {
+        let url = {
             let settings = self.settings.read(cx).get();
-            match settings
+            settings
                 .current_server()
                 .and_then(|index| settings.servers.get(index))
-            {
-                Some(account) => (account.label().to_owned(), account.server.clone()),
-                None => ("Matty".to_owned(), String::new()), // i18n-ignore
-            }
+                .map(|account| account.server.clone())
+                .unwrap_or_default()
+        };
+        // The name the server menu shows: its `SiteName`, or its host.
+        let name = {
+            let model = self.teams_model.read(cx);
+            model
+                .current_server()
+                .and_then(|index| model.servers().get(index))
+                .map(|server| server.name.clone())
+                .unwrap_or_else(|| "Matty".into()) // i18n-ignore
         };
         if self.settings_host.overlay.is_some() {
             self.close_settings(cx);
