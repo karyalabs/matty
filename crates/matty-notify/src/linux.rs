@@ -20,6 +20,10 @@ use crate::{Badge, Clicked, Notification, Notifier};
 /// named for the app id the windows carry.
 pub const DESKTOP_ENTRY: &str = "dev.arya.matty";
 
+/// The freedesktop sound theme's name for an incoming instant message,
+/// which GNOME, KDE and the other notification services play.
+const SOUND_NAME: &str = "message-new-instant";
+
 /// Where the badge signal comes from. Docks match it to the app by the
 /// desktop entry it names, not by this path.
 const LAUNCHER_PATH: &str = "/com/canonical/unity/launcherentry/matty";
@@ -185,8 +189,9 @@ async fn show(notification: &Notification) -> Option<NotificationHandle> {
         .ok()
 }
 
-/// The freedesktop notification for `notification`. Matty plays its own
-/// sounds, so the service is asked to stay quiet.
+/// The freedesktop notification for `notification`. With a sound, the
+/// service plays the sound theme's new-message sound, since Linux has no
+/// one way for the app to play its own; without one it stays quiet.
 fn build(notification: &Notification) -> notify_rust::Notification {
     let mut built = notify_rust::Notification::new();
     built
@@ -196,8 +201,11 @@ fn build(notification: &Notification) -> notify_rust::Notification {
         .icon(DESKTOP_ENTRY)
         .action("default", "Open")
         .hint(Hint::DesktopEntry(DESKTOP_ENTRY.into()))
-        .hint(Hint::Category("im.received".into()))
-        .hint(Hint::SuppressSound(true));
+        .hint(Hint::Category("im.received".into()));
+    match notification.sound {
+        Some(_) => built.hint(Hint::SoundName(SOUND_NAME.into())),
+        None => built.hint(Hint::SuppressSound(true)),
+    };
     // The author's picture beside the text, as GNOME, KDE and others draw
     // `image-path`; the app icon stays the notification's own icon.
     if let Some(image) = notification.image.as_ref().and_then(|path| path.to_str()) {
@@ -292,5 +300,21 @@ mod tests {
         assert_eq!(built.summary, "town-square");
         assert_eq!(built.body, "Ada: &lt;hi&gt;");
         assert_eq!(built.actions, ["default", "Open"]);
+        assert!(built.hints.contains(&Hint::SuppressSound(true)));
+        assert!(!built.hints.contains(&Hint::SoundName(SOUND_NAME.into())));
+    }
+
+    #[test]
+    fn a_notification_with_a_sound_asks_the_service_to_play_it() {
+        let built = build(&Notification {
+            title: "town-square".into(),
+            body: "Ada: hi".into(),
+            channel_id: "c1".into(),
+            post_id: "p1".into(),
+            sound: Some(crate::Sound::Ripple),
+            ..Notification::default()
+        });
+        assert!(built.hints.contains(&Hint::SoundName(SOUND_NAME.into())));
+        assert!(!built.hints.contains(&Hint::SuppressSound(true)));
     }
 }

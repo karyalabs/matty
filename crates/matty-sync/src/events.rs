@@ -45,7 +45,13 @@ pub(crate) fn apply(
             }
             let mentions_me = me.is_some_and(|me| posted.mentions.iter().any(|id| id == me));
             new_post(conn, &post, me, mentions_me, dirty, fetches)?;
-            if let Some(me) = me.filter(|me| post.user_id != *me) {
+            // The user's own posts do not notify, except those an incoming
+            // webhook posts under their name, as in the web app.
+            let from_webhook = post
+                .props
+                .get("from_webhook")
+                .is_some_and(|value| value.as_str() == Some("true"));
+            if let Some(me) = me.filter(|me| post.user_id != *me || from_webhook) {
                 let channel_props = sidebar::channel_member(conn, &post.channel_id, me)?
                     .map(|member| member.notify_props)
                     .unwrap_or_default();

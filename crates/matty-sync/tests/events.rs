@@ -226,6 +226,22 @@ async fn posts_from_others_arrive_for_notifications_once() {
 }
 
 #[tokio::test]
+async fn a_webhook_posting_as_me_arrives_for_notifications() {
+    let mut hook = post("hook", "c1", "", ME, 20);
+    hook.props
+        .insert("from_webhook".into(), serde_json::json!("true"));
+    let (seen, _store, _dir) = run(vec![posted(hook, &[])]).await;
+    let arrived: Vec<_> = seen
+        .iter()
+        .filter_map(|c| match c {
+            ChangeSet::Arrived(arrived) => Some(arrived.post.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(arrived, ["hook"]);
+}
+
+#[tokio::test]
 async fn a_duplicate_posted_is_a_no_op() {
     let p2 = post("p2", "c1", "", "u2", 20);
     let (_, store, _dir) = run(vec![posted(p2.clone(), &[ME]), posted(p2, &[ME])]).await;
