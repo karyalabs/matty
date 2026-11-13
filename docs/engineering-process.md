@@ -307,11 +307,22 @@ Arya decided all of these on 2026-11-06: "go with the recommendations".
 ### 7.1 The dependency chain
 
 ```
+karyalabs/zed (GPUI fork) ──▶ gpuicn, matty, gpui-av (through [patch.crates-io])
 gpui-icons ──▶ gpuicn ──▶ matty ──▶ homebrew-matty
                   │
                   └──▶ ui.imajha.com (gpuicn's site)
 karyalabs/.github: shared actions used by all of them
 ```
+
+GPUI itself comes from Karya Labs' fork `karyalabs/zed` by default: it
+publishes gpui-pre-compatible crates (same names and versions, additive
+patches) on `crates/gpui-pre-<version>`, and each workspace swaps them in with
+`[patch.crates-io]`. A gpui-pre pin bump therefore also means rebasing the
+fork's patches onto the new snapshot's `zed-rev` (branch
+`gpui-pre/<version>`) and regenerating the crates with
+`karya/publish.sh <version>` on karyalabs/zed, before the consumers move their
+patch branch. Matty's steps are in `docs/PINS.md`; the plan of record is the
+fork's `karya/README.md` and gpui-av `docs/spec.md` section 4.3.
 
 Today each link is crossed by hand: a gpuicn release needs a hand-made
 Matty pin bump PR, and nothing tells gpuicn that a change will break Matty
