@@ -86,12 +86,14 @@ matty-update = { path = "crates/matty-update" }
 matty-spell = { path = "crates/matty-spell" }
 
 # GPUI comes from Karya Labs' fork (karyalabs/zed): the same gpui-pre crates,
-# names and versions, with additive patches (10-bit and HDR video surfaces on
-# macOS). Only the crates the fork changes are listed; the rest stay on
-# crates.io. A gpui-pre pin bump also moves this branch; see docs/PINS.md.
+# names and versions, with patches: 10-bit and HDR video surfaces on macOS,
+# and redraws scoped to the views a click, tooltip or focus change affects.
+# Only the crates the fork changes are listed; the rest stay on crates.io. A
+# gpui-pre pin bump also moves this branch; see docs/PINS.md.
 [patch.crates-io]
-gpui-pre-apple = { git = "https://github.com/karyalabs/zed", branch = "crates/gpui-pre-0.3.12" }
-gpui-pre-macos = { git = "https://github.com/karyalabs/zed", branch = "crates/gpui-pre-0.3.12" }
+gpui-pre = { git = "https://github.com/karyalabs/zed", branch = "crates/gpui-pre-0.3.12-perf" }
+gpui-pre-apple = { git = "https://github.com/karyalabs/zed", branch = "crates/gpui-pre-0.3.12-perf" }
+gpui-pre-macos = { git = "https://github.com/karyalabs/zed", branch = "crates/gpui-pre-0.3.12-perf" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

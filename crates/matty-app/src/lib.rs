@@ -250,6 +250,12 @@ fn launch(links: async_channel::Receiver<String>, cx: &mut App) {
     // Every saved server runs its own engine, each with its own files.
     #[cfg(not(target_family = "wasm"))]
     fd_limit::raise();
+    // A cached pane keeps the cached views inside it when it redraws (the
+    // messages while the composer changes, #818). Every cached view in Matty
+    // observes the state it draws from.
+    cx.set_nested_view_caching(
+        std::env::var_os("MATTY_NESTED_VIEW_CACHING").is_none_or(|value| value != "0"),
+    );
     ui::theme::init(cx);
     calm_caret(cx);
     i18n::install_builtin(cx);
