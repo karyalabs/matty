@@ -16,3 +16,8 @@
   `docs/engineering-process.md`. Releases: `docs/releasing.md`.
 - Reusable UI comes from gpuicn; never build a local substitute for a gpuicn
   component in Matty.
+- A change to the main window's chrome, focus or keymap is tested the way it
+  is used (pointer moved and clicked, keys pressed with focus where a user
+  has it, never only by dispatching the action), and the five minute walk in
+  `docs/journeys/first-minutes.md` is run in the app before the pull request
+  opens. A shortcut is a row in `actions::bindings()` and nowhere else.

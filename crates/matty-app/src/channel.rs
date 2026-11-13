@@ -2522,8 +2522,26 @@ impl ChannelView {
         }
     }
 
+    /// Whether a channel is open, so its composer is there to type in.
+    pub fn can_type(&self) -> bool {
+        self.model.is_some()
+    }
+
+    /// Opens the emoji picker to react to the channel's last message
+    /// (Cmd/Ctrl+Shift+\).
+    pub fn react_to_last_message(&mut self, cx: &mut Context<Self>) {
+        let last = self
+            .model
+            .as_ref()
+            .and_then(|model| model.last_message())
+            .map(|post| post.id.clone());
+        if let Some(id) = last {
+            self.open_picker(Some(id), cx);
+        }
+    }
+
     /// Puts text at the caret and focuses the composer, for "Mention" on a
-    /// profile card.
+    /// profile card and for a character typed with focus outside it.
     pub fn insert_text(
         &mut self,
         text: impl Into<SharedString>,
@@ -5541,7 +5559,10 @@ impl Render for ChannelView {
             }))
             .on_action(
                 cx.listener(|this, _: &FocusComposer, window, cx| this.focus_composer(window, cx)),
-            );
+            )
+            .on_action(cx.listener(|this, _: &actions::ReactToLastMessage, _, cx| {
+                this.react_to_last_message(cx)
+            }));
         let Some(channel) = self.model.clone() else {
             return root.child(Self::empty(self.connected, cx));
         };

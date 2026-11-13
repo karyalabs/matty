@@ -60,6 +60,9 @@ gpui_kit::actions!(
         /// The pointer rests on Toggle sidebar while the sidebar is hidden:
         /// slide it in over the content (spec §3). Not bound to a key.
         PeekSidebar,
+        /// The pointer left Toggle sidebar: the peeked sidebar slides out
+        /// unless the pointer went to it. Not bound to a key.
+        UnpeekSidebar,
     ]
 );
 
@@ -267,6 +270,8 @@ fn toggle(chrome: PaneChrome, cx: &App) -> impl IntoElement {
             el.on_hover(|hovered, window, cx| {
                 if *hovered {
                     window.dispatch_action(Box::new(PeekSidebar), cx);
+                } else {
+                    window.dispatch_action(Box::new(UnpeekSidebar), cx);
                 }
             })
         })
@@ -340,8 +345,10 @@ pub fn frame(
     });
     // The channel header's own buttons come first; a hairline parts them.
     // The Threads list header is too narrow for them, and leaving Threads
-    // is what a panel does anyway; their shortcuts still work there.
-    let panels = (id != "threads.header")
+    // is what a panel does anyway; their shortcuts still work there. The
+    // right pane leads the row only while expanded, and with them at its
+    // end Collapse would not be where Expand was clicked.
+    let panels = (id != "threads.header" && id != "pane.header")
         .then(|| panels(chrome, id == "channel.header", cx))
         .flatten()
         .map(|group| edge(div()).child(group));

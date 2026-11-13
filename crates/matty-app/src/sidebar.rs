@@ -671,6 +671,9 @@ pub struct SidebarView {
     peek: Option<Peek>,
     /// The row whose card Space asked for, opened in the next frame.
     peek_request: std::cell::RefCell<Option<SharedString>>,
+    /// The sidebar floats over the content under the pane headers, peeked
+    /// at while hidden: it is not the window's top edge then.
+    floating: bool,
 }
 
 impl EventEmitter<SidebarEvent> for SidebarView {}
@@ -731,7 +734,29 @@ impl SidebarView {
             pills: Default::default(),
             peek: None,
             peek_request: Default::default(),
+            floating: false,
         }
+    }
+
+    /// Whether the sidebar floats over the content, as it does while the
+    /// hidden sidebar is peeked at.
+    pub fn set_floating(&mut self, floating: bool, cx: &mut Context<Self>) {
+        if self.floating != floating {
+            self.floating = floating;
+            cx.notify();
+        }
+    }
+
+    /// Whether one of the sidebar's menus is open or a row is being
+    /// dragged: the peeked sidebar stays while it is.
+    pub fn busy(&self, cx: &App) -> bool {
+        cx.has_active_drag()
+            || self.menu.read(cx).is_open()
+            || self.row_menu.read(cx).is_open()
+            || self
+                .switcher
+                .as_ref()
+                .is_some_and(|switcher| switcher.read(cx).menu_open(cx))
     }
 
     /// The newest posts of `id` for its peek card, oldest first.
@@ -2406,8 +2431,10 @@ impl Render for SidebarView {
         self.pills.set((above, below));
         self.painted.borrow_mut().clear();
         // The header is the window's top edge and drags it; on macOS a strip
-        // above it keeps the traffic lights clear of the team button.
-        let lights = f32::from(crate::ui::title_bar::traffic_light_inset(window)) > 0.;
+        // above it keeps the traffic lights clear of the team button. Peeked
+        // at, the sidebar floats under the pane headers and needs no strip.
+        let lights =
+            !self.floating && f32::from(crate::ui::title_bar::traffic_light_inset(window)) > 0.;
         let strip = lights.then(|| {
             crate::ui::title_bar::window_drag_area(
                 "sidebar.lights.drag",

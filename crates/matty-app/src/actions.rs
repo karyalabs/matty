@@ -165,6 +165,10 @@ gpui_kit::actions!(
 /// in that place on the rail, as in Mattermost (#89). Like
 /// [`server_bindings`] they stay out of [`bindings`].
 pub fn team_bindings(platform: Platform) -> Vec<KeyBinding> {
+    team_bindings_in(platform, MAIN_WINDOW)
+}
+
+fn team_bindings_in(platform: Platform, context: &'static str) -> Vec<KeyBinding> {
     const MACOS: [&str; 9] = [
         "cmd-alt-1",
         "cmd-alt-2",
@@ -191,7 +195,7 @@ pub fn team_bindings(platform: Platform) -> Vec<KeyBinding> {
         Platform::MacOs => MACOS,
         Platform::Other => OTHER,
     };
-    let main = Some(MAIN_WINDOW);
+    let main = Some(context);
     vec![
         KeyBinding::new(keys[0], SwitchTeam1, main),
         KeyBinding::new(keys[1], SwitchTeam2, main),
@@ -209,6 +213,10 @@ pub fn team_bindings(platform: Platform) -> Vec<KeyBinding> {
 /// (PLAN §4.4, #206). They stay out of [`bindings`], whose rows the
 /// shortcut sheet and the menu bar list one by one.
 pub fn server_bindings(platform: Platform) -> Vec<KeyBinding> {
+    server_bindings_in(platform, MAIN_WINDOW)
+}
+
+fn server_bindings_in(platform: Platform, context: &'static str) -> Vec<KeyBinding> {
     const MACOS: [&str; 9] = [
         "cmd-1", "cmd-2", "cmd-3", "cmd-4", "cmd-5", "cmd-6", "cmd-7", "cmd-8", "cmd-9",
     ];
@@ -219,7 +227,7 @@ pub fn server_bindings(platform: Platform) -> Vec<KeyBinding> {
         Platform::MacOs => MACOS,
         Platform::Other => OTHER,
     };
-    let main = Some(MAIN_WINDOW);
+    let main = Some(context);
     vec![
         KeyBinding::new(keys[0], SwitchServer1, main),
         KeyBinding::new(keys[1], SwitchServer2, main),
@@ -449,6 +457,12 @@ pub const MESSAGE_KEYS: [(&str, &str); 12] = [
 ];
 
 pub const MAIN_WINDOW: &str = "MainWindow";
+/// [`MAIN_WINDOW`] at the depth of whatever has focus inside the window:
+/// `Nowhere` is a context nothing sets. Window shortcuts are bound here a
+/// second time, see [`bind`].
+pub const MAIN_WINDOW_ANYWHERE: &str = "MainWindow > !Nowhere";
+/// The main window with focus outside any text field.
+pub const NOT_TYPING: &str = "MainWindow && !Input";
 /// A reorderable list: the sidebar's, or the rail's servers (#206). With
 /// focus in it, Alt+Shift+Up and Down move the focused row or category
 /// instead of walking unreads.
@@ -507,7 +521,7 @@ pub fn bindings() -> Vec<Binding> {
         row!(
             "Focus search",
             FocusSearch,
-            Some("MainWindow && !Input"),
+            Some(NOT_TYPING),
             "cmd-f",
             "ctrl-f"
         ),
@@ -597,7 +611,8 @@ pub fn bindings() -> Vec<Binding> {
         row!(
             "Preview message",
             TogglePreview,
-            Some(COMPOSER),
+            // A reply has no preview.
+            Some("ChannelView > Composer"),
             "cmd-alt-p",
             "ctrl-alt-p"
         ),
@@ -713,28 +728,154 @@ pub fn bindings() -> Vec<Binding> {
     ]
 }
 
+/// A window row's context as a predicate that matches at the depth of the
+/// focused element, not of the window: `MainWindow && !Input` becomes
+/// `!Input && (MainWindow > !Nowhere)`. The `!Input` stays outside the
+/// `>`, where it still sees the whole stack; under it, it would see only
+/// the part above the text field and match there. `None` for a row that
+/// belongs to one view.
+pub fn anywhere(context: &'static str) -> Option<&'static str> {
+    if context == MAIN_WINDOW {
+        return Some(MAIN_WINDOW_ANYWHERE);
+    }
+    let rest = context.strip_prefix("MainWindow && ")?;
+    Some(interned(format!("{rest} && ({MAIN_WINDOW_ANYWHERE})")))
+}
+
+/// Every way a platform reports the keys a row names. A row says
+/// `cmd-shift-.`, but Shift with a symbol key never arrives like that:
+/// macOS and Linux report the shifted character without Shift (`cmd->`),
+/// and a browser reports it with Shift (`cmd-shift->`). Bound only as
+/// written, such a row works in tests, which replay the written form, and
+/// nowhere else. Letters and named keys arrive as written.
+pub fn spellings(keys: &'static str) -> Vec<&'static str> {
+    const MODIFIERS: [&str; 5] = ["ctrl-", "alt-", "shift-", "cmd-", "fn-"];
+    const SHIFTED: [(&str, &str); 21] = [
+        (".", ">"),
+        (",", "<"),
+        ("/", "?"),
+        ("\\", "|"),
+        ("=", "+"),
+        ("-", "_"),
+        ("[", "{"),
+        ("]", "}"),
+        (";", ":"),
+        ("'", "\""),
+        ("`", "~"),
+        ("1", "!"),
+        ("2", "@"),
+        ("3", "#"),
+        ("4", "$"),
+        ("5", "%"),
+        ("6", "^"),
+        ("7", "&"),
+        ("8", "*"),
+        ("9", "("),
+        ("0", ")"),
+    ];
+    let mut written = vec![keys];
+    let mut key = keys;
+    let mut modifiers = Vec::new();
+    while let Some(modifier) = MODIFIERS
+        .iter()
+        .find(|modifier| key.starts_with(**modifier) && key.len() > modifier.len())
+    {
+        modifiers.push(*modifier);
+        key = &key[modifier.len()..];
+    }
+    let shifted = SHIFTED
+        .iter()
+        .find(|(plain, _)| *plain == key)
+        .map(|(_, shifted)| *shifted);
+    if let Some(shifted) = shifted
+        && modifiers.contains(&"shift-")
+    {
+        let without: String = modifiers
+            .iter()
+            .filter(|modifier| **modifier != "shift-")
+            .copied()
+            .collect();
+        written.push(interned(format!("{without}{shifted}")));
+        written.push(interned(format!("{}{shifted}", modifiers.concat())));
+    }
+    written
+}
+
+/// `keys` for as long as the app runs, which is how long GPUI keeps a
+/// binding's keys. The handful of spellings are kept once each.
+fn interned(keys: String) -> &'static str {
+    static KEPT: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    let mut kept = KEPT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(found) = kept.iter().find(|found| **found == keys) {
+        return found;
+    }
+    let keys: &'static str = keys.leak();
+    kept.push(keys);
+    keys
+}
+
 /// Installs the bindings for the platform Matty runs on.
 pub fn bind(cx: &mut App) {
     let platform = Platform::current();
-    cx.bind_keys(
-        bindings()
-            .into_iter()
-            .map(|row| (row.bind)(row.keys(platform), row.context))
-            .chain(server_bindings(platform))
-            .chain(team_bindings(platform)),
-    );
-    // On Linux and Windows a text field takes Alt+Shift+Up/Down to add a
-    // cursor, which would swallow the unread jump from the composer. The
-    // jump wins there, as in Mattermost; bound after the field's own keys,
-    // these take precedence at the same depth.
-    // A text field takes Cmd+Alt+Up/Down on macOS and Ctrl+Alt+Up/Down on
-    // Windows to add a cursor, which would swallow the team keys from the
-    // composer. Switching team wins, as in Mattermost.
-    let (previous_team, next_team) = if platform == Platform::MacOs {
-        ("cmd-alt-up", "cmd-alt-down")
+    let (zoom_in, sidebar) = if platform == Platform::MacOs {
+        ("cmd-shift-=", "cmd-b")
     } else {
-        ("ctrl-alt-up", "ctrl-alt-down")
+        ("ctrl-shift-=", "ctrl-b")
     };
+    let mut keymap = Vec::new();
+    for row in bindings() {
+        for keys in spellings(row.keys(platform)) {
+            keymap.push((row.bind)(keys, row.context));
+        }
+    }
+    // Cmd/Ctrl with the + key zooms in whether or not Shift is held, as in
+    // every browser and editor.
+    for keys in spellings(zoom_in) {
+        keymap.push(KeyBinding::new(keys, ZoomIn, Some(MAIN_WINDOW)));
+    }
+    // Cmd/Ctrl+B is Bold while typing, as in Mattermost and Slack. Anywhere
+    // else in the window it shows or hides the sidebar, as in most editors.
+    keymap.push(KeyBinding::new(sidebar, ToggleSidebar, Some(NOT_TYPING)));
+    keymap.extend(server_bindings(platform));
+    keymap.extend(team_bindings(platform));
+    cx.bind_keys(keymap);
+
+    // GPUI gives a key to the binding whose context matches deepest, and
+    // counts a binding with no context as deep as the focused element. A
+    // shortcut bound on `MainWindow` matches at the window's own depth, so
+    // with focus anywhere inside it lost the key to whatever else bound it:
+    // a text field's editing keys, which differ by OS and in the browser
+    // (Cmd+[ and Cmd+] indent on macOS, Alt+Left and Alt+Right move by word
+    // on the web, Alt+Shift+Up and Down add a cursor on Linux), or a
+    // toolkit-wide key such as the inspector's Ctrl+Shift+I, which took
+    // Channel info away from the sidebar. Every window shortcut is bound a
+    // second time where it matches at the focused element's depth, after
+    // the toolkit's keys, and the later binding wins a tie: a window
+    // shortcut works the same wherever focus is, whatever binds its key
+    // now or later.
+    let mut keymap = Vec::new();
+    for row in bindings() {
+        let Some(context) = row.context.and_then(anywhere) else {
+            continue;
+        };
+        for keys in spellings(row.keys(platform)) {
+            keymap.push((row.bind)(keys, Some(context)));
+        }
+    }
+    for keys in spellings(zoom_in) {
+        keymap.push(KeyBinding::new(keys, ZoomIn, Some(MAIN_WINDOW_ANYWHERE)));
+    }
+    keymap.push(KeyBinding::new(
+        sidebar,
+        ToggleSidebar,
+        anywhere(NOT_TYPING),
+    ));
+    keymap.extend(server_bindings_in(platform, MAIN_WINDOW_ANYWHERE));
+    keymap.extend(team_bindings_in(platform, MAIN_WINDOW_ANYWHERE));
+    cx.bind_keys(keymap);
+
     // Cmd/Ctrl+F finds a setting.
     let find = if platform == Platform::MacOs {
         "cmd-f"
@@ -742,24 +883,6 @@ pub fn bind(cx: &mut App) {
         "ctrl-f"
     };
     cx.bind_keys([KeyBinding::new(find, FocusSearch, Some(SETTINGS))]);
-    cx.bind_keys([
-        KeyBinding::new(previous_team, PreviousTeam, Some("Composer > Input")),
-        KeyBinding::new(next_team, NextTeam, Some("Composer > Input")),
-    ]);
-    if platform != Platform::MacOs {
-        cx.bind_keys([
-            KeyBinding::new(
-                "alt-shift-up",
-                PreviousUnreadChannel,
-                Some("Composer > Input"),
-            ),
-            KeyBinding::new(
-                "alt-shift-down",
-                NextUnreadChannel,
-                Some("Composer > Input"),
-            ),
-        ]);
-    }
 }
 
 #[cfg(test)]
@@ -853,6 +976,96 @@ mod tests {
                 assert!(!taken.iter().any(|taken| *taken == keys), "{keys} is taken");
             }
             assert_eq!(team_bindings(platform).len(), 9);
+        }
+    }
+
+    /// Shift with a symbol key is bound the way each platform reports it.
+    #[test]
+    fn a_shifted_symbol_is_bound_as_every_platform_reports_it() {
+        use super::spellings;
+        assert_eq!(
+            spellings("cmd-shift-."),
+            ["cmd-shift-.", "cmd->", "cmd-shift->"]
+        );
+        assert_eq!(
+            spellings("ctrl-shift-\\"),
+            ["ctrl-shift-\\", "ctrl-|", "ctrl-shift-|"]
+        );
+        assert_eq!(
+            spellings("ctrl-shift-="),
+            ["ctrl-shift-=", "ctrl-+", "ctrl-shift-+"]
+        );
+        // Letters, named keys and unshifted symbols arrive as written.
+        assert_eq!(spellings("cmd-shift-k"), ["cmd-shift-k"]);
+        assert_eq!(spellings("alt-shift-up"), ["alt-shift-up"]);
+        assert_eq!(spellings("cmd-["), ["cmd-["]);
+        assert_eq!(spellings("ctrl--"), ["ctrl--"]);
+        for keys in super::bindings()
+            .iter()
+            .flat_map(|row| [row.macos, row.other])
+            .flat_map(spellings)
+        {
+            for keystroke in keys.split(' ') {
+                assert!(
+                    gpui_kit::Keystroke::parse(keystroke).is_ok(),
+                    "{keys} does not parse"
+                );
+            }
+        }
+    }
+
+    /// A window row is bound again at the focused element's depth, where it
+    /// outranks a text field's keys. That is only right for a key no text
+    /// field needs: one with Cmd, Ctrl or Alt, or a function key.
+    #[test]
+    fn a_window_row_matches_at_any_depth_and_never_takes_a_typing_key() {
+        use super::{MAIN_WINDOW, anywhere, bindings};
+        use gpui_kit::{KeyBindingContextPredicate, KeyContext};
+        let stack = |names: &[&str]| -> Vec<KeyContext> {
+            names
+                .iter()
+                .map(|name| KeyContext::parse(name).unwrap())
+                .collect()
+        };
+        let depth = |context: &str, names: &[&str]| {
+            KeyBindingContextPredicate::parse(context)
+                .unwrap()
+                .depth_of(&stack(names))
+        };
+        let composer = ["MainWindow", "ChannelView", "Composer", "Input"];
+        let sidebar = ["MainWindow", "SelectionRoot", "SidebarSortable"];
+        // As written a window row matches at the window; rebound, at the
+        // focused element.
+        assert_eq!(depth(MAIN_WINDOW, &composer), Some(1));
+        assert_eq!(depth(anywhere(MAIN_WINDOW).unwrap(), &composer), Some(4));
+        assert_eq!(depth(anywhere(MAIN_WINDOW).unwrap(), &sidebar), Some(3));
+        // What a row leaves out stays out.
+        let not_typing = anywhere(super::NOT_TYPING).unwrap();
+        assert_eq!(depth(not_typing, &composer), None);
+        assert_eq!(depth(not_typing, &sidebar), Some(3));
+        // Another window's fields are not this window's.
+        assert_eq!(
+            depth(anywhere(MAIN_WINDOW).unwrap(), &["Settings", "Input"]),
+            None
+        );
+        assert_eq!(anywhere(super::COMPOSER), None);
+
+        for row in bindings() {
+            if row.context.and_then(anywhere).is_none() {
+                continue;
+            }
+            for keys in [row.macos, row.other] {
+                let keystroke = gpui_kit::Keystroke::parse(keys).unwrap();
+                let modifiers = keystroke.modifiers;
+                let function_key = keystroke.key.len() > 1
+                    && keystroke.key.starts_with('f')
+                    && keystroke.key[1..].chars().all(|c| c.is_ascii_digit());
+                assert!(
+                    modifiers.control || modifiers.platform || modifiers.alt || function_key,
+                    "{} ({keys}) would take a key from text fields",
+                    row.label
+                );
+            }
         }
     }
 

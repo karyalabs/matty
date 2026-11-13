@@ -534,7 +534,11 @@ impl MainWindow {
                 });
             }
             PaneEvent::Ask(ask) => self.answer_ask(ask.clone(), window, cx),
-            PaneEvent::OpenThread(root) => self.open_split_thread(pane, root.clone(), cx),
+            PaneEvent::OpenThread(root) => {
+                self.open_split_thread(pane, root.clone(), cx);
+                self.right_pane
+                    .update(cx, |right, cx| right.focus_reply(cx));
+            }
             PaneEvent::CheckSeen => self.view_split_if_seen(window, cx),
             PaneEvent::Swap => self.swap_panes(window, cx),
             PaneEvent::ClosePane => self.close_split(true, window, cx),
@@ -872,7 +876,10 @@ impl MainWindow {
         };
         let split = self.shown_split().cloned();
         let (mut main, mut second, mut pane) = (nav, plain, plain);
-        if !full {
+        if self.right_pane_expanded() {
+            // Alone in the channel's place, the pane is the whole top row.
+            pane = ends(nav);
+        } else if !full {
             if right {
                 pane = ends(pane);
             } else if split.is_some() {

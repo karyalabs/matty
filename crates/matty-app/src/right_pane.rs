@@ -265,6 +265,9 @@ pub enum RightPaneEvent {
     /// needs the server; nothing changed, and the window says so (#163).
     Offline(&'static str),
     Close,
+    /// Expand in the header: the pane takes the channel's place, or goes
+    /// back beside it.
+    ToggleExpand,
     /// The user confirmed deleting their sent reply; the pane already
     /// dropped it.
     Delete(SharedString),
@@ -485,6 +488,9 @@ pub struct RightPaneView {
     search: Entity<InputState>,
     /// The saved, pinned or mentions listing has yet to come from sync.
     loading: bool,
+    /// The reply box takes the caret once the thread is on screen: a thread
+    /// opened to reply arrives from sync after the pane opens.
+    focus_reply: bool,
     /// What `from:` and `in:` can suggest, and what they suggest now.
     hints: SearchHints,
     /// The search shows its Files tab, not its Messages one (#207).
@@ -520,6 +526,8 @@ pub struct RightPaneView {
     /// The pane is a pop-out window's whole content (#222): its header
     /// offers neither Expand nor another window.
     popped_out: bool,
+    /// The pane shows in the channel's place; its header offers Collapse.
+    expanded: bool,
     /// The menus on the thread's attachments (#211).
     action_menus: std::rc::Rc<std::cell::RefCell<crate::interactive::Menus>>,
     /// Slash commands typed in the reply composer (#210).
@@ -881,6 +889,7 @@ impl RightPaneView {
         ];
         Self {
             chrome: Default::default(),
+            expanded: false,
             composer_cap: px(320.),
             content: None,
             list,
@@ -905,6 +914,7 @@ impl RightPaneView {
             pending_seq: 0,
             search,
             loading: false,
+            focus_reply: false,
             hints: SearchHints::default(),
             search_files_tab: false,
             suggestions: Vec::new(),
@@ -1757,6 +1767,30 @@ impl RightPaneView {
         cx.notify();
     }
 
+    /// Puts the caret in the thread's reply box, now or as soon as the
+    /// thread is on screen. Whoever opens a thread to reply (a click on its
+    /// replies, Reply, Shift+Up) types next, and the keys went to the
+    /// channel's composer or nowhere.
+    pub fn focus_reply(&mut self, cx: &mut Context<Self>) {
+        self.focus_reply = true;
+        cx.notify();
+    }
+
+    /// Puts text at the reply box's caret and focuses it, for a character
+    /// typed with focus resting on the thread's pane.
+    pub fn type_reply(
+        &mut self,
+        text: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = text.into();
+        self.composer.update(cx, |composer, cx| {
+            composer.insert(text, window, cx);
+            composer.focus(window, cx);
+        });
+    }
+
     /// Marks the listing on screen as still loading, so an empty one reads
     /// "Loading…" rather than its empty state.
     pub fn set_loading(&mut self, loading: bool, cx: &mut Context<Self>) {
@@ -1826,6 +1860,10 @@ impl RightPaneView {
             && thread.root.id != *root
         {
             self.pending_jump = None;
+        }
+        // A listing took the pane before the thread came.
+        if !matches!(content, None | Some(RightPaneContent::Thread(_))) {
+            self.focus_reply = false;
         }
         self.content = content;
         self.selection = None;
@@ -2518,6 +2556,14 @@ impl RightPaneView {
         crate::chrome::frame("pane.header", self.chrome, header, window, cx)
     }
 
+    /// Whether the pane shows in the channel's place.
+    pub fn set_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
+        if self.expanded != expanded {
+            self.expanded = expanded;
+            cx.notify();
+        }
+    }
+
     /// Gives the pane its part in the window's chrome.
     pub fn set_chrome(&mut self, chrome: crate::chrome::PaneChrome, cx: &mut Context<Self>) {
         if self.chrome != chrome {
@@ -2605,13 +2651,19 @@ impl RightPaneView {
                         ))
                     })
                     .when(!self.popped_out, |row| {
+                        let (label, glyph) = if self.expanded {
+                            (t!("pane-collapse"), LucideIcon::Minimize2)
+                        } else {
+                            (t!("pane-expand"), LucideIcon::Maximize2)
+                        };
                         row.child(style::tipped(
                             "right-pane.expand.tip",
-                            actions::tooltip_text(&t!("pane-expand"), "Expand right pane"),
-                            action(
-                                "right-pane.expand",
-                                t!("pane-expand"),
-                                LucideIcon::Maximize2,
+                            actions::tooltip_text(
+                                &label,
+                                "Expand right pane", // i18n-ignore: a keymap row
+                            ),
+                            action("right-pane.expand", label, glyph).on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(RightPaneEvent::ToggleExpand)),
                             ),
                         ))
                     })
@@ -4126,6 +4178,11 @@ impl RightPaneView {
 impl Render for RightPaneView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.composer_cap = style::composer_cap(window);
+        if self.focus_reply && matches!(self.content, Some(RightPaneContent::Thread(_))) {
+            self.focus_reply = false;
+            self.composer
+                .update(cx, |composer, cx| composer.focus(window, cx));
+        }
         let theme = UiTheme::read(cx).clone();
         let root = div()
             .child(self.lightbox(window, cx))
