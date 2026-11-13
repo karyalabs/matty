@@ -233,6 +233,12 @@ pub struct Update {
     pub channel: Option<ChannelUpdate>,
     /// The open channel's header and counts.
     pub details: Option<Details>,
+    /// The open teams the user may join, for the Join a team dialog
+    /// (#745).
+    pub joinable: Option<crate::directory::JoinableTeams>,
+    /// A team the user just joined, now in the team list: the window
+    /// switches to it.
+    pub team_joined: Option<SharedString>,
     /// Something the server or an App refused, for a toast (#226).
     pub refused: Option<SharedString>,
     /// A link an App answered with, for Matty's link routing (#226).
@@ -2169,7 +2175,7 @@ impl Live {
     /// Folds in one change set.
     pub fn apply(&mut self, change: &ChangeSet) -> Update {
         let mut update = Update::default();
-        if self.apply_extra(change, &mut update) {
+        if self.apply_extra(change, &mut update) || self.apply_membership(change, &mut update) {
             return update;
         }
         match change {

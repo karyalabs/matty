@@ -76,8 +76,7 @@ Account button and Settings only. Do not disturb and Help move into the account 
   mentions or a dot), which opens a menu of those teams and "Join another team…". When
   nothing overflows, a 24px `Plus` button ends the row ("Join another team").
 - The current team is always visible: if it would overflow, it takes the last visible place.
-- Right-click on a tab will open the team's menu once Matty has team actions (Leave team,
-  matty#745); gpuicn's `Tab::on_secondary_click` is there for it.
+- Right-click on a tab opens the team's menu: "Leave team…", which asks first (matty#745).
 - With one team there is no row. Team shortcuts (`Alt+Cmd+1…9`) are unchanged.
 
 ## 8. Order of work

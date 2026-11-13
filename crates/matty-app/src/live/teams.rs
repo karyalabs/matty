@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use gpui_kit::SharedString;
-use matty_sync::{Command, SidebarSection};
+use matty_sync::{ChangeSet, Command, CommandError, SidebarSection};
 
 use super::{Live, Update};
 use crate::sidebar::{ChannelKind, ChannelRow};
@@ -15,6 +15,56 @@ use crate::sidebar::{ChannelKind, ChannelRow};
 pub(super) type TeamRows = (Arc<[SidebarSection]>, Arc<[ChannelRow]>);
 
 impl Live {
+    /// Joining and leaving teams (#745): the Join a team dialog's list,
+    /// a joined team, and what the server refused.
+    pub(super) fn apply_membership(&mut self, change: &ChangeSet, update: &mut Update) -> bool {
+        use crate::directory::{JoinableTeam, JoinableTeams};
+        match change {
+            ChangeSet::JoinableTeams(teams) => {
+                let teams = teams
+                    .iter()
+                    .map(|team| JoinableTeam {
+                        id: team.id.clone().into(),
+                        name: team.display_name.clone().into(),
+                        description: (!team.description.trim().is_empty())
+                            .then(|| team.description.trim().to_owned().into()),
+                    })
+                    .collect();
+                update.joinable = Some(JoinableTeams::Loaded(teams));
+            }
+            ChangeSet::TeamJoined { team_id } => {
+                update.team_joined = Some(team_id.clone().into());
+            }
+            ChangeSet::Failed(
+                CommandError::Server {
+                    action: "browse teams",
+                    ..
+                }
+                | CommandError::Offline {
+                    action: "browse teams",
+                },
+            ) => update.joinable = Some(JoinableTeams::Unavailable),
+            ChangeSet::Failed(CommandError::Server {
+                action: action @ ("join team" | "leave team"),
+                error,
+                ..
+            }) => {
+                // The server's words without its id and status.
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said)
+                    .to_owned();
+                update.refused = Some(if *action == "join team" {
+                    crate::t!("teams-join-failed", error = said)
+                } else {
+                    crate::t!("teams-leave-failed", error = said)
+                });
+            }
+            _ => return false,
+        }
+        true
+    }
+
     /// Makes `team` the shown one: the old team's Threads list stops
     /// following and the new one's opens, and the sidebar shows the new
     /// team's categories.
@@ -327,5 +377,42 @@ mod tests {
         assert_eq!(live.team_of("dm"), Some("t1"));
         assert_eq!(live.team_of("elsewhere"), None);
         assert!(live.on_team("t2") && !live.on_team("t9"));
+    }
+
+    #[test]
+    fn the_join_dialog_hears_the_open_teams_and_a_refused_join() {
+        use crate::directory::JoinableTeams;
+        use matty_sync::CommandError;
+        let mut live = live();
+        let team: matty_api::models::Team = serde_json::from_value(serde_json::json!({
+            "id": "t9", "display_name": "Platform", "description": "  Builds  "
+        }))
+        .unwrap();
+        let update = live.apply(&ChangeSet::JoinableTeams(Arc::from(vec![team])));
+        let Some(JoinableTeams::Loaded(teams)) = update.joinable else {
+            panic!("the dialog gets the list");
+        };
+        assert_eq!(teams[0].name.as_ref(), "Platform");
+        assert_eq!(teams[0].description.as_deref(), Some("Builds"));
+
+        let update = live.apply(&ChangeSet::Failed(CommandError::Offline {
+            action: "browse teams",
+        }));
+        assert_eq!(update.joinable, Some(JoinableTeams::Unavailable));
+
+        let update = live.apply(&ChangeSet::Failed(CommandError::Server {
+            action: "join team",
+            target: "t9".into(),
+            error: "You do not have the appropriate permissions. (api.context.permissions.app_error, 403)".into(),
+        }));
+        assert_eq!(
+            update.refused.as_deref(),
+            Some("Couldn't join the team: You do not have the appropriate permissions.")
+        );
+
+        let update = live.apply(&ChangeSet::TeamJoined {
+            team_id: "t9".into(),
+        });
+        assert_eq!(update.team_joined.as_deref(), Some("t9"));
     }
 }

@@ -310,6 +310,16 @@ impl Client {
         self.json(Method::POST, path, &[], Some(body)).await
     }
 
+    /// `POST` with query parameters and no body, and decode the JSON
+    /// answer.
+    pub async fn post_query<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<T, ApiError> {
+        self.json(Method::POST, path, query, None::<&()>).await
+    }
+
     /// `PUT` a JSON body and decode the JSON answer.
     pub async fn put<B: Serialize + ?Sized, T: DeserializeOwned>(
         &self,

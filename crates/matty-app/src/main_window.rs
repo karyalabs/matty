@@ -240,6 +240,13 @@ pub struct MainWindow {
     badge: matty_notify::Badge,
     /// The Browse channels dialog, opened from the sidebar's plus menu.
     browse: Entity<BrowseView>,
+    /// The Join a team dialog (#745), and the team joined that the window
+    /// shows once it is in the team list.
+    join_team_view: Entity<crate::directory::JoinTeamView>,
+    joining: Option<SharedString>,
+    /// "Leave {team}?" from a team tab's menu, for the team in `leaving`.
+    leave_team_dialog: DialogHandle,
+    leaving: std::rc::Rc<std::cell::RefCell<Option<(SharedString, SharedString)>>>,
     new_message: Entity<NewMessageView>,
     create_channel: Entity<CreateChannelView>,
     /// Name, rename and delete dialogs for sidebar categories (#208).
@@ -467,6 +474,9 @@ impl MainWindow {
                 browse.set_channels(crate::preview::directory(), cx)
             });
         }
+        let join_team_view = cx.new(|cx| crate::directory::JoinTeamView::new(window, cx));
+        cx.subscribe_in(&join_team_view, window, Self::on_join_team_event)
+            .detach();
         let new_message = cx.new(|cx| NewMessageView::new(window, cx));
         if crate::preview::enabled() {
             new_message.update(cx, |view, cx| {
@@ -1215,6 +1225,10 @@ impl MainWindow {
             notify_props: preview_props,
             collapsed_threads: crate::preview::enabled().then_some((true, true)),
             browse,
+            join_team_view,
+            joining: None,
+            leave_team_dialog: DialogHandle::new(false),
+            leaving: Default::default(),
             new_message,
             create_channel,
             categories,
@@ -1943,6 +1957,14 @@ impl MainWindow {
                 .update(cx, |browse, cx| browse.set_team_name(name.clone(), cx));
             self.sidebar
                 .update(cx, |sidebar, cx| sidebar.set_team_name(name, cx));
+        }
+        if let Some(teams) = update.joinable.take() {
+            self.join_team_view
+                .update(cx, |view, cx| view.set_teams(teams, cx));
+        }
+        if let Some(team) = update.team_joined.take() {
+            self.joining = Some(team);
+            self.arrive_in_joined_team(window, cx);
         }
         if let Some(channels) = update.directory {
             self.browse
@@ -4587,6 +4609,49 @@ impl MainWindow {
         )
     }
 
+    /// Join a team, and "Leave {team}?" from a team tab's menu (#745).
+    fn team_dialogs(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let join = self.join_team_view.read(cx).handle().clone();
+        let name = self
+            .leaving
+            .borrow()
+            .as_ref()
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_default();
+        let leaving = self.leaving.clone();
+        let main = cx.entity().downgrade();
+        let leave = crate::ui::alert_dialog::alert_dialog(
+            "leave-team.dialog",
+            &self.leave_team_dialog,
+            settings_pages::confirm_popup(
+                "leave-team",
+                crate::t!("teams-leave-title", team = name),
+                crate::t!("teams-leave-detail"),
+                crate::t!("teams-leave-confirm"),
+                cx,
+            ),
+            window,
+            cx,
+        )
+        .on_ok(move |_, window, cx| {
+            if let Some((team, _)) = leaving.borrow_mut().take() {
+                main.update(cx, |this, cx| this.leave_team(team, window, cx))
+                    .ok();
+            }
+            true
+        });
+        div()
+            .child(dialog(
+                "join-team",
+                &join,
+                dialog_popup("join-team.popup", crate::t!("teams-join-title"), cx)
+                    .child(self.join_team_view.clone()),
+                window,
+                cx,
+            ))
+            .child(leave)
+    }
+
     fn directory_dialogs(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let message = self.new_message.read(cx).handle().clone();
         let create = self.create_channel.read(cx).handle().clone();
@@ -4803,6 +4868,7 @@ impl Render for MainWindow {
             .child(self.sidebar_drawer(window, cx))
             .children(self.settings_overlay())
             .child(self.browse(window, cx))
+            .child(self.team_dialogs(window, cx))
             .child(self.directory_dialogs(window, cx))
             .child(self.link_join_dialog(window, cx))
             .child(self.forward_dialog(window, cx))

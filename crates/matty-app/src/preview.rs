@@ -265,6 +265,29 @@ pub fn teams() -> Vec<Team> {
     ]
 }
 
+/// The preview server's open teams the user is not in, for Join a team
+/// (#745).
+pub fn joinable_teams() -> Vec<crate::directory::JoinableTeam> {
+    let team = |id: &str, name: &str, description: &str| crate::directory::JoinableTeam {
+        id: id.to_owned().into(),
+        name: name.to_owned().into(),
+        description: Some(description.to_owned().into()),
+    };
+    vec![
+        team(
+            "customer-success",
+            "Customer Success",
+            "Support rotations, escalations and customer notes",
+        ),
+        team(
+            "platform",
+            "Platform",
+            "Builds, releases and the servers they run on",
+        ),
+        team("social", "Social", "Lunch plans, pets and weekend photos"),
+    ]
+}
+
 pub fn sidebar() -> SidebarModel {
     let public = |id: &str, name: &str| ChannelRow::new(id, name, ChannelKind::Public);
     let dm = |id: &str, name: &str, presence| {
@@ -344,6 +367,11 @@ pub fn team_sidebar(team: &str) -> SidebarModel {
             public("contributors", "contributors").unread(),
             public("releases", "releases"),
         ],
+        // Teams Join a team offers (#745), once joined.
+        "customer-success" | "platform" | "social" => vec![
+            public(&format!("{team}-town-square"), "town-square"),
+            public(&format!("{team}-off-topic"), "off-topic"),
+        ],
         _ => return sidebar(),
     };
     let first = sidebar();
@@ -369,14 +397,19 @@ pub fn team_sidebar(team: &str) -> SidebarModel {
 /// The preview team whose sidebar holds `channel_id`: the first team's
 /// when it does, as for direct messages.
 pub fn team_of(channel_id: &str) -> Option<SharedString> {
-    teams().into_iter().map(|team| team.id).find(|team| {
-        team_sidebar(team).categories.iter().any(|category| {
-            category
-                .rows
-                .iter()
-                .any(|row| row.id.as_ref() == channel_id)
+    let joinable = joinable_teams().into_iter().map(|team| team.id);
+    teams()
+        .into_iter()
+        .map(|team| team.id)
+        .chain(joinable)
+        .find(|team| {
+            team_sidebar(team).categories.iter().any(|category| {
+                category
+                    .rows
+                    .iter()
+                    .any(|row| row.id.as_ref() == channel_id)
+            })
         })
-    })
 }
 
 /// Gives the preview's categories the kinds their ids name.

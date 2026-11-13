@@ -100,6 +100,11 @@ pub(super) struct PageSelects {
     /// Each saved server's ⋯ menu, by its key, with what its items were
     /// built for.
     pub(super) server_menus: HashMap<SharedString, (Entity<MenuState>, MenuPlace)>,
+    /// "Leave {team}?" for the team in `team_action` (id, name), and each
+    /// team's ⋯ menu, by id (#745).
+    pub(super) leave_team: DialogHandle,
+    pub(super) team_action: Rc<std::cell::RefCell<Option<(SharedString, SharedString)>>>,
+    pub(super) team_menus: HashMap<SharedString, Entity<MenuState>>,
     /// The saved style a ⋯ menu acts on, "Rename…" with its name field,
     /// and "Delete…".
     pub(super) style_target: Rc<std::cell::RefCell<Option<String>>>,
@@ -128,6 +133,9 @@ impl Default for PageSelects {
             sign_out: DialogHandle::new(false),
             server_action: Rc::default(),
             server_menus: HashMap::new(),
+            leave_team: DialogHandle::new(false),
+            team_action: Rc::default(),
+            team_menus: HashMap::new(),
             style_target: Rc::default(),
             rename_style: DialogHandle::new(false),
             delete_style: DialogHandle::new(false),

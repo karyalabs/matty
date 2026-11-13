@@ -39,6 +39,8 @@ pub fn refusal(action: &str) -> Option<SharedString> {
         "open direct message" => t!("offline-open-direct-message"),
         "join channel" => t!("offline-join-channel"),
         "leave channel" => t!("offline-leave-channel"),
+        "join team" => t!("offline-join-team"),
+        "leave team" => t!("offline-leave-team"),
         "archive channel" => t!("offline-archive-channel"),
         "create channel" => t!("offline-create-channel"),
         "change channel" => t!("offline-change-channel"),

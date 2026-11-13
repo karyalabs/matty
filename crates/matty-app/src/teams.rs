@@ -170,6 +170,12 @@ pub enum TeamsEvent {
     AddServer,
     /// The user asked for Settings' Servers page.
     ManageServers,
+    /// The user asked to leave a team, from its tab's menu; the window
+    /// asks first (#745).
+    Leave {
+        id: SharedString,
+        name: SharedString,
+    },
 }
 
 /// The teams and saved servers with their unread state, and the header
@@ -181,6 +187,8 @@ pub struct TeamsModel {
     servers: Vec<Server>,
     current_server: Option<usize>,
     menu: Entity<MenuState>,
+    /// A team tab's right-click menu (spec §7).
+    team_menu: Entity<MenuState>,
     /// The teams whose tabs did not fit, and their menu.
     more: Entity<MenuState>,
     hidden: Vec<SharedString>,
@@ -191,7 +199,9 @@ impl EventEmitter<TeamsEvent> for TeamsModel {}
 impl TeamsModel {
     /// Whether the server menu or the More menu is open.
     pub fn menu_open(&self, cx: &App) -> bool {
-        self.menu.read(cx).is_open() || self.more.read(cx).is_open()
+        self.menu.read(cx).is_open()
+            || self.more.read(cx).is_open()
+            || self.team_menu.read(cx).is_open()
     }
 }
 
@@ -204,12 +214,14 @@ impl TeamsModel {
     pub fn new(teams: Vec<Team>, current: Option<SharedString>, cx: &mut Context<Self>) -> Self {
         let menu = cx.new(|cx| MenuState::new([], cx).width(px(MENU_WIDTH)));
         let more = cx.new(|cx| MenuState::new([], cx).width(px(MORE_WIDTH)));
+        let team_menu = cx.new(|cx| MenuState::new([], cx));
         let mut this = Self {
             teams,
             current,
             servers: Vec::new(),
             current_server: None,
             menu,
+            team_menu,
             more,
             hidden: Vec::new(),
         };
@@ -288,6 +300,32 @@ impl TeamsModel {
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.refresh_menu(cx);
         cx.notify();
+    }
+
+    /// Opens a team tab's menu at `at`: Leave team… (spec §7).
+    fn open_team_menu(
+        &mut self,
+        team: &Team,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = cx.entity().downgrade();
+        let event = TeamsEvent::Leave {
+            id: team.id.clone(),
+            name: team.name.clone(),
+        };
+        let items = vec![
+            MenuItem::new("teams.team.leave", t!("teams-leave"))
+                .icon(LucideIcon::LogOut)
+                .on_click(move |_, _, cx| {
+                    view.update(cx, |_, cx| cx.emit(event.clone())).ok();
+                }),
+        ];
+        self.team_menu.update(cx, |menu, cx| {
+            menu.set_items(items, cx);
+            menu.open_at(Some(at), window, cx);
+        });
     }
 
     /// The current server's name, as the menu's first label names it.
@@ -559,7 +597,17 @@ impl TeamsModel {
                 team.id.clone(),
                 team.name.clone(),
             )
-            .aria_label(team.label());
+            .aria_label(team.label())
+            .on_secondary_click({
+                let this = this.downgrade();
+                let team = team.clone();
+                move |event, window, cx| {
+                    this.update(cx, |this, cx| {
+                        this.open_team_menu(&team, event.position, window, cx)
+                    })
+                    .ok();
+                }
+            });
             if let Some(mark) = sidebar_mark(team.mentions, team.unread, &theme) {
                 tab = tab.trailing(mark);
             }
@@ -621,7 +669,17 @@ impl TeamsModel {
                 })
                 .into_any_element()
         };
-        Some(tabs.end(end).into_any_element())
+        Some(
+            div()
+                .w_full()
+                .child(tabs.end(end))
+                .child(
+                    Menu::new(&self.team_menu, t!("teams-tabs"))
+                        .context_area(div())
+                        .disabled(true),
+                )
+                .into_any_element(),
+        )
     }
 }
 

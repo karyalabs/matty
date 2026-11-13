@@ -8,4 +8,5 @@ pub(crate) mod files;
 mod initial_load;
 pub(crate) mod posts;
 pub(crate) mod system;
+mod teams;
 pub(crate) mod users;
