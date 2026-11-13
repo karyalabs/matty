@@ -279,9 +279,9 @@ impl Render for BrowseView {
                     .when(rows.is_empty(), |list| {
                         list.child(
                             div()
+                                .w_full()
                                 .py(theme.space(6.))
-                                .flex()
-                                .justify_center()
+                                .text_center()
                                 .type_style(style::UI, &theme)
                                 .text_color(theme.colors.muted_foreground)
                                 .child(t!("browse-no-match", query = query.to_string())),
@@ -471,9 +471,9 @@ impl Render for NewMessageView {
                     .when(rows.is_empty(), |list| {
                         list.child(
                             div()
+                                .w_full()
                                 .py(theme.space(6.))
-                                .flex()
-                                .justify_center()
+                                .text_center()
                                 .type_style(style::UI, &theme)
                                 .text_color(theme.colors.muted_foreground)
                                 .child(t!("directory-nobody-matches", query = query.to_string())),
@@ -876,9 +876,9 @@ impl Render for AddMembersView {
                     .when(rows.is_empty(), |list| {
                         list.child(
                             div()
+                                .w_full()
                                 .py(theme.space(6.))
-                                .flex()
-                                .justify_center()
+                                .text_center()
                                 .type_style(style::UI, &theme)
                                 .text_color(theme.colors.muted_foreground)
                                 .child(if self.loading {
@@ -1174,10 +1174,12 @@ impl Render for JoinTeamView {
         let query = self.search.read(cx).value().trim().to_lowercase();
         let server = self.server_name.to_string();
         let note = |text: SharedString| {
+            // A block, not a centered flex row: a flex item takes its text's
+            // one-line width, so a long note overflowed both edges unwrapped.
             div()
-                .py(theme.space(6.))
-                .flex()
-                .justify_center()
+                .w_full()
+                .py(theme.space(4.))
+                .px(theme.space(2.))
                 .text_center()
                 .type_style(style::UI, &theme)
                 .text_color(theme.colors.muted_foreground)
