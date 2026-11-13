@@ -44,3 +44,5 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Karya Labs' GPUI fork, patched in by the root Cargo.toml (docs/PINS.md).
+allow-git = ["https://github.com/karyalabs/zed"]
