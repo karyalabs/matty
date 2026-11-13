@@ -1,7 +1,8 @@
 //! Notification sounds (#142): the Mattermost sound names the user picks
 //! from, read from their `desktop_notification_sound` prop, and how each
-//! one plays. macOS plays a system sound through NSSound; elsewhere there
-//! is no system sound API to use yet, so [`play`] does nothing.
+//! one plays. macOS plays a system sound through NSSound. Linux and Windows
+//! notifications ask the system to play its own new-message sound instead,
+//! so there [`play`], the preview in Settings, does nothing.
 
 /// One of the web app's notification sounds, by its `notify_props` name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

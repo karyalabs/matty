@@ -4870,6 +4870,7 @@ dependencies = [
  "matty-markdown",
  "matty-notify",
  "matty-spell",
+ "matty-store",
  "matty-sync",
  "matty-update",
  "objc2 0.6.5",

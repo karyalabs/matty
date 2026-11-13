@@ -88,6 +88,7 @@ jiff = { workspace = true, features = ["js", "tzdb-bundle-always"] }
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
 gpuicn = { workspace = true, features = ["test-support"] }
+matty-store.workspace = true
 tempfile.workspace = true
 
 [features]
