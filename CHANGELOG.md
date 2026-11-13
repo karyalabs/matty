@@ -9,6 +9,48 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.28] - 2026-11-13
+
+Shortcuts that work wherever focus is, a sidebar button that brings the
+sidebar back, and a window that redraws less.
+
+### Added
+
+- Cmd/Ctrl+B shows or hides the sidebar from anywhere outside a text field.
+  While typing it stays Bold, and Cmd/Ctrl+Shift+D toggles the sidebar from
+  everywhere, as before (#904).
+
+### Changed
+
+- Matty redraws only what changed. A click, a tooltip, a focus change or a
+  switch between keyboard and mouse used to redraw the whole window; typing,
+  moving through the sidebar with the keyboard and sitting idle now cost
+  less CPU. Scrolling is unchanged. Matty builds GPUI from Karya Labs' fork
+  for this (#895, part of #784).
+- While the sidebar is hidden, the peek that slides in from the left edge
+  hangs under the header, so Toggle sidebar, Back and Forward stay in reach
+  (#904).
+
+### Fixed
+
+- A hidden sidebar comes back with the button that hid it. Resting on
+  Toggle sidebar peeked the sidebar over the button, so the click that
+  should pin it landed on the sidebar and nothing in the window could bring
+  it back (#904).
+- Shortcuts work wherever focus is. With the caret in the composer, Back
+  and Forward (Cmd+[ and Cmd+] on macOS, Alt+Left and Alt+Right on the web)
+  indented or moved the caret, and Previous and Next team added a cursor;
+  from a sidebar row, Channel info (Ctrl+Shift+I) did nothing (#904).
+- Shortcuts that hold Shift with a symbol key now work on a real keyboard:
+  Expand right pane (Cmd/Ctrl+Shift+.), React to last message
+  (Cmd/Ctrl+Shift+\) and Zoom in with Cmd/Ctrl+Shift+= (#904).
+- The right pane's Expand button expands it over the channel, and Collapse
+  is where Expand was. The button and its shortcut did nothing (#904).
+- Typing after a click on a header button or on the right pane goes to the
+  message box in reach instead of nowhere (#904).
+- Opening a thread to reply, with Shift+Up, its reply count or Reply, puts
+  the caret in the reply box (#904).
+
 ## [0.1.0-beta.27] - 2026-11-13
 
 Join and leave teams, reorder servers, and Nix.
@@ -515,7 +557,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.27...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.28...HEAD
+[0.1.0-beta.28]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.28
 [0.1.0-beta.27]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.27
 [0.1.0-beta.26]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.26
 [0.1.0-beta.25]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.25
