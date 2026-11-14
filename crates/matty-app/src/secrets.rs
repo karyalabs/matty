@@ -5,6 +5,9 @@
 //! The store can be missing, as on a Linux desktop without a Secret
 //! Service; then Matty signs in each launch, as before. On the web the
 //! token is kept in the page's `localStorage`.
+//!
+//! Builds with the `bench-session-file` feature (never a release) keep it
+//! in the file `MATTY_BENCH_SESSION_FILE` names instead: bench/README.md.
 
 use crate::settings::SavedAccount;
 
@@ -22,6 +25,10 @@ fn entry(account: &SavedAccount) -> Option<keyring::Entry> {
 /// Keeps `token` for `account`, replacing any older one.
 #[cfg(not(target_family = "wasm"))]
 pub fn save(account: &SavedAccount, token: &str) {
+    #[cfg(feature = "bench-session-file")]
+    if let Some(file) = bench_file::path() {
+        return bench_file::set(&file, &account.keychain_key(), Some(token));
+    }
     if let Some(entry) = entry(account)
         && let Err(error) = entry.set_password(token)
     {
@@ -32,6 +39,12 @@ pub fn save(account: &SavedAccount, token: &str) {
 /// The token saved for `account`, if there is one.
 #[cfg(not(target_family = "wasm"))]
 pub fn load(account: &SavedAccount) -> Option<String> {
+    #[cfg(feature = "bench-session-file")]
+    if let Some(file) = bench_file::path() {
+        return bench_file::read(&file)
+            .remove(&account.keychain_key())
+            .filter(|token| !token.is_empty());
+    }
     match entry(account)?.get_password() {
         Ok(token) if !token.is_empty() => Some(token),
         Ok(_) | Err(keyring::Error::NoEntry) => None,
@@ -45,9 +58,49 @@ pub fn load(account: &SavedAccount) -> Option<String> {
 /// Forgets `account`'s token, on sign-out or when it expired.
 #[cfg(not(target_family = "wasm"))]
 pub fn delete(account: &SavedAccount) {
+    #[cfg(feature = "bench-session-file")]
+    if let Some(file) = bench_file::path() {
+        return bench_file::set(&file, &account.keychain_key(), None);
+    }
     match entry(account).map(|entry| entry.delete_credential()) {
         None | Some(Ok(()) | Err(keyring::Error::NoEntry)) => {}
         Some(Err(error)) => tracing::warn!(%error, "could not remove the saved session"),
+    }
+}
+
+/// The benchmark's stand-in for the credential store. A build made on the
+/// spot is signed ad hoc, so each one is a stranger to the keychain item the
+/// last one wrote, and macOS stops the run to ask for a password.
+#[cfg(all(feature = "bench-session-file", not(target_family = "wasm")))]
+mod bench_file {
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+
+    pub fn path() -> Option<PathBuf> {
+        std::env::var_os("MATTY_BENCH_SESSION_FILE")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+    }
+
+    pub fn read(file: &Path) -> BTreeMap<String, String> {
+        std::fs::read(file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set(file: &Path, key: &str, token: Option<&str>) {
+        let mut tokens = read(file);
+        match token {
+            Some(token) => tokens.insert(key.to_owned(), token.to_owned()),
+            None => tokens.remove(key),
+        };
+        let written = serde_json::to_vec(&tokens)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| std::fs::write(file, bytes));
+        if let Err(error) = written {
+            tracing::warn!(%error, "could not write the bench session file");
+        }
     }
 }
 
@@ -78,4 +131,25 @@ pub fn load(account: &SavedAccount) -> Option<String> {
 #[cfg(target_family = "wasm")]
 pub fn delete(account: &SavedAccount) {
     let _ = crate::web_storage::remove(&key(account));
+}
+
+#[cfg(all(test, feature = "bench-session-file", not(target_family = "wasm")))]
+mod tests {
+    use super::bench_file;
+
+    #[test]
+    fn the_bench_file_keeps_and_forgets_a_token() {
+        let file = std::env::temp_dir().join(format!("matty-bench-session-{}", std::process::id()));
+        bench_file::set(&file, "http://localhost:8075 u1", Some("token"));
+        bench_file::set(&file, "http://localhost:8075 u2", Some("other"));
+        assert_eq!(
+            bench_file::read(&file)
+                .get("http://localhost:8075 u1")
+                .map(String::as_str),
+            Some("token")
+        );
+        bench_file::set(&file, "http://localhost:8075 u1", None);
+        assert_eq!(bench_file::read(&file).len(), 1);
+        std::fs::remove_file(&file).ok();
+    }
 }
