@@ -159,6 +159,25 @@ The jobs look after themselves:
   runs skip Docker Hub.
 - **Runner updates.** The runners update themselves when GitHub ships a new
   version.
+- **Disk on the Mac.** The Mac mini runs several runners and repositories,
+  so the per-checkout `target/` limits add up. A LaunchAgent from
+  `karyalabs/.github` (`runner/macos`) runs at login and every 6 hours. It
+  keeps 100 GB free: first it removes old runner logs and versions,
+  Homebrew and Xcode caches, unused git dependencies and pinned toolchains
+  no checkout uses, then, when no job is running, the `target/` folders of
+  checkouts unused for a week and after that the largest ones. Install it
+  once on the Mac, as the runners' user:
+
+  ```sh
+  git clone --depth 1 https://github.com/karyalabs/.github /tmp/karya-github
+  /tmp/karya-github/runner/macos/install
+  ```
+
+  `karya-runner-cleanup --report` shows where the space is, and the log is
+  `~/Library/Logs/karya-runner-cleanup.log`. When a job starts with less
+  than 30 GB free, `self-hosted-prep` drops that checkout's `target/` and the
+  run shows a "Runner disk low" warning. Set `KARYA_CI_MIN_FREE_GB` in the
+  runner folder's `.env` to change that.
 
 If jobs sit at "Waiting for a runner", the machine or its service is down:
 run `sudo ./svc.sh status` in the runner's folder (`~matty-ci/matty-runner-1`
