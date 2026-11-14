@@ -95,3 +95,6 @@ tempfile.workspace = true
 runtime_shaders = ["gpui_platform/runtime_shaders"]
 # Perf runs: GPUI's own frame and input-latency histograms (perf.rs).
 gpui-profiler = ["gpui-kit/profiler", "dep:hdrhistogram"]
+# Benchmark builds only: the session goes in the file MATTY_BENCH_SESSION_FILE
+# names, not the credential store (secrets.rs). Never in a release.
+bench-session-file = []
