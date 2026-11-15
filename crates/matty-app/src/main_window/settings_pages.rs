@@ -1997,6 +1997,10 @@ fn keyboard() -> Vec<Group> {
     let mut teams = Group::new("preferences.keys.teams", t!("prefs-keys-teams"));
     let mut windows = Group::new("preferences.keys.window", t!("prefs-keys-window"));
     for binding in actions::bindings() {
+        // A browser tab never sees these, so the web build leaves them out.
+        if actions::browser_keeps(binding.keys(platform)) {
+            continue;
+        }
         let row = Row::new(binding.label, binding.name())
             .small()
             .control(Kbd::shortcut(binding.keys(platform)));
@@ -2009,17 +2013,22 @@ fn keyboard() -> Vec<Group> {
     }
     let first_team = actions::format_keys("cmd-alt-1", "ctrl-alt-1");
     let first_server = actions::format_keys("cmd-1", "ctrl-1");
-    teams = teams
-        .row(
-            Row::new("keys.teams-1-9", t!("prefs-keys-teams-by-number"))
-                .small()
-                .control(Kbd::new(format!("{first_team}–9"))),
-        )
-        .row(
+    teams = teams.row(
+        Row::new("keys.teams-1-9", t!("prefs-keys-teams-by-number"))
+            .small()
+            .control(Kbd::new(format!("{first_team}–9"))),
+    );
+    let server_keys = match platform {
+        Platform::MacOs => "cmd-1",
+        Platform::Other => "ctrl-1",
+    };
+    if !actions::browser_keeps(server_keys) {
+        teams = teams.row(
             Row::new("keys.servers-1-9", t!("shortcuts-servers"))
                 .small()
                 .control(Kbd::new(format!("{first_server}–9"))),
         );
+    }
     for (key, label) in actions::MESSAGE_KEYS {
         messages = messages.row(
             Row::new(label, actions::message_key_name(label))

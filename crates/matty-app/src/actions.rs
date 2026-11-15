@@ -403,7 +403,45 @@ pub fn shortcut_for(label: &str) -> Option<gpui_kit::SharedString> {
     bindings()
         .into_iter()
         .find(|row| row.label == label)
-        .map(|row| format_shortcut(row.keys(platform), platform.os()))
+        .map(|row| row.keys(platform))
+        .filter(|keys| !browser_keeps(keys))
+        .map(|keys| format_shortcut(keys, platform.os()))
+}
+
+/// Whether the browser Matty runs in keeps `keys` for itself, so the page
+/// never sees them and Matty should not offer them (#905): new window, new
+/// tab, close tab, and switching tabs by number. An installed web app's own
+/// window (`display-mode: standalone`) gets them back. Always false in the
+/// desktop app.
+pub fn browser_keeps(keys: &str) -> bool {
+    #[cfg(target_family = "wasm")]
+    {
+        thread_local! {
+            static STANDALONE: bool = web_sys::window()
+                .and_then(|window| window.match_media("(display-mode: standalone)").ok().flatten())
+                .is_some_and(|query| query.matches());
+        }
+        !STANDALONE.with(|standalone| *standalone) && kept_by_browsers(keys)
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let _ = keys;
+        false
+    }
+}
+
+/// The keys browsers keep in a tab: Cmd or Ctrl with W, N, T, Shift+N,
+/// Shift+T, Shift+W, or a digit 1 to 9.
+#[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
+fn kept_by_browsers(keys: &str) -> bool {
+    let Some(rest) = keys
+        .strip_prefix("cmd-")
+        .or_else(|| keys.strip_prefix("ctrl-"))
+    else {
+        return false;
+    };
+    matches!(rest, "w" | "n" | "t" | "shift-n" | "shift-t" | "shift-w")
+        || matches!(rest.as_bytes(), [b'1'..=b'9'])
 }
 
 /// `macos` or `other`, whichever this platform uses, formatted like
@@ -886,6 +924,32 @@ pub fn bind(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn browsers_keep_tab_and_window_keys() {
+        for keys in [
+            "cmd-w",
+            "ctrl-w",
+            "cmd-shift-n",
+            "ctrl-t",
+            "cmd-1",
+            "ctrl-9",
+        ] {
+            assert!(super::kept_by_browsers(keys), "{keys}");
+        }
+        for keys in [
+            "cmd-k",
+            "cmd-alt-1",
+            "ctrl-0",
+            "cmd-10",
+            "alt-w",
+            "cmd-shift-k",
+        ] {
+            assert!(!super::kept_by_browsers(keys), "{keys}");
+        }
+        // The desktop app keeps every shortcut.
+        assert!(!super::browser_keeps("cmd-w"));
+    }
+
     #[test]
     fn browsers_on_apple_platforms_use_the_mac_keymap() {
         let mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
