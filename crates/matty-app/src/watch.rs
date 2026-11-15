@@ -170,14 +170,11 @@ impl ServerWatch {
     }
 
     /// The user's own status on this server: whether Do not disturb holds
-    /// now, for its notifications.
+    /// now, or they are out of office, for its notifications.
     pub fn dnd(&self, now: i64) -> bool {
         self.presence.get(&self.me).is_some_and(|status| {
-            status.status == "dnd"
-                && matty_notify::dnd_active(
-                    (status.dnd_end_time > 0).then_some(status.dnd_end_time),
-                    now,
-                )
+            let end = (status.dnd_end_time > 0).then_some(status.dnd_end_time);
+            status.status == "ooo" || (status.status == "dnd" && matty_notify::dnd_active(end, now))
         })
     }
 

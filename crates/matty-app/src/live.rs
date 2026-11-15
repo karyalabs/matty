@@ -46,6 +46,9 @@ pub struct Live {
     /// (#793).
     switcher_rows: std::cell::RefCell<HashMap<String, TeamRows>>,
     presence: HashMap<String, Presence>,
+    /// The user's own status is Out of office, which holds notifications
+    /// back like Do not disturb; the presence dot shows it as offline.
+    out_of_office: bool,
     /// The signed-in user's id and username.
     me: (String, String),
     /// The user's notification preferences and what counts as mentioning
@@ -367,6 +370,8 @@ pub struct Arrival {
     pub collapsed_threads: bool,
     /// An urgent post that asks for persistent notifications (#220).
     pub persistent: bool,
+    /// The user is out of office: no notifications, as in Do not disturb.
+    pub out_of_office: bool,
 }
 
 impl Arrival {
@@ -397,7 +402,16 @@ impl Arrival {
                 channel_kind,
                 message: post.message.clone(),
                 preview: notification_preview(&post.message, post.file_ids.len()),
-                system: post.kind.starts_with("system_"),
+                system: post.kind.starts_with("system_") && !added(post, me),
+                from_webhook: post
+                    .props
+                    .get("from_webhook")
+                    .is_some_and(|value| value.as_str() == Some("true")),
+                silent: post
+                    .props
+                    .get("silent_notification")
+                    .is_some_and(|value| value.as_bool() == Some(true)),
+                forced: post.props.get("force_notification").is_some_and(truthy),
                 server_mentioned: arrived.mentioned,
                 followed_thread: arrived.followed,
             },
@@ -409,6 +423,7 @@ impl Arrival {
                 .priority
                 .as_ref()
                 .is_some_and(|priority| priority.is_urgent() && priority.persistent_notifications),
+            out_of_office: false,
         }
     }
 
@@ -417,9 +432,32 @@ impl Arrival {
         let app = matty_notify::AppState {
             me: self.me.clone(),
             collapsed_threads: self.collapsed_threads,
+            dnd: app.dnd || self.out_of_office,
             ..app
         };
         matty_notify::decide(&self.event, &self.user, &self.channel, &app)
+    }
+}
+
+/// A system message saying someone added the user to the channel: the
+/// one system message that notifies.
+fn added(post: &matty_api::models::Post, me: &str) -> bool {
+    post.kind == "system_add_to_channel"
+        && post
+            .props
+            .get("addedUserId")
+            .and_then(serde_json::Value::as_str)
+            == Some(me)
+}
+
+/// Whether a post prop is set the way JavaScript reads it as true.
+fn truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(set) => *set,
+        serde_json::Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
+        serde_json::Value::String(text) => !text.is_empty(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
     }
 }
 
@@ -698,6 +736,7 @@ impl Live {
                 sections: HashMap::new(),
                 switcher_rows: Default::default(),
                 presence: HashMap::new(),
+                out_of_office: false,
                 me: (account.user_id.clone(), account.username.clone()),
                 prefs: matty_notify::UserPrefs::from_props(&account.username, "", &HashMap::new()),
                 notify_props: HashMap::new(),
@@ -2212,6 +2251,7 @@ impl Live {
                         changed.insert(status.user_id.as_str());
                     }
                     if status.user_id == self.me.0 {
+                        self.out_of_office = status.status == "ooo";
                         let end = (status.dnd_end_time > 0).then_some(status.dnd_end_time);
                         update.own_presence = Some((presence(&status.status), end));
                     }
@@ -2776,7 +2816,9 @@ impl Live {
                 {
                     self.send(Command::LoadListing(listing.clone()));
                 }
-                update.arrived = Some(Arrival::new(arrived, &self.me.0, &self.prefs));
+                let mut arrival = Arrival::new(arrived, &self.me.0, &self.prefs);
+                arrival.out_of_office = self.out_of_office;
+                update.arrived = Some(arrival);
             }
             ChangeSet::Me(user) => {
                 self.avatars.learn(&user.id, user.last_picture_update);

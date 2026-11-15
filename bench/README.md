@@ -50,6 +50,20 @@ own profiles in `bench/out/profiles/`, but two copies of an app fight over the
 keychain and single-instance locks), close other heavy apps, plug in power,
 and leave the machine alone for the ~12 minutes it drives the screen.
 
+To measure a build of your own (a branch, a trial), build it with
+`--features bench-session-file`:
+
+    cargo build --release -p matty --features bench-session-file
+
+and run `bench/run.py setup --apps matty --app matty=<your app>` once for the
+first such build. A local build is signed ad hoc, so macOS treats every
+rebuild as a different app: the keychain item one build saved its session in
+asks the next one for the keychain password, in a dialog that sits over the
+window and waits for a person. With the feature, the session goes in
+`bench/out/profiles/matty/session.json` (the test account on your local bench
+server) and the keychain is never asked, so later rebuilds run unattended.
+Releases never carry the feature.
+
 ## The corpus
 
 `bench/corpus.py` writes a Mattermost bulk-import archive, deterministic for

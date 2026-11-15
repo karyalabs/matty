@@ -49,16 +49,21 @@ impl Notifier for Toasts {
         let title = notification.title.clone();
         let body = notification.body.clone();
         let image = notification.image.clone();
+        // Windows plays its instant-message sound; the user's Mattermost
+        // sound has no Windows counterpart to pick.
+        let sound = notification
+            .sound
+            .map(|_| tauri_winrt_notification::Sound::IM);
         let shown = std::thread::Builder::new()
             .name("toast".into())
             .spawn(move || {
-                // Matty plays its own sounds. The author's picture, cropped
-                // round, stands in for the app's logo.
+                // The author's picture, cropped round, stands in for the
+                // app's logo.
                 let mut toast = Toast::new(APP_USER_MODEL_ID).title(&title).text1(&body);
                 if let Some(image) = &image {
                     toast = toast.icon(image, IconCrop::Circular, "");
                 }
-                let toast = toast.sound(None).on_activated(move |_| {
+                let toast = toast.sound(sound).on_activated(move |_| {
                     let _ = clicked.try_send(target.clone());
                     Ok(())
                 });

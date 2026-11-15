@@ -490,7 +490,8 @@ pub enum LinkAnswer {
     User(Arc<User>),
 }
 
-/// A post that just arrived from someone else.
+/// A post that just arrived from someone else, or from a webhook posting
+/// as the user.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Arrived {
     /// The post.

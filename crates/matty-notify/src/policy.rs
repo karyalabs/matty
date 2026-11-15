@@ -74,6 +74,10 @@ pub struct ChannelPrefs {
     pub muted: bool,
     /// `ignore_channel_mentions` is `on`.
     pub ignore_channel_mentions: bool,
+    /// `desktop_sound`: `on` or `off`, unless it is `default`.
+    pub desktop_sound: Option<bool>,
+    /// `desktop_notification_sound`, unless it is `default`.
+    pub sound: Option<Sound>,
 }
 
 impl ChannelPrefs {
@@ -85,6 +89,15 @@ impl ChannelPrefs {
             desktop_threads: Level::parse(props.get("desktop_threads")),
             muted: is("mark_unread", "mention"),
             ignore_channel_mentions: is("ignore_channel_mentions", "on"),
+            desktop_sound: match props.get("desktop_sound").map(String::as_str) {
+                Some("on") => Some(true),
+                Some("off") => Some(false),
+                _ => None,
+            },
+            sound: props
+                .get("desktop_notification_sound")
+                .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("default"))
+                .map(|value| Sound::from_prop(Some(value))),
         }
     }
 }
@@ -130,8 +143,17 @@ pub struct Event {
     /// The post's text as a notification shows it: plain, without the
     /// Markdown. Empty uses `message`.
     pub preview: String,
-    /// A system message such as a join or a header change.
+    /// A system message such as a join or a header change, except the one
+    /// saying someone added the user to the channel, which notifies.
     pub system: bool,
+    /// Posted through an incoming webhook: it notifies even when the
+    /// webhook posts as the user.
+    pub from_webhook: bool,
+    /// `silent_notification`: the author asked for no notification.
+    pub silent: bool,
+    /// `force_notification`: it notifies through mute, Do not disturb, the
+    /// notification levels and the channel on screen.
+    pub forced: bool,
     /// The server listed the user in the event's `mentions`.
     pub server_mentioned: bool,
     /// The user follows the post's thread.
@@ -143,7 +165,7 @@ pub struct Event {
 pub struct AppState {
     /// The signed-in user's id.
     pub me: String,
-    /// The user's status is Do not disturb or out of office.
+    /// The user's status is Do not disturb or Out of office.
     pub dnd: bool,
     /// A Matty window has focus.
     pub focused: bool,
@@ -155,8 +177,6 @@ pub struct AppState {
     pub collapsed_threads: bool,
     /// The "show message preview" preference.
     pub show_preview: bool,
-    /// Sounds for every message, not only mentions and direct messages.
-    pub sound_for_all: bool,
 }
 
 /// A notification to show, laid out as the official Mattermost apps do:
@@ -191,18 +211,26 @@ pub fn dnd_active(end: Option<i64>, now: i64) -> bool {
     end.is_none_or(|end| now < end)
 }
 
-/// Whether `event` notifies, and how.
+/// Whether `event` notifies, and how: the official web app's rules
+/// (`shouldSkipNotification` in its `notification_actions`), over the
+/// server's `mentions` and `followers` and the user's own mention keys.
 pub fn decide(
     event: &Event,
     user: &UserPrefs,
     channel: &ChannelPrefs,
     app: &AppState,
 ) -> Option<Notification> {
-    if event.author_id == app.me || event.system || channel.muted || app.dnd {
+    if (event.author_id == app.me && !event.from_webhook)
+        || event.system
+        || (event.silent && !event.forced)
+    {
+        return None;
+    }
+    if !event.forced && (channel.muted || app.dnd) {
         return None;
     }
     let reply = !event.root_id.is_empty();
-    if app.focused {
+    if app.focused && !event.forced {
         let in_channel = app.visible_channel.as_deref() == Some(event.channel_id.as_str())
             && (!reply || !app.collapsed_threads);
         let in_thread = reply && app.visible_thread.as_deref() == Some(event.root_id.as_str());
@@ -210,16 +238,25 @@ pub fn decide(
             return None;
         }
     }
-    let direct = matches!(event.channel_kind, ChannelKind::Direct | ChannelKind::Group);
-    let mention = direct
-        || event.server_mentioned
+    let direct = event.channel_kind == ChannelKind::Direct;
+    let mentioned = event.server_mentioned
         || user.keys.mentioned(&event.message)
         || (!channel.ignore_channel_mentions && user.keys.channel_mentioned(&event.message));
-    let level = channel.desktop.unwrap_or(user.desktop);
-    if level == Level::None {
-        return None;
-    }
-    let notifies = if reply && app.collapsed_threads {
+    let mention = direct || mentioned;
+    // A group message follows the user's "mention" level as every message,
+    // as a direct message would; set on the channel itself, "mention"
+    // means a real mention.
+    let group = event.channel_kind == ChannelKind::Group;
+    let level = match channel.desktop {
+        Some(level) => level,
+        None if group && user.desktop == Level::Mention => Level::All,
+        None => user.desktop,
+    };
+    let notifies = if event.forced {
+        true
+    } else if level == Level::None {
+        false
+    } else if reply && app.collapsed_threads {
         // Replies stay in their thread: they notify on a mention, or in a
         // followed thread when thread notifications are all.
         let threads = channel.desktop_threads.unwrap_or(user.desktop_threads);
@@ -232,8 +269,7 @@ pub fn decide(
     }
     // As the official apps lay it out: "Team: channel" over
     // "@author: message", and a direct message under the author's name.
-    let direct_message = event.channel_kind == ChannelKind::Direct;
-    let place = if direct_message {
+    let place = if direct {
         event.author_name.clone()
     } else if event.team_name.is_empty() {
         event.channel_name.clone()
@@ -258,7 +294,7 @@ pub fn decide(
         } else {
             &event.preview
         };
-        if direct_message {
+        if direct {
             preview.clone()
         } else {
             format!("{author}: {preview}")
@@ -271,8 +307,13 @@ pub fn decide(
         channel_id: event.channel_id.clone(),
         post_id: event.post_id.clone(),
         root_id: event.root_id.clone(),
-        mention,
-        sound: (user.desktop_sound && (mention || app.sound_for_all)).then_some(user.sound),
+        // Persistent notifications reach direct and group messages too.
+        mention: mention || group,
+        // The web app plays the sound with every notification it shows.
+        sound: channel
+            .desktop_sound
+            .unwrap_or(user.desktop_sound)
+            .then_some(channel.sound.unwrap_or(user.sound)),
     })
 }
 
@@ -303,6 +344,9 @@ mod tests {
             message: message.into(),
             preview: String::new(),
             system: false,
+            from_webhook: false,
+            silent: false,
+            forced: false,
             server_mentioned: false,
             followed_thread: false,
         }
@@ -602,6 +646,98 @@ mod tests {
                     false,
                 )
             },
+            // Group messages: every message at the user's "mention" level,
+            // only real mentions when the channel itself says "mention".
+            Case {
+                event: Event {
+                    channel_kind: ChannelKind::Group,
+                    ..event("hi")
+                },
+                channel: ChannelPrefs {
+                    desktop: Some(Level::Mention),
+                    ..Default::default()
+                },
+                ..case("group message, channel level mention", false)
+            },
+            Case {
+                event: Event {
+                    channel_kind: ChannelKind::Group,
+                    ..event("hi @arya")
+                },
+                channel: ChannelPrefs {
+                    desktop: Some(Level::Mention),
+                    ..Default::default()
+                },
+                ..case("group mention, channel level mention", true)
+            },
+            Case {
+                event: Event {
+                    channel_kind: ChannelKind::Group,
+                    ..event("hi")
+                },
+                user: user(Level::None),
+                ..case("group message, level none", false)
+            },
+            Case {
+                event: Event {
+                    channel_kind: ChannelKind::Direct,
+                    ..event("hi")
+                },
+                channel: ChannelPrefs {
+                    desktop: Some(Level::Mention),
+                    ..Default::default()
+                },
+                ..case("direct message, channel level mention", true)
+            },
+            // Webhooks, silent and forced posts.
+            Case {
+                event: Event {
+                    author_id: "arya-id".into(),
+                    from_webhook: true,
+                    ..event("build failed @arya")
+                },
+                ..case("own webhook post", true)
+            },
+            Case {
+                event: Event {
+                    silent: true,
+                    ..event("hi @arya")
+                },
+                ..case("silent post", false)
+            },
+            Case {
+                event: Event {
+                    forced: true,
+                    ..event("server restarting")
+                },
+                channel: ChannelPrefs {
+                    muted: true,
+                    desktop: Some(Level::None),
+                    ..Default::default()
+                },
+                app: AppState { dnd: true, ..app() },
+                ..case("forced post through mute, none and dnd", true)
+            },
+            Case {
+                event: Event {
+                    forced: true,
+                    silent: true,
+                    ..event("server restarting")
+                },
+                ..case("forced beats silent", true)
+            },
+            Case {
+                event: Event {
+                    forced: true,
+                    ..event("server restarting")
+                },
+                app: AppState {
+                    focused: true,
+                    visible_channel: Some("town".into()),
+                    ..app()
+                },
+                ..case("forced post in the visible channel", true)
+            },
         ];
         for case in cases {
             let got = decide(&case.event, &case.user, &case.channel, &case.app);
@@ -696,28 +832,40 @@ mod tests {
     }
 
     #[test]
-    fn sounds_are_for_mentions_unless_turned_on_for_all() {
+    fn the_sound_plays_with_every_notification_unless_turned_off() {
         let all = user(Level::All);
         let plain = decide(&event("hi"), &all, &ChannelPrefs::default(), &app()).unwrap();
-        assert_eq!(plain.sound, None);
-        let loud = AppState {
-            sound_for_all: true,
-            ..app()
-        };
-        assert_eq!(
-            decide(&event("hi"), &all, &ChannelPrefs::default(), &loud)
-                .unwrap()
-                .sound,
-            Some(Sound::Bing)
-        );
+        assert_eq!((plain.sound, plain.mention), (Some(Sound::Bing), false));
         let mention = decide(&event("@arya"), &all, &ChannelPrefs::default(), &app()).unwrap();
         assert!(mention.sound.is_some() && mention.mention);
         let quiet = UserPrefs {
             desktop_sound: false,
-            ..all
+            ..all.clone()
         };
         assert_eq!(
             decide(&event("@arya"), &quiet, &ChannelPrefs::default(), &app())
+                .unwrap()
+                .sound,
+            None
+        );
+        // The channel's own sound settings win over the user's.
+        let loud_here = ChannelPrefs {
+            desktop_sound: Some(true),
+            sound: Some(Sound::Crackle),
+            ..Default::default()
+        };
+        assert_eq!(
+            decide(&event("@arya"), &quiet, &loud_here, &app())
+                .unwrap()
+                .sound,
+            Some(Sound::Crackle)
+        );
+        let quiet_here = ChannelPrefs {
+            desktop_sound: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(
+            decide(&event("@arya"), &all, &quiet_here, &app())
                 .unwrap()
                 .sound,
             None
@@ -792,5 +940,19 @@ mod tests {
         let channel = ChannelPrefs::from_props(&member);
         assert_eq!(channel.desktop, None);
         assert!(channel.muted && channel.ignore_channel_mentions);
+        assert_eq!((channel.desktop_sound, channel.sound), (None, None));
+        let sounds = |sound: &str, name: &str| {
+            let props: HashMap<String, String> = [
+                ("desktop_sound".to_owned(), sound.to_owned()),
+                ("desktop_notification_sound".to_owned(), name.to_owned()),
+            ]
+            .into_iter()
+            .collect();
+            let channel = ChannelPrefs::from_props(&props);
+            (channel.desktop_sound, channel.sound)
+        };
+        assert_eq!(sounds("on", "Hello"), (Some(true), Some(Sound::Hello)));
+        assert_eq!(sounds("off", "Default"), (Some(false), None));
+        assert_eq!(sounds("default", ""), (None, None));
     }
 }

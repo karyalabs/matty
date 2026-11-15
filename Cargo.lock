@@ -4870,6 +4870,7 @@ dependencies = [
  "matty-markdown",
  "matty-notify",
  "matty-spell",
+ "matty-store",
  "matty-sync",
  "matty-update",
  "objc2 0.6.5",
@@ -4933,6 +4934,8 @@ dependencies = [
  "objc2-user-notifications",
  "tauri-winrt-notification",
  "tracing",
+ "wasm-bindgen",
+ "web-sys",
  "windows 0.62.2",
  "zbus",
 ]

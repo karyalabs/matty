@@ -21,3 +21,4 @@ embed-resource.workspace = true
 [features]
 runtime_shaders = ["matty-app/runtime_shaders"]
 gpui-profiler = ["matty-app/gpui-profiler"]
+bench-session-file = ["matty-app/bench-session-file"]

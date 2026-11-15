@@ -250,6 +250,12 @@ class Matty(App):
         self.home = self.profile / "home"
         self.home.mkdir(parents=True, exist_ok=True)
         self.env = {"HOME": str(self.home)}
+        if MAC:
+            # A build of your own is signed ad hoc, so the keychain item one
+            # build wrote asks the next for a password, with a dialog over the
+            # window. Builds with `--features bench-session-file` keep the
+            # session in this file instead; others ignore it.
+            self.env["MATTY_BENCH_SESSION_FILE"] = str(self.profile / "session.json")
 
     def prepare(self, server: str):
         if not MAC:
