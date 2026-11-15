@@ -11,8 +11,8 @@
 use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
-    StyledImage as _, Window, div, prelude::FluentBuilder as _, px,
+    IntoElement, ParentElement as _, SharedString, Styled as _, StyledImage as _, Window, div,
+    prelude::FluentBuilder as _, px,
 };
 
 use crate::style::{self, TypeStyleExt as _, metrics, scaled};
@@ -22,7 +22,7 @@ use crate::ui::{
     button::{ButtonSize, ButtonVariant, style_button},
     menu::{Menu, MenuItem, MenuState},
     theme::UiTheme,
-    tooltip::text_tooltip,
+    tooltip::{AnchoredTooltip as _, text_tooltip},
 };
 
 /// A saved server (#206), as the team menu and Settings list it.
@@ -518,7 +518,7 @@ impl TeamsModel {
             .min_w_0()
             .flex()
             .when(!open, |tip| {
-                tip.tooltip(move |_, cx| text_tooltip(t!("teams-switch"), cx))
+                tip.anchored_tooltip(move |_, cx| text_tooltip(t!("teams-switch"), cx))
             })
             .child(
                 Menu::new(&self.menu, label)

@@ -13,8 +13,7 @@ pub mod share;
 
 use gpui_kit::{
     App, ElementId, FontWeight, Global, InteractiveElement as _, IntoElement, ParentElement as _,
-    Pixels, Rgba, SharedString, StatefulInteractiveElement as _, Styled, div,
-    prelude::FluentBuilder as _, px,
+    Pixels, Rgba, SharedString, Styled, div, prelude::FluentBuilder as _, px,
 };
 
 use gpui_icons::{LucideIcon, lucide};
@@ -24,7 +23,7 @@ use crate::ui::empty::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
 };
 use crate::ui::theme::{ThemeMode, UiTheme};
-use crate::ui::tooltip::text_tooltip;
+use crate::ui::tooltip::{AnchoredTooltip as _, text_tooltip};
 
 /// The interface and reading face (DESIGN.md §3).
 pub const SANS: &str = "IBM Plex Sans";
@@ -600,7 +599,7 @@ pub fn tipped_when(
         .flex()
         .flex_shrink_0()
         .when(show, |this| {
-            this.tooltip(move |_, cx| text_tooltip(tip.clone(), cx))
+            this.anchored_tooltip(move |_, cx| text_tooltip(tip.clone(), cx))
         })
         .child(child)
 }
