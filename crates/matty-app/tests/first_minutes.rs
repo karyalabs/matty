@@ -1,7 +1,7 @@
 //! What someone does in the first minutes with the window, done the way
 //! they do it: with the pointer and the keyboard, not by dispatching an
 //! action. Each of these was broken while every test that dispatched its
-//! action passed. `docs/dogfood-checklist.md` lists the same walk for a
+//! action passed. `docs/journeys/first-minutes.md` lists the same walk for a
 //! person.
 #![allow(clippy::unwrap_used)]
 
@@ -324,4 +324,55 @@ fn opening_a_thread_to_reply_focuses_the_reply_box(cx: &mut TestAppContext) {
     cx.simulate_input("on it");
     settle(&mut cx);
     assert_eq!(message(&mut cx), "", "the channel's composer is untouched");
+}
+
+/// A thread's reply box previews the reply as the channel's composer does,
+/// by its shortcut and by its toolbar button (#906).
+#[gpui_kit::test]
+fn a_reply_previews_like_a_message(cx: &mut TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let mut main = None;
+    let window = cx.add_window(|window, cx| {
+        let view = matty_app::test_support::main_window(window, cx);
+        main = Some(view.clone());
+        Root(view)
+    });
+    let main = main.unwrap();
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.update(|window, _| window.activate_window());
+    settle(&mut cx);
+    let shown = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| matty_app::test_support::reply_previewed(&main, cx))
+    };
+
+    cx.dispatch_action(matty_app::actions::FocusComposer);
+    settle(&mut cx);
+    cx.simulate_keystrokes("shift-up");
+    settle(&mut cx);
+    cx.simulate_input("**hi**");
+    settle(&mut cx);
+    assert!(!shown(&mut cx));
+
+    cx.simulate_keystrokes(&primary("alt-p"));
+    settle(&mut cx);
+    assert!(shown(&mut cx), "the shortcut previews the reply");
+    assert!(
+        in_text_field(&mut cx),
+        "with the caret still in the reply box"
+    );
+
+    // The reply box's own Preview button, right of the channel's.
+    let button = cx.update(|window, _| {
+        use gpui_kit::test::TestQueryExt as _;
+        window
+            .elements()
+            .into_iter()
+            .filter(|element| element.label() == Some("Preview"))
+            .map(|element| element.bounds().center())
+            .max_by(|a, b| f32::from(a.x).total_cmp(&f32::from(b.x)))
+            .expect("a Preview button")
+    });
+    click_at(&mut cx, button);
+    assert!(!shown(&mut cx), "the button turns it off");
 }

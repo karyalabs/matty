@@ -611,8 +611,7 @@ pub fn bindings() -> Vec<Binding> {
         row!(
             "Preview message",
             TogglePreview,
-            // A reply has no preview.
-            Some("ChannelView > Composer"),
+            Some(COMPOSER),
             "cmd-alt-p",
             "ctrl-alt-p"
         ),

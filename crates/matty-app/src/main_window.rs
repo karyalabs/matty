@@ -3650,8 +3650,9 @@ impl MainWindow {
         // Only where focus rests on the window, a pane or a button of
         // theirs: a text field, a menu, a dialog, a selected message and
         // the sidebar's list have keys of their own.
-        const RESTING: [&str; 5] = [
+        const RESTING: [&str; 6] = [
             actions::MAIN_WINDOW,
+            actions::SPLIT_PANE,
             "SelectionRoot", // i18n-ignore: a key context
             actions::CHANNEL_VIEW,
             actions::RIGHT_PANE,
@@ -3689,6 +3690,17 @@ impl MainWindow {
             self.right_pane
                 .update(cx, |pane, cx| pane.type_reply(text, window, cx));
             cx.stop_propagation();
+            return;
+        }
+        // With split view's second pane focused, its own composer (#906).
+        if self.second_focused() {
+            let channel = self
+                .shown_split()
+                .and_then(|pane| pane.read(cx).channel_view().cloned());
+            if let Some(channel) = channel.filter(|channel| channel.read(cx).can_type()) {
+                channel.update(cx, |channel, cx| channel.insert_text(text, window, cx));
+                cx.stop_propagation();
+            }
             return;
         }
         let composer_shown = self.login.is_none()

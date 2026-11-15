@@ -80,7 +80,7 @@ impl Split {
 
 impl MainWindow {
     /// The split's second pane when it shows: not over Threads or Drafts.
-    fn shown_split(&self) -> Option<&Entity<PopOutView>> {
+    pub(super) fn shown_split(&self) -> Option<&Entity<PopOutView>> {
         self.split
             .pane
             .as_ref()
@@ -88,7 +88,7 @@ impl MainWindow {
     }
 
     /// Whether the second pane shows and has focus.
-    fn second_focused(&self) -> bool {
+    pub(super) fn second_focused(&self) -> bool {
         self.shown_split().is_some() && self.split.focused == Pane::Second
     }
 
@@ -781,6 +781,11 @@ impl MainWindow {
     /// The main pane's channel.
     pub(crate) fn main_channel_for_tests(&self) -> Option<String> {
         self.selected_channel.as_ref().map(ToString::to_string)
+    }
+
+    /// Whether the right pane's reply box shows its preview.
+    pub(crate) fn reply_previewed_for_tests(&self, cx: &gpui_kit::App) -> bool {
+        self.right_pane.read(cx).previewed_for_tests(cx)
     }
 
     /// Whether the second pane shows and has focus.

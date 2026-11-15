@@ -472,6 +472,8 @@ pub struct RightPaneView {
     /// Who is typing a reply in the thread (#137).
     typing: Vec<SharedString>,
     draft_len: usize,
+    /// Whether the reply's preview shows above its composer (#906).
+    previewing: bool,
     /// Which thread's draft the composer holds, and what was saved of it.
     draft: crate::composer_draft::ComposerDraft,
     _draft_task: Option<gpui_kit::Task<()>>,
@@ -905,6 +907,7 @@ impl RightPaneView {
             directory: std::sync::Arc::default(),
             typing: Vec::new(),
             draft_len: 0,
+            previewing: false,
             draft: Default::default(),
             _draft_task: None,
             window: window.window_handle(),
@@ -3081,6 +3084,10 @@ impl RightPaneView {
                     .on_action(cx.listener(|this, _: &UploadFiles, window, cx| {
                         this.choose_files(window, cx)
                     }))
+                    .on_action(cx.listener(|this, _: &actions::TogglePreview, _, cx| {
+                        this.previewing = !this.previewing;
+                        cx.notify();
+                    }))
                     .px(theme.space(4.))
                     .pt(theme.space(1.))
                     .children(self.link.preview(
@@ -3093,6 +3100,12 @@ impl RightPaneView {
                     ))
                     .children(tray)
                     .children(crate::channel::format_bar::format_row(&self.composer, cx))
+                    .children(crate::channel::format_bar::preview_box(
+                        "right-pane.preview",
+                        self.previewing,
+                        &self.composer,
+                        cx,
+                    ))
                     .children(crate::slash::error_line(
                         "right-pane.command-error",
                         self.slash.error(),
@@ -3158,6 +3171,19 @@ impl RightPaneView {
                                     crate::channel::format_bar::toggle_format_bar(cx)
                                 }),
                             ))
+                            .child(style::tipped(
+                                "right-pane.preview.tip",
+                                actions::tooltip_text(&t!("chan-preview"), "Preview message"),
+                                tool("right-pane.preview", t!("chan-preview"), LucideIcon::Eye)
+                                    .variant(if self.previewing {
+                                        ButtonVariant::Secondary
+                                    } else {
+                                        ButtonVariant::Ghost
+                                    })
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(actions::TogglePreview), cx)
+                                    }),
+                            ))
                             .child(emoji_popover)
                             .child(div().flex_1())
                             .children(self.schedule_button(cx))
@@ -3170,6 +3196,11 @@ impl RightPaneView {
             )
             .child(crate::channel::typing_line(&self.typing, cx))
             .children(overlay)
+    }
+
+    /// Whether the reply's preview is drawn: on, over a reply with text.
+    pub(crate) fn previewed_for_tests(&self, cx: &App) -> bool {
+        self.previewing && !self.composer.read(cx).value(cx).is_empty()
     }
 
     /// Nothing open: one line on how to get a thread here.

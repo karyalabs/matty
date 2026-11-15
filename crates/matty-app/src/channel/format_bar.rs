@@ -251,18 +251,30 @@ impl ChannelView {
 }
 
 impl ChannelView {
-    /// The message as it will post (#219), above the composer while the
-    /// preview is on and the composer holds something: the same Markdown
-    /// pipeline the transcript draws a sent post with.
+    /// The channel composer's preview, see [`preview_box`].
     pub(super) fn preview_box(&self, cx: &App) -> Option<impl IntoElement + use<>> {
-        if !self.previewing || self.draft_len == 0 {
-            return None;
-        }
-        let theme = UiTheme::read(cx).clone();
-        let text = self.composer.read(cx).value(cx);
+        preview_box("composer.preview", self.previewing, &self.composer, cx)
+    }
+}
+
+/// The message as it will post (#219), above a composer while its preview
+/// is on and it holds something: the same Markdown pipeline the transcript
+/// draws a sent post with. `id` names the box; its body is `<id>.body`.
+pub(crate) fn preview_box(
+    id: &'static str,
+    previewing: bool,
+    composer: &Entity<ComposerState>,
+    cx: &App,
+) -> Option<impl IntoElement + use<>> {
+    let text = composer.read(cx).value(cx);
+    if !previewing || text.is_empty() {
+        return None;
+    }
+    let theme = UiTheme::read(cx).clone();
+    {
         Some(
             div()
-                .id("composer.preview")
+                .id(id)
                 .mb(theme.space(2.))
                 .px(theme.space(3.))
                 .py(theme.space(2.))
@@ -279,7 +291,7 @@ impl ChannelView {
                         .child(t!("format-preview")),
                 )
                 .child(crate::links::markdown_body(
-                    "composer.preview.body",
+                    format!("{id}.body"),
                     &text,
                     &[],
                     |url, _, cx| cx.open_url(url),

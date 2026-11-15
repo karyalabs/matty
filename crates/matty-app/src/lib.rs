@@ -405,6 +405,11 @@ pub mod test_support {
         main(view).read(cx).main_channel_for_tests()
     }
 
+    /// Whether the right pane's reply box shows its preview (#906).
+    pub fn reply_previewed(view: &AnyView, cx: &App) -> bool {
+        main(view).read(cx).reply_previewed_for_tests(cx)
+    }
+
     /// Whether split view's second pane shows and has focus.
     pub fn second_pane_focused(view: &AnyView, cx: &App) -> bool {
         main(view).read(cx).second_focused_for_tests()

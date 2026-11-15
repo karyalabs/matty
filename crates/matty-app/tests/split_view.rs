@@ -320,3 +320,61 @@ fn the_second_pane_toasts_in_the_main_window(cx: &mut gpui_kit::TestAppContext) 
     cx.run_until_parked();
     assert!(shown(&mut cx), "one toast stack, the main window's");
 }
+
+/// Typing with focus resting on the second pane (after a click on it, not
+/// in its composer) goes to that pane's composer, not the main one (#906).
+#[gpui_kit::test]
+fn typing_on_the_second_pane_goes_to_its_composer(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestQueryExt as _;
+    let (mut cx, _main) = split_window(cx, "town-square");
+    let pane = labels(&mut cx)
+        .into_iter()
+        .find(|label| label.starts_with("Right pane, town-square"))
+        .expect("the second pane is drawn");
+    // An empty stretch of the pane, just under its top edge.
+    let at = cx.update(|window, _| {
+        let bounds = window
+            .elements()
+            .into_iter()
+            .find(|element| element.label().is_some_and(|l| l == pane))
+            .unwrap()
+            .bounds();
+        gpui_kit::point(bounds.center().x, bounds.origin.y + gpui_kit::px(4.))
+    });
+    cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert!(has(&mut cx, "Right pane, town-square, focused"));
+    let typing = cx.update(|window, _| {
+        window
+            .context_stack()
+            .iter()
+            .any(|context| context.contains("Input"))
+    });
+    assert!(!typing, "the click left focus resting on the pane");
+
+    cx.simulate_input("hi");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let composers: Vec<(f32, String)> = cx.update(|window, _| {
+        window
+            .elements()
+            .into_iter()
+            .filter(|element| element.label().is_some_and(|l| l == "Message"))
+            .map(|element| {
+                let x: f32 = element.bounds().origin.x.into();
+                (
+                    x,
+                    element.value().map(|v| v.to_string()).unwrap_or_default(),
+                )
+            })
+            .collect()
+    });
+    let (left, right) = (
+        composers.iter().min_by(|a, b| a.0.total_cmp(&b.0)).unwrap(),
+        composers.iter().max_by(|a, b| a.0.total_cmp(&b.0)).unwrap(),
+    );
+    assert_eq!(composers.len(), 2, "{composers:?}");
+    assert_eq!(right.1, "hi", "the second pane's composer");
+    assert_eq!(left.1, "", "not the main one");
+}
