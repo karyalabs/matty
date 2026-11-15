@@ -9,6 +9,43 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.29] - 2026-11-15
+
+Notifications that follow Mattermost's rules, notifications on the web,
+and a round of polish.
+
+### Added
+
+- The web build shows notifications and plays their sound. The first click
+  or key press asks the browser for permission, and clicking a
+  notification opens the post or thread (#914).
+- A thread's reply box has a preview, from its button or
+  Cmd/Ctrl+Option+P, like the channel's composer (#921).
+
+### Changed
+
+- Notifications follow Mattermost's rules. The sound plays with every
+  notification, and a channel's own sound setting wins over yours. Linux
+  and Windows now play a sound too. You are notified when someone adds you
+  to a channel and when a webhook posts as you. Out of office holds
+  notifications back like Do not disturb (#911).
+- Tooltips sit centered above their target, and flip below only when there
+  is no room. The server switcher's rows have more room (#913, gpuicn
+  0.11.10).
+- The web build no longer offers shortcuts the browser keeps for itself
+  (Close window, Create channel, Switch to server 1–9) in Settings ›
+  Keyboard or in tooltips, unless it runs as an installed app (#923).
+
+### Fixed
+
+- Typing with focus resting on split view's second pane goes to that
+  pane's composer (#921).
+- The "no open teams" note in Join a team, and the empty notes in Browse
+  channels, New message and Add members, wrap instead of being clipped
+  (#913).
+- Truncated labels in controls keep the bottoms of g, p and y (gpuicn
+  0.11.11, #922).
+
 ## [0.1.0-beta.28] - 2026-11-13
 
 Shortcuts that work wherever focus is, a sidebar button that brings the
@@ -557,7 +594,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.28...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.29...HEAD
+[0.1.0-beta.29]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.29
 [0.1.0-beta.28]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.28
 [0.1.0-beta.27]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.27
 [0.1.0-beta.26]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.26
