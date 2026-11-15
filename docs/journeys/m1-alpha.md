@@ -1,12 +1,29 @@
 # M1 alpha journeys
 
-These are the checks a person runs by hand on the signed alpha build
-before M1 alpha ships (PLAN §11, §12). There are four journeys: features,
-keyboard only, IME, and VoiceOver.
+These are the checks a person runs by hand on a signed build (PLAN §11,
+§12). They were written for M1 alpha, and they are re-run on each beta
+(#201) with the beta additions in §5. There are five journeys: features,
+keyboard only, IME, VoiceOver, and the beta additions.
+
+## Running it in sessions
+
+Sessions A to D take about two and a half hours in all. Each one
+closes an issue once every step in it has a result:
+
+| Session | Sections | Time | Closes |
+|---|---|---|---|
+| A | §1 Features, then §5 Beta additions | 75 min | #168, then #201 together with B to D |
+| B | §2 Keyboard only (mouse off) | 30 min | #169 |
+| C | §3 IME (add the Japanese, Pinyin and Korean input sources first) | 20 min | #170 |
+| D | §4 VoiceOver | 30 min | #171 |
+| E | `m2-screen-readers.md` on macOS, then NVDA, Narrator and Orca | 30 min each | #217 |
+
+When B to D are done, #166 is done too. Start each session on the newest
+beta and write its version in the run heading.
 
 ## How to run
 
-- **Build and machine:** use the signed, notarized alpha build from the
+- **Build and machine:** use the newest signed, notarized beta from the
   release workflow, not a dev build. Run it on macOS 13 or later, once on
   Apple silicon and once on Intel if one is available.
 - **Server:** use the current Mattermost release, seeded with
@@ -50,7 +67,8 @@ Columns: **Step**, **Do**, **Expect**, **Evidence**, **Date**,
 | 2.2 | Cmd-K, type part of a channel name, Enter | The switcher finds the channel and opens it | | | | | |
 | 2.3 | Alt-Up and Alt-Down, then Alt-Shift-Up and Alt-Shift-Down | Previous and next channel, then previous and next unread | | | | | |
 | 2.4 | Cmd-[ and Cmd-] | Back and forward through the channels visited | | | | | |
-| 2.5 | Switch teams from the rail | The sidebar changes team, and unread badges on the rail are right | | | | | |
+| 2.5 | Switch teams with the team tabs, then with Cmd-1 to Cmd-9 and Cmd-Alt-Up and Cmd-Alt-Down | The sidebar changes team, and each tab's unread and mention badges are right | | | | | |
+| 2.5a | With two servers added, switch servers from the sidebar header | The header names the current server and counts mentions waiting on the others; the sidebar changes server | | | | | |
 | 2.6 | Create a category, move a channel into it, rename it, delete it | Each change shows in the webapp after a reload | | | | | |
 | 2.7 | Favorite, mute and leave a channel | Each change shows in the webapp | | | | | |
 
@@ -123,7 +141,7 @@ Columns: **Step**, **Do**, **Expect**, **Evidence**, **Date**,
 
 | Step | Do | Expect | Evidence | Date | Tester | Result | Notes |
 |---|---|---|---|---|---|---|---|
-| 10.1 | Cmd-, and switch the theme between Light, Dark and System | The window follows at once | | | | | |
+| 10.1 | Cmd-, opens Settings. In Appearance, pick each theme (Graphite, Porcelain, Harbor, Linen, Tide, Dusk, Ember), then switch between Light, Dark and System | The window follows at once, and System follows the Mac's setting | | | | | |
 | 10.2 | Change the text size and zoom (Cmd-= and Cmd--) | Text and spacing scale, and nothing overlaps | | | | | |
 | 10.3 | Turn on Reduce motion | Transitions snap | | | | | |
 
@@ -151,8 +169,11 @@ it here. Record the whole run.
 | K.6 | Edit the last message (Up), then delete a message | Both are possible without the mouse | | | | | |
 | K.7 | Search, then jump to a result | Focus lands on the post | | | | | |
 | K.8 | Upload a file (Cmd-U), then open it in the lightbox | The file dialog and the lightbox both work by keyboard, and Escape returns focus | | | | | |
-| K.9 | Change a setting in Preferences, then close it | Escape closes, and focus returns | | | | | |
+| K.9 | Cmd-, to open Settings, move between its sections, change a setting, then close the window | Every section and control is reachable with Tab and the arrows, and closing returns focus to the main window | | | | | |
 | K.10 | Sign out from the account menu | The menu and the confirmation are reachable and confirmable by keyboard | | | | | |
+| K.11 | Tab onto a sidebar section header (Channels, Direct messages) | Its + and ⋯ buttons show while it has focus, and Tab reaches both (#901) | | | | | |
+| K.12 | Switch teams with Cmd-1 and Cmd-Alt-Down, then open the server switcher in the sidebar header | Each works with the caret in the composer, and the switcher's menu is usable by keyboard | | | | | |
+| K.13 | Cmd-/ | The shortcuts sheet opens, and Escape closes it with focus back where it was | | | | | |
 
 ## 3. IME (#170)
 
@@ -178,6 +199,22 @@ Turn on VoiceOver (Cmd-F5) and use VoiceOver keys only.
 | V.3 | Open and close a dialog | Focus moves into the dialog, its title is read, and focus returns when it closes | | | | | |
 | V.4 | Use the composer | It is announced as a text field with its placeholder, and typing echoes | | | | | |
 | V.5 | Open each icon-only button | Each has a name, and none reads as just "button" | | | | | |
+| V.6 | Move through the team tabs and the server switcher | Each reads its name and its mention count | | | | | |
+| V.7 | Open Settings (Cmd-,) and move through its sections | Each section's name is read, and each control reads its label and value | | | | | |
+
+## 5. Beta additions (#201)
+
+Run after §1 on the same build.
+
+| Step | Do | Expect | Evidence | Date | Tester | Result | Notes |
+|---|---|---|---|---|---|---|---|
+| B.1 | Cmd-Shift-U (Unreads filter), then again | The sidebar shows only unread channels, then everything again | | | | | |
+| B.2 | Post a link that has a preview, collapse the preview, then hide its image | The arrow sits on the image's corner; a hidden image leaves "Show image preview" | | | | | |
+| B.3 | Set Do not disturb for 30 minutes from the account menu | The status shows when it ends, and it clears by itself then | | | | | |
+| B.4 | Add a keyword in Settings › Notifications, then have the other person post it | The post is highlighted, shows in Recent mentions, and notifies | | | | | |
+| B.5 | Offline, try to react, edit and save a message | Each is refused with a "Try again when you're back online" notice, and nothing is lost | | | | | |
+| B.6 | Join another team with the + after the team tabs, then leave it from Settings › Servers | The team appears once joined. Leaving asks first, then the team goes away here and in the webapp | | | | | |
+| B.7 | In Settings › Servers, drag a server to a new place | The order holds after a relaunch, and the sidebar header's switcher follows it | | | | | |
 
 ## Runs
 
