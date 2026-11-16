@@ -209,3 +209,39 @@ fn join_a_team_with_nothing_to_join_still_dismisses(cx: &mut gpui_kit::TestAppCo
         "a click outside closes it"
     );
 }
+
+/// A team tab's menu takes the keyboard like any menu: Escape closes it,
+/// and Down and Enter pick Leave team (matty#943).
+#[gpui_kit::test]
+fn a_team_tabs_menu_answers_the_keyboard(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    for team in ["Matty", "Design Guild, 3 mentions"] {
+        let tab = find(&mut cx, team);
+        cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            drew(&mut cx, "Leave team\u{2026}"),
+            "the menu opened on {team}"
+        );
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(
+            !drew(&mut cx, "Leave team\u{2026}"),
+            "Escape closes the menu on {team}"
+        );
+    }
+
+    let tab = find(&mut cx, "Matty");
+    cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(drew(&mut cx, "Leave team"), "Enter picks Leave team");
+}

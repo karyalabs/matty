@@ -602,6 +602,10 @@ impl TeamsModel {
                 let this = this.downgrade();
                 let team = team.clone();
                 move |event, window, cx| {
+                    // The tab takes focus on any press after this handler
+                    // runs, which pulled focus out of the menu just opened:
+                    // Escape and the arrows then went nowhere (matty#943).
+                    window.prevent_default();
                     this.update(cx, |this, cx| {
                         this.open_team_menu(&team, event.position, window, cx)
                     })
