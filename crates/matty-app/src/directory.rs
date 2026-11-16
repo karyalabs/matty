@@ -1166,11 +1166,6 @@ impl JoinTeamView {
 impl Render for JoinTeamView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = UiTheme::read(cx).clone();
-        if self.focus_search {
-            self.focus_search = false;
-            let focus = self.search.read(cx).focus_handle(cx);
-            window.on_next_frame(move |window, cx| window.focus(&focus, cx));
-        }
         let query = self.search.read(cx).value().trim().to_lowercase();
         let server = self.server_name.to_string();
         let note = |text: SharedString| {
@@ -1217,6 +1212,25 @@ impl Render for JoinTeamView {
                 }
             }
         };
+        // Focus goes to a field that draws: the search only shows with
+        // teams to search, so with none it is the invite link. Focusing the
+        // hidden search left focus outside the dialog, where neither Escape
+        // nor a click outside reached it (matty#941). While the teams load,
+        // the dialog keeps focus, and a field the user picked keeps it. This
+        // render follows the one where the dialog focuses its popup, so the
+        // field is focused here rather than on the next frame.
+        if self.focus_search && !matches!(self.teams, JoinableTeams::Loading) {
+            self.focus_search = false;
+            let invite = self.invite.read(cx).focus_handle(cx);
+            let focus = if searchable {
+                self.search.read(cx).focus_handle(cx)
+            } else {
+                invite.clone()
+            };
+            if !invite.is_focused(window) {
+                window.focus(&focus, cx);
+            }
+        }
         div()
             .flex()
             .flex_col()

@@ -91,3 +91,121 @@ fn a_team_joins_from_the_tabs_and_leaves_from_its_menu(cx: &mut gpui_kit::TestAp
     cx.run_until_parked();
     assert!(!drew(&mut cx, "Platform"), "the team's tab is gone");
 }
+
+/// Join another team, from any team's tabs, closes on Escape and on a click
+/// outside it, with one backdrop under it (matty#941: on a second team
+/// neither worked and the backdrop was dimmer).
+#[gpui_kit::test]
+fn join_a_team_dismisses_from_every_team(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    // Wide enough for every tab, so the tabs end in the Join button.
+    cx.simulate_resize(gpui_kit::size(gpui_kit::px(1400.), gpui_kit::px(900.)));
+    cx.run_until_parked();
+    let grip = find(&mut cx, "Resize sidebar");
+    cx.simulate_mouse_down(grip, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(
+        grip + gpui_kit::point(gpui_kit::px(300.), gpui_kit::px(0.)),
+        Some(MouseButton::Left),
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_up(
+        grip + gpui_kit::point(gpui_kit::px(300.), gpui_kit::px(0.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    let open = |cx: &mut VisualTestContext| {
+        let join = find(cx, "Join another team");
+        cx.simulate_click(join, Modifiers::none());
+        cx.run_until_parked();
+        assert!(drew(cx, "Paste an invite link"), "the dialog opened");
+    };
+
+    for team in [
+        "Matty",
+        "Design Guild, 3 mentions",
+        "Open Source, unread messages",
+    ] {
+        let tab = find(&mut cx, team);
+        cx.simulate_click(tab, Modifiers::none());
+        cx.run_until_parked();
+
+        open(&mut cx);
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(
+            !drew(&mut cx, "Paste an invite link"),
+            "Escape closes it on {team}"
+        );
+
+        open(&mut cx);
+        let corner = gpui_kit::point(gpui_kit::px(4.), gpui_kit::px(4.));
+        cx.simulate_click(corner, Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            !drew(&mut cx, "Paste an invite link"),
+            "a click outside closes it on {team}"
+        );
+    }
+}
+
+/// With no team left to join there is no search field, so the dialog must
+/// not send focus to it: Escape and a click outside still close it, and
+/// typing goes into the invite link (matty#941).
+#[gpui_kit::test]
+fn join_a_team_with_nothing_to_join_still_dismisses(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let open = |cx: &mut VisualTestContext| {
+        let more = find(cx, "More teams");
+        cx.simulate_click(more, Modifiers::none());
+        cx.run_until_parked();
+        let join = find(cx, "Join another team\u{2026}");
+        cx.simulate_click(join, Modifiers::none());
+        cx.run_until_parked();
+    };
+    for team in ["Customer Success", "Platform", "Social"] {
+        open(&mut cx);
+        let button = find(&mut cx, &format!("Join {team}"));
+        cx.simulate_click(button, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    open(&mut cx);
+    assert!(drew(&mut cx, "Paste an invite link"), "the dialog opened");
+    assert!(!drew(&mut cx, "Search teams"), "nothing to search");
+    cx.simulate_input("x");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let typed = cx.update(|window, _| {
+        use gpui_kit::test::TestQueryExt as _;
+        window.elements().iter().any(|element| {
+            element
+                .label()
+                .is_some_and(|label| label == "Paste an invite link")
+                && element.value().is_some_and(|value| value == "x")
+        })
+    });
+    assert!(typed, "typing goes into the invite link");
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert!(!drew(&mut cx, "Paste an invite link"), "Escape closes it");
+
+    open(&mut cx);
+    let corner = gpui_kit::point(gpui_kit::px(4.), gpui_kit::px(4.));
+    cx.simulate_click(corner, Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        !drew(&mut cx, "Paste an invite link"),
+        "a click outside closes it"
+    );
+}
