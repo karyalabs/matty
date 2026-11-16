@@ -383,6 +383,18 @@ impl SidebarModel {
             .find(|row| row.id.as_ref() == id)
     }
 
+    /// The indices of the categories the sidebar draws: all but an empty
+    /// Favorites, which Mattermost hides until a channel is starred.
+    pub fn drawn_categories(&self) -> impl Iterator<Item = usize> + '_ {
+        self.categories
+            .iter()
+            .enumerate()
+            .filter(|(_, category)| {
+                !(category.kind == CategoryKind::Favorites && category.rows.is_empty())
+            })
+            .map(|(index, _)| index)
+    }
+
     /// Whether `id` sits in the Favorites category.
     pub fn is_favorite(&self, id: &str) -> bool {
         self.categories.iter().any(|category| {
@@ -2313,52 +2325,72 @@ impl SidebarView {
     /// with Alt+Shift+Up and Down (#121).
     fn sortable(&self, cx: &mut Context<Self>) -> Sortable {
         let view = cx.entity();
-        let groups = self.model.categories.iter().map(|category| {
-            let header = {
-                let (view, category) = (view.clone(), category.clone());
-                move |window: &mut Window, cx: &mut App| {
-                    view.update(cx, |this, cx| {
-                        this.category_header(&category, window, cx)
-                            .into_any_element()
-                    })
-                }
-            };
-            SortableGroup::new(
-                element_id("sidebar.group", &category.id),
-                category.name.clone(),
-            )
-            .header(header)
-            .rows(self.shown_rows(category).into_iter().map(|row| {
-                let (view, row) = (view.clone(), row.clone());
-                SortableRow::new(
-                    element_id("sidebar.drag", &row.id),
-                    row.name.clone(),
-                    move |_: &mut Window, cx: &mut App| {
-                        // The 1px under each row keeps the static list's spacing.
-                        let strong = row.unread && !row.muted;
+        // An empty Favorites is not drawn, as in Mattermost; the drag
+        // handlers get model indices back through `drawn`.
+        let drawn: std::rc::Rc<[usize]> = self.model.drawn_categories().collect();
+        let groups = drawn
+            .iter()
+            .filter_map(|&index| self.model.categories.get(index))
+            .map(|category| {
+                let header = {
+                    let (view, category) = (view.clone(), category.clone());
+                    move |window: &mut Window, cx: &mut App| {
                         view.update(cx, |this, cx| {
-                            let drawn = div().pb(px(1.)).child(this.peekable(&row, cx));
-                            if strong {
-                                this.track_unread(drawn).into_any_element()
-                            } else {
-                                drawn.into_any_element()
-                            }
+                            this.category_header(&category, window, cx)
+                                .into_any_element()
                         })
-                    },
+                    }
+                };
+                SortableGroup::new(
+                    element_id("sidebar.group", &category.id),
+                    category.name.clone(),
                 )
-            }))
-        });
+                .header(header)
+                .rows(self.shown_rows(category).into_iter().map(|row| {
+                    let (view, row) = (view.clone(), row.clone());
+                    SortableRow::new(
+                        element_id("sidebar.drag", &row.id),
+                        row.name.clone(),
+                        move |_: &mut Window, cx: &mut App| {
+                            // The 1px under each row keeps the static list's spacing.
+                            let strong = row.unread && !row.muted;
+                            view.update(cx, |this, cx| {
+                                let drawn = div().pb(px(1.)).child(this.peekable(&row, cx));
+                                if strong {
+                                    this.track_unread(drawn).into_any_element()
+                                } else {
+                                    drawn.into_any_element()
+                                }
+                            })
+                        },
+                    )
+                }))
+            });
         let (rows, groups_moved) = (view.downgrade(), view.downgrade());
+        let (rows_drawn, groups_drawn) = (drawn.clone(), drawn.clone());
         let theme = UiTheme::read(cx);
         Sortable::new("sidebar.categories", t!("sidebar-categories"))
             .gap(theme.space(3.))
             .reorder_groups(true)
             .groups(groups.collect::<Vec<_>>())
             .on_reorder(move |movement, _, cx| {
-                rows.update(cx, |this, cx| this.place_channel(movement, cx))
+                let (Some(&from), Some(&to)) = (
+                    rows_drawn.get(movement.from.group),
+                    rows_drawn.get(movement.to.group),
+                ) else {
+                    return;
+                };
+                let mut movement = *movement;
+                movement.from.group = from;
+                movement.to.group = to;
+                rows.update(cx, |this, cx| this.place_channel(&movement, cx))
                     .ok();
             })
             .on_reorder_group(move |from, to, _, cx| {
+                let (Some(&from), Some(&to)) = (groups_drawn.get(from), groups_drawn.get(to))
+                else {
+                    return;
+                };
                 groups_moved
                     .update(cx, |this, cx| this.place_category(from, to, cx))
                     .ok();
@@ -2657,9 +2689,12 @@ mod tests {
                 ),
             ],
         };
+        // An empty Favorites is not drawn, as in Mattermost.
+        assert_eq!(model.drawn_categories().collect::<Vec<_>>(), [1, 2]);
         assert!(!model.is_favorite("a"));
         model.set_favorite("a", true);
         assert!(model.is_favorite("a"));
+        assert_eq!(model.drawn_categories().collect::<Vec<_>>(), [0, 1, 2]);
         assert_eq!(model.categories[1].rows.len(), 1);
         model.set_favorite("d", true);
         assert_eq!(model.categories[0].rows.len(), 2);
