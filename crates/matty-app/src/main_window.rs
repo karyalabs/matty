@@ -413,6 +413,15 @@ impl MainWindow {
             window.focus(&this.focus, cx);
         })
         .detach();
+        // The red button hides Matty where closing should keep it running
+        // (#929); Cmd+W does the same through `CloseWindow` below.
+        window.on_window_should_close(cx, |_, cx| {
+            if crate::close_hides(cx) {
+                crate::hide_for_close(cx);
+                return false;
+            }
+            true
+        });
         if crate::preview::enabled() {
             // Nothing to fetch in preview: its cards bring their images,
             // and "Ask" shows the placeholders (#159).
@@ -4987,6 +4996,14 @@ impl Render for MainWindow {
             }))
             .on_key_down(cx.listener(Self::type_to_composer))
             .on_action(cx.listener(|this, _: &ChannelInfo, _, cx| this.show_channel_info(cx)))
+            .on_action(cx.listener(|_, _: &actions::CloseWindow, _, cx| {
+                // Elsewhere the app-wide handler closes the window.
+                if crate::close_hides(cx) {
+                    crate::hide_for_close(cx);
+                } else {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(|this, _: &OpenInNewWindow, window, cx| {
                 this.open_in_new_window(window, cx)
             }))

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::Result;
 use crate::migrations::{LATEST_VERSION, migrate_to};
@@ -78,6 +78,20 @@ impl Store {
     /// The underlying connection, for transactions.
     pub fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
+    }
+
+    /// A transaction that takes the write lock as it begins, waiting up to
+    /// [`BUSY_TIMEOUT`] for another connection to let go of it.
+    ///
+    /// rusqlite's default transaction asks for the lock only at its first
+    /// write. If another connection wrote to the file after this one first
+    /// read, SQLite answers that write with "database is locked" at once,
+    /// without waiting, and the whole batch is lost. With two engines over
+    /// one database, that dropped nearly every new post (#929).
+    pub fn write(&mut self) -> Result<Transaction<'_>> {
+        Ok(self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?)
     }
 }
 

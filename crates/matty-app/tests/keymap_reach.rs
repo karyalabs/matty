@@ -44,7 +44,8 @@ const ELSEWHERE: [(&str, &str); 8] = [
     // (`Place::Reply` gets to the reply box with Shift+Up).
     ("Edit last message", "the composer handles the key"),
     ("Reply to last message", "the composer handles the key"),
-    // Handled for every window by `menu::init`, which tests leave out.
+    // Handled for every window by `menu::init`, which tests leave out, and
+    // by the main window where closing hides Matty (tests/close_keeps_running.rs).
     ("Close window", "handled app-wide"),
 ];
 

@@ -746,8 +746,9 @@ pub fn bindings() -> Vec<Binding> {
         row!(
             "Close window",
             CloseWindow,
-            // A pop-out closes itself; the main window closes as its red
-            // button does, and the dock brings it back (#615).
+            // A pop-out closes itself; the main window does what its red
+            // button does: on macOS it hides Matty, which keeps syncing
+            // (#929), and the dock brings it back (#615).
             None,
             "cmd-w",
             "ctrl-w"

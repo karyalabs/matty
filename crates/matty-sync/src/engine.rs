@@ -1527,7 +1527,7 @@ impl Engine {
         let mut writes = Vec::new();
         let mut clear_media = false;
         let mut evict_now = false;
-        let tx = self.store.conn_mut().transaction()?;
+        let tx = self.store.write()?;
         for message in messages {
             match message {
                 Message::Subscribe(sender) => {
@@ -3267,7 +3267,7 @@ impl Engine {
             return Ok(());
         }
         let mut fetches = Vec::new();
-        let tx = self.store.conn_mut().transaction()?;
+        let tx = self.store.write()?;
         for event in events {
             events::apply(&tx, event, self.me.as_deref(), dirty, &mut fetches)?;
         }
@@ -3400,7 +3400,7 @@ impl Engine {
             (_, None) => {}
         }
         let older = matches!(page, Page::Older);
-        let tx = self.store.conn_mut().transaction()?;
+        let tx = self.store.write()?;
         posts::insert_posts(&tx, &fetched)?;
         tx.commit()?;
         if latest {
@@ -3476,7 +3476,7 @@ impl Engine {
                 teams,
             } => {
                 let crt = collapsed_threads(capabilities.collapsed_threads, &preferences);
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 sidebar::upsert_users(&tx, std::slice::from_ref(&*me))?;
                 sidebar::upsert_preferences(&tx, &preferences)?;
                 // Teams the user left since the last load go.
@@ -3551,7 +3551,7 @@ impl Engine {
                 categories,
                 users,
             } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 sidebar::upsert_users(&tx, &users)?;
                 sidebar::upsert_channels(&tx, &channels)?;
                 sidebar::upsert_channel_members(&tx, &members)?;
@@ -3601,7 +3601,7 @@ impl Engine {
             Loaded::Drafts(drafts) => {
                 // The newer copy wins, so a draft typed here while the load
                 // ran stays.
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 for draft in drafts.into_iter().filter(|draft| draft.delete_at == 0) {
                     posts::upsert_draft(&tx, &draft)?;
                     let stored = posts::draft(&tx, &draft.channel_id, &draft.root_id)?;
@@ -3656,7 +3656,7 @@ impl Engine {
                 // one is no longer next to it.
                 history.stored_older = None;
                 history.stored_newer = None;
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 posts::insert_posts(&tx, &fetched)?;
                 tx.commit()?;
                 if after.next_post_id.is_empty() {
@@ -3703,7 +3703,7 @@ impl Engine {
                     dirty.threads.insert(root_id.clone());
                 }
                 if !list.posts.is_empty() {
-                    let tx = self.store.conn_mut().transaction()?;
+                    let tx = self.store.write()?;
                     let fetched: Vec<_> = list.posts.into_values().collect();
                     posts::insert_posts(&tx, &fetched)?;
                     tx.commit()?;
@@ -3714,7 +3714,7 @@ impl Engine {
                 channel_id,
                 posts: list,
             } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 let fetched: Vec<_> = list.posts.into_values().collect();
                 posts::insert_posts(&tx, &fetched)?;
                 tx.commit()?;
@@ -3832,7 +3832,7 @@ impl Engine {
                 dirty.direct.push(ChangeSet::LinkResolved { query, answer })
             }
             Loaded::Bookmarks(loaded) => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 crate::bookmarks::write(&tx, loaded, dirty)?;
                 tx.commit()?;
             }
@@ -3948,14 +3948,14 @@ impl Engine {
                 dirty.direct.push(ChangeSet::ChannelReady { channel_id });
             }
             Loaded::Left { channel_id } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 events::touch_channel(&tx, &channel_id, dirty)?;
                 sidebar::delete_channel(&tx, &channel_id)?;
                 tx.commit()?;
                 dirty.unreads = true;
             }
             Loaded::Channel { channel, member } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 sidebar::upsert_channels(&tx, std::slice::from_ref(&*channel))?;
                 if let Some(member) = member {
                     sidebar::upsert_channel_members(&tx, std::slice::from_ref(&*member))?;
@@ -4002,7 +4002,7 @@ impl Engine {
                 team_id,
                 categories,
             } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 sidebar::replace_categories(&tx, &team_id, &categories)?;
                 tx.commit()?;
                 dirty.teams.insert(team_id);
@@ -4061,7 +4061,7 @@ impl Engine {
                 channel_id,
                 posts: list,
             } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 for change in list.changes() {
                     match change {
                         PostChange::Upsert(post) => {
@@ -4081,7 +4081,7 @@ impl Engine {
                 channel_id,
                 posts: list,
             } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 posts::clear_channel(&tx, &channel_id)?;
                 let fresh: Vec<_> = list.posts.into_values().collect();
                 posts::insert_posts(&tx, &fresh)?;
@@ -4100,7 +4100,7 @@ impl Engine {
                 pages.extra += page.threads.len();
                 pages.total = Some(page.total);
                 pages.complete = page.threads.len() < THREADS_PAGE as usize;
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 posts::upsert_threads(&tx, &team_id, &page.threads)?;
                 tx.commit()?;
             }
@@ -4116,7 +4116,7 @@ impl Engine {
                         .or_default()
                         .total = Some(total);
                 }
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 posts::upsert_threads(&tx, &team_id, &threads)?;
                 let newest = threads
                     .iter()
@@ -4133,7 +4133,7 @@ impl Engine {
                 pending_post_id,
                 post,
             } => {
-                let tx = self.store.conn_mut().transaction()?;
+                let tx = self.store.write()?;
                 outbox::confirm(&tx, &pending_post_id, &post, self.me.as_deref(), dirty)?;
                 tx.commit()?;
                 self.sent(&pending_post_id);

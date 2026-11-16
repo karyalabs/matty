@@ -309,6 +309,32 @@ struct MainHandle {
 
 impl gpui_kit::Global for MainHandle {}
 
+/// How closing the main window keeps Matty running: on macOS it hides the
+/// app, as the official desktop app does, so the window, every server's
+/// connection and its notifications carry on and the same window comes
+/// back. Closing the window outright stopped all of that until a dock click
+/// opened a new one (#929). Elsewhere closing quits, or goes to the tray.
+pub(crate) struct CloseHides {
+    hide: std::rc::Rc<dyn Fn(&mut App)>,
+}
+
+impl gpui_kit::Global for CloseHides {}
+
+/// Whether closing the main window hides the app instead.
+pub(crate) fn close_hides(cx: &App) -> bool {
+    cfg!(target_os = "macos") || cx.has_global::<CloseHides>()
+}
+
+/// Hides the app in place of closing the main window, once the close
+/// event is over: AppKit sends deactivation events while it hides, and
+/// they must not arrive while the app is borrowed.
+pub(crate) fn hide_for_close(cx: &mut App) {
+    cx.defer(|cx| match cx.try_global::<CloseHides>() {
+        Some(close) => (close.hide.clone())(cx),
+        None => cx.hide(),
+    });
+}
+
 /// Brings the main window forward, opening a new one if the user closed
 /// it, and runs `then` in it.
 pub(crate) fn show_main_window(
@@ -376,6 +402,17 @@ pub mod test_support {
     pub fn main_window(window: &mut Window, cx: &mut App) -> AnyView {
         cx.new(|cx| crate::main_window::MainWindow::new(window, cx))
             .into()
+    }
+
+    /// Makes closing the main window hide the app, as on macOS, on any
+    /// platform; the returned count goes up instead of hiding the test app.
+    pub fn close_hides(cx: &mut App) -> std::rc::Rc<std::cell::Cell<usize>> {
+        let hidden = std::rc::Rc::new(std::cell::Cell::new(0));
+        let count = hidden.clone();
+        cx.set_global(crate::CloseHides {
+            hide: std::rc::Rc::new(move |_| count.set(count.get() + 1)),
+        });
+        hidden
     }
 
     /// Whether the main window's sidebar marks `id` unread.
