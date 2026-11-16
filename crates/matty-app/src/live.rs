@@ -2236,6 +2236,9 @@ impl Live {
                 let team = shown.or_else(|| self.teams.first().map(|team| team.id.clone()));
                 if team != self.team {
                     self.show_team(team, &mut update);
+                    // A team whose sidebar has not loaded yet shows an
+                    // empty one rather than the gone team's.
+                    update.categories.get_or_insert_with(Vec::new);
                 }
                 update.team_name = self.team_name();
                 update.teams = Some(self.rail_teams());

@@ -778,6 +778,27 @@ impl MainWindow {
         Some((pane.channel_id().to_string(), posts))
     }
 
+    /// Sync's teams changed to `teams`, the first one now on screen, and
+    /// its sidebar came in the same update, as when the user left the team
+    /// on screen.
+    pub(crate) fn sync_teams_for_tests(
+        &mut self,
+        teams: Vec<crate::teams::Team>,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = teams.first().map(|team| team.id.clone());
+        let categories = current
+            .as_ref()
+            .map(|team| crate::preview::team_sidebar(team).categories);
+        let update = crate::live::Update {
+            teams: Some((teams, current)),
+            categories,
+            ..Default::default()
+        };
+        self.apply_update(update, window, cx);
+    }
+
     /// The main pane's channel.
     pub(crate) fn main_channel_for_tests(&self) -> Option<String> {
         self.selected_channel.as_ref().map(ToString::to_string)

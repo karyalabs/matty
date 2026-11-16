@@ -437,6 +437,16 @@ pub mod test_support {
             .unwrap_or_else(|_| panic!("not the main window"))
     }
 
+    /// Sync's teams became `teams` (by id, from the preview's), the first
+    /// on screen with its sidebar.
+    pub fn sync_teams(view: &AnyView, teams: &[&str], window: &mut Window, cx: &mut App) {
+        let teams = crate::preview::teams()
+            .into_iter()
+            .filter(|team| teams.contains(&team.id.as_ref()))
+            .collect();
+        main(view).update(cx, |main, cx| main.sync_teams_for_tests(teams, window, cx));
+    }
+
     /// The main pane's channel.
     pub fn main_channel(view: &AnyView, cx: &App) -> Option<String> {
         main(view).read(cx).main_channel_for_tests()

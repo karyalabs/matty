@@ -245,3 +245,37 @@ fn a_team_tabs_menu_answers_the_keyboard(cx: &mut gpui_kit::TestAppContext) {
     cx.run_until_parked();
     assert!(drew(&mut cx, "Leave team"), "Enter picks Leave team");
 }
+
+/// Leaving the team on screen moves the window to the team sync shows
+/// next, and the channel left behind does not stay open over that team's
+/// sidebar (matty#948).
+#[gpui_kit::test]
+fn leaving_the_team_on_screen_leaves_its_channel_too(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let main = window.read_with(cx, |root, _| root.0.clone()).unwrap();
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let channel = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| matty_app::test_support::main_channel(&main, cx))
+    };
+    let before = channel(&mut cx).expect("the preview opens a channel");
+
+    cx.update(|window, cx| {
+        matty_app::test_support::sync_teams(&main, &["design-guild", "open-source"], window, cx)
+    });
+    cx.run_until_parked();
+    assert!(drew(&mut cx, "critique"), "Design Guild's sidebar shows");
+    let matty: Vec<String> = matty_app::preview::team_sidebar("matty")
+        .categories
+        .iter()
+        .flat_map(|category| category.rows.iter().map(|row| row.id.to_string()))
+        .collect();
+    assert!(matty.contains(&before));
+    let after = channel(&mut cx);
+    assert!(
+        after.as_ref().is_none_or(|id| !matty.contains(id)),
+        "no channel of the left team stays open: {after:?}"
+    );
+}

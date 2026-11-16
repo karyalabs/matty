@@ -193,14 +193,16 @@ impl MainWindow {
             Arrival::Threads => self.show_threads(cx),
             Arrival::Drafts => self.show_drafts(cx),
             Arrival::Channel(id) => self.open_channel(id, window, cx),
-            Arrival::Nothing => {
-                self.threads_open = false;
-                self.drafts_open = false;
-                self.selected_channel = None;
-                self.channel
-                    .update(cx, |view, cx| view.set_model(None, window, cx));
-            }
+            Arrival::Nothing => self.show_nothing(window, cx),
         }
+    }
+
+    fn show_nothing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.threads_open = false;
+        self.drafts_open = false;
+        self.selected_channel = None;
+        self.channel
+            .update(cx, |view, cx| view.set_model(None, window, cx));
     }
 
     /// The first sidebar from a server came with nothing open, as after
@@ -266,8 +268,10 @@ impl MainWindow {
                 self.leave_thread();
                 self.right_pane_open = false;
             }
-            let place = current.and_then(|team| self.team_places.get(&team).cloned());
-            self.arrive_in_team(place, window, cx);
+            // The sidebar still holds the gone team's rows here; it fills
+            // with the new team's later in this update, and opening the
+            // first channel then picks one of those (matty#948).
+            self.show_nothing(window, cx);
         }
     }
 
