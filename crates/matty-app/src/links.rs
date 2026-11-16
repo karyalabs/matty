@@ -337,12 +337,14 @@ fn with_message_plugins(
 
 /// `body` with its entities as links, read the way Mattermost shows it:
 /// each typed line break stays a line break, and a code fence with text
-/// after it (```` ``` #783 ````) closes an otherwise unclosed block. Other
+/// after it (```` ``` #783 ````) closes an otherwise unclosed block, and
+/// `**` with spaces just inside still makes bold. Other
 /// clients send emoji as `:name:` text (#677): system ones become their
 /// glyph, the custom ones `is_custom` knows an image, and unknown names
 /// stay text.
 fn body_source(body: &str, is_custom: &dyn Fn(&str) -> bool) -> String {
     let body = matty_markdown::close_fences_with_trailing_text(body);
+    let body = matty_markdown::mattermost_strong(&body);
     let linked = matty_markdown::link_entities_and_emoji_in_source(
         &body,
         &|name| crate::emoji::lookup(name).is_some() || is_custom(name),
@@ -614,6 +616,18 @@ mod tests {
                 &custom
             ),
             "🤡 👍🏽 👍 ![:partyparrot:](emoji:partyparrot) :nope:"
+        );
+    }
+
+    #[test]
+    fn bold_closed_on_the_next_line_is_bold() {
+        assert_eq!(
+            body_source("**Release notes\n** 1. Faster search", &|_| false),
+            "**Release notes**\\\n 1\\. Faster search"
+        );
+        assert_eq!(
+            crate::channel::plain_text("**Release notes\n** 1. Faster search"),
+            "Release notes\n1. Faster search"
         );
     }
 

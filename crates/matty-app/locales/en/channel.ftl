@@ -133,6 +133,7 @@ chan-members-count = { $count } members
 chan-pinned-tip = Pinned messages
 chan-pinned-count = { $count } pinned messages
 chan-info = Channel info
+chan-header = Channel header
 chan-swap-panes = Swap panes
 chan-close-pane = Close pane
 chan-local-time = { $time } local time

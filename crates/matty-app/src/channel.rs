@@ -49,7 +49,7 @@ use crate::ui::{
         new_messages_divider,
     },
     message_list::{MessageList, MessageListState},
-    popover::{hover_popover, popover},
+    popover::{hover_popover, popover, popover_popup},
     skeleton::Skeleton,
     spinner::Spinner,
     theme::UiTheme,
@@ -976,9 +976,24 @@ impl ChannelModel {
     }
 }
 
+/// The first line of a channel header with words in it, without the
+/// Markdown: what the channel bar shows of it, as Mattermost does.
+pub fn header_summary(header: &str) -> SharedString {
+    let plain = plain_text(header);
+    plain
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_owned()
+        .into()
+}
+
 /// A post's words without the Markdown, for "Copy text" (PLAN §4.2).
 pub fn plain_text(body: &str) -> String {
-    matty_markdown::to_plain(&matty_markdown::parse(body))
+    matty_markdown::to_plain(&matty_markdown::parse(&matty_markdown::mattermost_strong(
+        body,
+    )))
 }
 
 /// The row density from Preferences (PLAN §4.2 display).
@@ -4294,17 +4309,12 @@ impl ChannelView {
                             .as_ref()
                             .and_then(|person| person_details(person, cx)),
                     )
-                    .children(channel.header.clone().map(|text| {
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .pl(theme.space(2.))
-                            .border_l(style::hairline())
-                            .border_color(theme.colors.border)
-                            .type_style(style::UI, &theme)
-                            .text_color(muted)
-                            .child(text)
-                    })),
+                    .children(
+                        channel
+                            .header
+                            .clone()
+                            .map(|text| self.header_text(&channel.id, text, muted, cx)),
+                    ),
             )
             .child(
                 div()
@@ -4384,6 +4394,61 @@ impl ChannelView {
                         ))
                     }),
             )
+    }
+
+    /// The channel header in the bar: its first line, as Mattermost shows
+    /// it, with the whole header as Markdown in a card on hover, so blank
+    /// lines and links in a long header neither spill out of the bar nor
+    /// get lost.
+    fn header_text(
+        &self,
+        channel_id: &SharedString,
+        text: SharedString,
+        muted: gpui_kit::Rgba,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let summary = header_summary(&text);
+        let link_view = cx.weak_entity();
+        hover_popover(
+            SharedString::from(format!("channel.header.{channel_id}")),
+            t!("chan-header"),
+        )
+        .min_w_0()
+        // Passive: the header is text to read, not a control, so a click
+        // leaves focus where it was and typing still reaches the composer.
+        // Keyboard users find the whole header in Channel info.
+        .passive()
+        .trigger(
+            div()
+                .min_w_0()
+                .truncate()
+                .pl(theme.space(2.))
+                .border_l(style::hairline())
+                .border_color(theme.colors.border)
+                .type_style(style::UI, &theme)
+                .text_color(muted)
+                .child(summary),
+        )
+        .content(move |_, cx| {
+            popover_popup("channel.header.card", t!("chan-header"), cx)
+                .w_auto()
+                .max_w(scaled(&theme, 560.))
+                .type_style(style::UI, &theme)
+                .child(crate::links::markdown_body(
+                    "channel.header.card.body",
+                    &text,
+                    &[],
+                    move |url, _, cx| {
+                        let url = url.clone();
+                        link_view
+                            .update(cx, |this, cx| this.open_post_link(url, cx))
+                            .ok();
+                    },
+                    None,
+                    cx,
+                ))
+        })
     }
 
     /// The avatar, wrapped in the profile popover when the author is known.
@@ -6008,6 +6073,18 @@ fn system_icon(lines: &[&str]) -> LucideIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A header with paragraphs shows its first line in the bar, as
+    /// Mattermost does; the rest is in the hover card.
+    #[test]
+    fn the_bar_shows_a_headers_first_line() {
+        assert_eq!(
+            header_summary("Daily standup at 10\n\nRunbook: https://example.com/runbook"),
+            "Daily standup at 10"
+        );
+        assert_eq!(header_summary("\n\n  **Ship** it  \nlater"), "Ship it");
+        assert_eq!(header_summary(""), "");
+    }
 
     /// The hover bar offers the emoji picked most, topped up with the
     /// defaults, without repeats (#679).
