@@ -279,3 +279,29 @@ fn leaving_the_team_on_screen_leaves_its_channel_too(cx: &mut gpui_kit::TestAppC
         "no channel of the left team stays open: {after:?}"
     );
 }
+
+/// Leave {team}? from a tab's menu closes on Escape and keeps the team
+/// (matty#943; gpuicn 0.13.4 gave alert dialogs their Escape).
+#[gpui_kit::test]
+fn leave_team_asks_and_escape_keeps_the_team(cx: &mut gpui_kit::TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    for team in ["Matty", "Design Guild, 3 mentions"] {
+        let tab = find(&mut cx, team);
+        cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        let leave = find(&mut cx, "Leave team\u{2026}");
+        cx.simulate_click(leave, Modifiers::none());
+        cx.run_until_parked();
+        assert!(drew(&mut cx, "Leave team"), "Leave {team}? asks");
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(!drew(&mut cx, "Leave team"), "Escape closes it on {team}");
+        assert!(drew(&mut cx, team), "{team} stays");
+    }
+}
