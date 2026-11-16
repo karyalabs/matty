@@ -9,12 +9,32 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.30] - 2026-11-16
+
+Matty keeps syncing and notifying with its window closed, GPUI Kit 0.10,
+and a new address for the website and web app.
+
 ### Changed
 
+- On macOS, closing the main window (its close button or Cmd+W) hides
+  Matty instead of closing the window, as the official desktop app does.
+  New messages and notifications keep arriving, and the dock or a
+  notification brings the same window back (#931).
+- Built on GPUI Kit 0.10 (gpuicn 0.13.0). Typing moves and deletes whole
+  emoji and accented letters in one step, a long pasted line shows the
+  caret, GIF previews animate, and text fields tell screen readers what
+  they hold (#928).
 - Matty's website moved to <https://karyalabs.dev/matty/> and the web app
   to <https://karyalabs.dev/matty/app/>, the same origin as before, so
   servers need no new CORS setting and the browser keeps your session.
-  matty.karyalabs.dev and the app's old links redirect.
+  matty.karyalabs.dev and the app's old links redirect (#930).
+
+### Fixed
+
+- New messages were not stored, and so never showed or notified, after
+  the main window had been closed and opened again: two connections fought
+  over the local cache and one lost every batch with "database is locked".
+  Writes now wait their turn (#931).
 
 ## [0.1.0-beta.29] - 2026-11-15
 
@@ -601,7 +621,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.29...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.30...HEAD
+[0.1.0-beta.30]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.30
 [0.1.0-beta.29]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.29
 [0.1.0-beta.28]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.28
 [0.1.0-beta.27]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.27
