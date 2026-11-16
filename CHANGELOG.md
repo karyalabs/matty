@@ -9,6 +9,13 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+### Changed
+
+- Matty's website moved to <https://karyalabs.dev/matty/> and the web app
+  to <https://karyalabs.dev/matty/app/>, the same origin as before, so
+  servers need no new CORS setting and the browser keeps your session.
+  matty.karyalabs.dev and the app's old links redirect.
+
 ## [0.1.0-beta.29] - 2026-11-15
 
 Notifications that follow Mattermost's rules, notifications on the web,

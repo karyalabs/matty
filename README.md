@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/karyalabs/matty/releases"><b>Download</b></a> ·
-  <a href="https://karyalabs.dev/matty/"><b>Open in your browser</b></a> ·
+  <a href="https://karyalabs.dev/matty/app/"><b>Open in your browser</b></a> ·
   <a href="https://demo.karyalabs.dev/matty/"><b>Try the demo</b></a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
@@ -37,7 +37,7 @@ switches channels without a spinner, and keeps working offline.
 | **Linux** x86_64 | `.deb`, `.rpm`, AppImage or tarball from [Releases](https://github.com/karyalabs/matty/releases). |
 | **Nix, NixOS** x86_64 | `nix run github:karyalabs/matty`, or add the flake to your system ([docs/nix.md](docs/nix.md)). |
 | **Windows** x86_64 | The `.msi` from [Releases](https://github.com/karyalabs/matty/releases). It installs for you alone, with no administrator prompt. |
-| **Web** | <https://karyalabs.dev/matty/> for your own server, after a one-time [server setting](docs/web.md#what-the-server-needs). |
+| **Web** | <https://karyalabs.dev/matty/app/> for your own server, after a one-time [server setting](docs/web.md#what-the-server-needs). |
 | **Just looking** | <https://demo.karyalabs.dev/matty/> opens a sample workspace in your browser. No account, no server. |
 
 More on each, including checksums, is under [Install](#install).
@@ -193,7 +193,7 @@ release; [docs/nix.md](docs/nix.md) covers installing it with
 so SmartScreen may warn: choose **More info**, then **Run anyway**. To
 update, run the newer installer.
 
-**Web.** <https://karyalabs.dev/matty/> is the same app compiled to
+**Web.** <https://karyalabs.dev/matty/app/> is the same app compiled to
 WebAssembly. A server admin has to allow that origin once, as
 [docs/web.md](docs/web.md) explains. <https://demo.karyalabs.dev/matty/> is
 a sample workspace that talks to no server.

@@ -1,6 +1,6 @@
 name: Site
 
-# Builds and deploys https://matty.karyalabs.dev (site/README.md): when
+# Builds and deploys https://karyalabs.dev/matty/ (site/README.md): when
 # site/ changes on master, after each Release run (so the page shows the new
 # version and its download links), and by hand. A pull request touching
 # site/ only builds it.
@@ -27,7 +27,7 @@ jobs:
   build:
     name: build
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.KARYA_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -51,10 +51,10 @@ jobs:
           retention-days: 3
 
   deploy:
-    name: deploy matty.karyalabs.dev
+    name: deploy karyalabs.dev/matty
     needs: build
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.KARYA_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 10
     environment: release
     env:

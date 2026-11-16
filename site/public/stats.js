@@ -14,7 +14,7 @@ const table = (head, rows, foot) =>
 (async () => {
   const total = document.querySelector("[data-site-total]");
   try {
-    const res = await fetch("/api/downloads");
+    const res = await fetch("/matty/api/downloads");
     if (!res.ok) throw new Error(`the counter answered ${res.status}`);
     const rows = await res.json();
     const people = rows.filter((r) => !r.automated && r.kind !== "checksums");

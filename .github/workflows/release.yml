@@ -5,7 +5,7 @@ name: Release
 # builds every platform from that commit, waits for its CI to pass, then
 # tags it v<version>, publishes the GitHub release (a pre-release for a
 # version like 0.1.0-beta.6), bumps the Homebrew cask for a stable version,
-# and deploys the web build (karyalabs.dev/matty and its demo). Each release carries the signed macOS DMG and
+# and deploys the web build (karyalabs.dev/matty/app and its demo). Each release carries the signed macOS DMG and
 # zip and the unsigned Linux (#216) and Windows (#215) packages. A manual
 # run, and the Monday run, are dry runs: everything but publishing.
 #
@@ -52,7 +52,7 @@ on:
         type: boolean
         default: false
       web_only:
-        description: Only deploy the web build (karyalabs.dev/matty), nothing else
+        description: Only deploy the web build (karyalabs.dev/matty/app), nothing else
         type: boolean
         default: false
   # Every Monday, a dry run of the whole pipeline on master, so a broken
@@ -625,10 +625,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # The deploy to karyalabs.dev/matty and demo.karyalabs.dev/matty, once the
+  # The deploy to karyalabs.dev/matty/app and demo.karyalabs.dev/matty, once the
   # release is out (or straight away for a web-only run).
   web:
-    name: deploy karyalabs.dev/matty
+    name: deploy karyalabs.dev/matty/app
     needs: [plan, publish, web-build]
     if: always() && needs.web-build.result == 'success' && (needs.publish.result == 'success' || needs.plan.outputs.web_only == 'true')
     runs-on: ubuntu-latest

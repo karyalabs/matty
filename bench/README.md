@@ -186,7 +186,7 @@ bench/.venv/bin/python bench/run.py --apps matty-web,mattermost-web
 ```
 
 - `matty-web` opens Matty web, by default the public build at
-  https://karyalabs.dev/matty/ (`--matty-web-url http://127.0.0.1:8080/matty/?demo=0`
+  https://karyalabs.dev/matty/app/ (`--matty-web-url http://127.0.0.1:8080/matty/app/?demo=0`
   for a local `scripts/web serve`; `?demo=0` skips the demo download). The
   bench server allows ports 8080 to 8082 through CORS, so two builds can be
   served side by side (`MATTY_WEB_PORT=8082`) and compared run by run.

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds Matty for the browser and deploys it to https://karyalabs.dev/matty/
+# Builds Matty for the browser and deploys it to https://karyalabs.dev/matty/app/
 # and the demo at https://demo.karyalabs.dev/matty/ (one Cloudflare Worker
 # with static assets). See docs/web.md.
 #
 #   scripts/web setup            install the toolchain pieces the build needs
-#   scripts/web build [--dev]    build into crates/matty-web/dist/matty (release by default)
-#   scripts/web serve [--dev]    build, then serve on http://127.0.0.1:8080/matty/
+#   scripts/web build [--dev]    build into crates/matty-web/dist/matty/app (release by default)
+#   scripts/web serve [--dev]    build, then serve on http://127.0.0.1:8080/matty/app/
 #   scripts/web deploy           release build, then `wrangler deploy`
 #
 # Environment: MATTY_WEB_PORT (serve, default 8080).
@@ -19,9 +19,12 @@ cd "$root"
 toolchain=nightly-2026-08-17
 crate=crates/matty-web
 dist="$crate/dist"
-# The site lives under /matty/ on karyalabs.dev, so the app is in a folder of
-# that name and the page loads everything by relative path.
-app="$dist/matty"
+# The app lives at /matty/app/ on karyalabs.dev (Matty's website has
+# /matty/), and the demo at /matty/ on demo.karyalabs.dev. The page loads
+# everything by relative path, so the build is in matty/app and copied to
+# matty for the demo; wrangler uploads a file once however many paths it has.
+app="$dist/matty/app"
+demo="$dist/matty"
 target_dir="$root/target/web"
 
 # wasm-bindgen's CLI must match the library version in Cargo.lock exactly.
@@ -139,6 +142,7 @@ build() {
     # The demo workspace, gzipped: index.html unpacks it in the browser.
     gzip -9 -c "$crate/demo/demo.sqlite" > "$app/demo.sqlite.gz"
     cp "$crate/assets/IBMPlexSans-LICENSE.txt" "$app/"
+    find "$app" -maxdepth 1 -type f -exec cp {} "$demo/" \;
 
     local largest
     largest="$(find "$dist" -type f -size +25M)"
@@ -165,7 +169,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 Handler.extensions_map[".wasm"] = "application/wasm"
 port = int(os.environ["MATTY_WEB_PORT"])
-print(f"serving http://127.0.0.1:{port}/matty/ (the demo; ?demo=0 for sign-in, ?preview=1 for design fixtures)")
+print(f"serving http://127.0.0.1:{port}/matty/app/ (the demo; ?demo=0 for sign-in, ?preview=1 for design fixtures)")
 http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(Handler, directory=sys.argv[1])).serve_forever()
 PY
 }

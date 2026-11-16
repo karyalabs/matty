@@ -5,9 +5,13 @@
 // within WAIT. A deploy's files are downloaded once, then kept.
 //
 // Only same-origin GETs pass through here; Mattermost servers never do.
-const CACHE = "matty-shell-v1";
 const SHELL = new URL("./", self.location).href;
 const SHELL_PATH = new URL(SHELL).pathname;
+// One cache per folder: the app (/matty/app/) and the demo (/matty/) can
+// share an origin, and each drops whatever its own page doesn't name.
+const CACHE = `matty-shell:${SHELL_PATH}`;
+// Before the app moved to /matty/app/, every copy shared this one.
+const OLD_CACHE = "matty-shell-v1";
 const APP_FILE = /matty-web[^"'\/]*\.(?:js|wasm)/g;
 const WAIT = 1500;
 
@@ -25,7 +29,9 @@ self.addEventListener("install", (event) => {
       .catch(() => {}),
   );
 });
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (event) =>
+  event.waitUntil(Promise.all([self.clients.claim(), caches.delete(OLD_CACHE)])),
+);
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;

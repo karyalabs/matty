@@ -6,10 +6,14 @@ WebAssembly by `crates/matty-web`. One build serves two addresses:
 
 | Address | Opens |
 | --- | --- |
-| <https://karyalabs.dev/matty/> | the sign-in card, for your own server |
-| <https://demo.karyalabs.dev/matty/> | [the demo workspace](#the-demo-workspace); **Connect your server** goes to karyalabs.dev/matty |
+| <https://karyalabs.dev/matty/app/> | the sign-in card, for your own server |
+| <https://demo.karyalabs.dev/matty/> | [the demo workspace](#the-demo-workspace); **Connect your server** goes to karyalabs.dev/matty/app |
 
-The old address, `matty.jha.sh`, redirects to the demo.
+<https://karyalabs.dev/matty/> is Matty's website (`site/`), with the
+downloads. The app was there until 0.1.0-beta.29; links to it with the app's
+options (`?demo=0`, `?preview=1`) go on to `/matty/app/`, and the old
+service worker removes itself (`site/public/sw.js`). The old address,
+`matty.jha.sh`, redirects to the demo.
 
 ## What the server needs
 
@@ -33,14 +37,14 @@ and `http://localhost:8080`, which `scripts/web serve` uses.
 
 ```sh
 scripts/web setup        # once: nightly toolchain, wasm-bindgen CLI, and on macOS Homebrew llvm + binaryen
-scripts/web serve        # release build, then http://127.0.0.1:8080/matty/
+scripts/web serve        # release build, then http://127.0.0.1:8080/matty/app/
 scripts/web serve --dev  # faster build, ~200 MB of WebAssembly
 ```
 
-The build goes to `crates/matty-web/dist`, with the app in `dist/matty/`
-as it is served; the page loads everything by relative path, so it works
-under any folder. Locally it opens the demo; `?demo=0` goes to the sign-in
-card. Open `http://127.0.0.1:8080/matty/?preview=1` for the design fixtures
+The build goes to `crates/matty-web/dist`, with the app in `dist/matty/app/`
+as it is served and a copy in `dist/matty/` for the demo; the page loads
+everything by relative path, so it works under any folder. Locally it opens the demo; `?demo=0` goes to the sign-in
+card. Open `http://127.0.0.1:8080/matty/app/?preview=1` for the design fixtures
 (`MATTY_PREVIEW=1` on the desktop). `?backend=webgl` skips WebGPU, which
 headless browsers need for screenshots.
 
@@ -58,9 +62,9 @@ before a launch, with 22 channels, direct and group messages, threads,
 reactions, pinned and saved posts, images and files, a CI bot's message
 attachments, unread channels and mentions, and a **Formatting Tour**
 channel with one post per kind of message. A banner says it is a demo and
-offers **Connect your server**, which goes to the same path without
-`demo.` (karyalabs.dev/matty), so servers only need to allow that one
-origin; locally it goes to the sign-in card. `?demo=0` skips the demo
+offers **Connect your server**, which goes to the app in `app/` under the
+same path without `demo.` (karyalabs.dev/matty/app), so servers only need
+to allow that one origin; locally it goes to the sign-in card. `?demo=0` skips the demo
 anywhere and `?demo=1` opens it anywhere: `web/index.html` decides.
 
 Nothing in the demo talks to a server. It is a snapshot of the cache the
@@ -92,9 +96,11 @@ from an older schema still opens, because the store migrates it on load.
 The site is one Cloudflare Worker (`crates/matty-web/wrangler.jsonc`) that
 serves `dist/` as static assets on three routes:
 
-- `karyalabs.dev/matty*` and `demo.karyalabs.dev/matty*`, Worker routes in
-  the `karyalabs.dev` zone. They are routes, not custom domains, so the rest
-  of karyalabs.dev and demo.karyalabs.dev stays free for other things. A
+- `karyalabs.dev/matty/app*` and `demo.karyalabs.dev/matty*`, Worker routes
+  in the `karyalabs.dev` zone. They are routes, not custom domains, so the
+  rest of karyalabs.dev and demo.karyalabs.dev stays free for other things:
+  Matty's website has `karyalabs.dev/matty*` (`site/`), and the more
+  specific route wins, so `/matty/app` comes here. A
   route only runs on a host that has a **proxied** (orange cloud) DNS record.
 - `matty.jha.sh`, a custom domain, where `worker.js` answers every request
   with a 301 to `https://demo.karyalabs.dev/matty/`.
@@ -119,7 +125,7 @@ Once, in the Cloudflare dashboard:
    for the redirect).
 2. DNS records for both hosts, proxied, unless they already exist:
    `karyalabs.dev` (`@`) and `demo`, each `AAAA` to `100::` if nothing else
-   serves them. The Worker answers only under `/matty`.
+   serves them. The Worker answers only under `/matty/app` and the demo's `/matty`.
 3. The API token (**Edit Cloudflare Workers** template) covers both zones:
    **Workers Scripts: Edit** on the account and **Workers Routes: Edit** on
    `karyalabs.dev` and `jha.sh`.

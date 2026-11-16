@@ -1385,7 +1385,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path)
     ap.add_argument("--no-analyze", action="store_true")
     ap.add_argument("--manual", action="store_true", help="setup: sign in by hand instead of typing")
-    ap.add_argument("--matty-web-url", default="https://karyalabs.dev/matty/",
+    ap.add_argument("--matty-web-url", default="https://karyalabs.dev/matty/app/",
                     help="where the matty-web client is served (default: the public build)")
     args = ap.parse_args()
     args.scenarios = set(args.scenarios.split(","))

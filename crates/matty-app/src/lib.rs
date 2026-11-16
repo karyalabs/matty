@@ -131,7 +131,7 @@ pub(crate) fn demo_snapshot() -> Option<&'static [u8]> {
 }
 
 /// Leaves the web demo for the page where you sign in to your own server
-/// (`https://karyalabs.dev/matty/` from the demo's host), when the page named
+/// (`https://karyalabs.dev/matty/app/` from the demo's host), when the page named
 /// one. False when there is none, and the demo shows the sign-in card itself.
 pub(crate) fn open_app_from_demo() -> bool {
     #[cfg(target_family = "wasm")]

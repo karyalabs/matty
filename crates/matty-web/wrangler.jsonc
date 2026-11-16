@@ -1,10 +1,11 @@
 // The Cloudflare Worker that serves Matty on the web (docs/web.md):
-//   https://karyalabs.dev/matty/       the app, for your own server
+//   https://karyalabs.dev/matty/app/   the app, for your own server
 //   https://demo.karyalabs.dev/matty/  the same files, opening the demo
 //   https://matty.jha.sh               the old address, redirected to the demo
+// karyalabs.dev/matty/ itself is Matty's website (site/wrangler.jsonc).
 // Deploy with `scripts/web deploy`, which builds into ./dist first. Files are
-// served straight from ./dist (the app is in dist/matty); only requests no
-// file matches reach worker.js.
+// served straight from ./dist (the app is in dist/matty/app, and a copy for
+// the demo in dist/matty); only requests no file matches reach worker.js.
 {
   "name": "matty-web",
   "main": "worker.js",
@@ -14,8 +15,10 @@
   },
   "routes": [
     // Routes, not custom domains, so the rest of karyalabs.dev stays free.
-    // Each needs a proxied DNS record for its host (docs/web.md).
-    { "pattern": "karyalabs.dev/matty*", "zone_name": "karyalabs.dev" },
+    // Each needs a proxied DNS record for its host (docs/web.md). The more
+    // specific route wins, so /matty/app comes here and the rest of /matty
+    // goes to the website's Worker.
+    { "pattern": "karyalabs.dev/matty/app*", "zone_name": "karyalabs.dev" },
     { "pattern": "demo.karyalabs.dev/matty*", "zone_name": "karyalabs.dev" },
     { "pattern": "matty.jha.sh", "custom_domain": true }
   ],

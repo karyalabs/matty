@@ -16,9 +16,15 @@
   Cache-Control: no-cache
 /matty/
   Cache-Control: no-cache
+/matty/app/
+  Cache-Control: no-cache
 /matty/matty-web*
   Cache-Control: public, max-age=31536000, immutable
+/matty/app/matty-web*
+  Cache-Control: public, max-age=31536000, immutable
 /matty/sw.js
+  Cache-Control: no-cache
+/matty/app/sw.js
   Cache-Control: no-cache
 /*.gz
   Cache-Control: no-cache

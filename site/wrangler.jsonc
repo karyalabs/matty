@@ -1,4 +1,4 @@
-// The Matty website, https://matty.karyalabs.dev (site/README.md).
+// The Matty website, https://karyalabs.dev/matty/ (site/README.md).
 // `build.mjs` writes ./dist; the Worker answers only what no file matches.
 {
   "name": "matty-site",
@@ -7,7 +7,7 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "html_handling": "drop-trailing-slash",
+    "html_handling": "auto-trailing-slash",
     "not_found_handling": "none"
   },
   // The download counter (worker.js): one SQLite-backed Durable Object.
@@ -16,7 +16,10 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DownloadCounter"] }],
   "routes": [
-    // Needs a proxied DNS record for matty.karyalabs.dev (site/README.md).
+    // karyalabs.dev/matty/app* is the web app's (crates/matty-web), which
+    // wins as the more specific route; the hub has the rest of karyalabs.dev.
+    { "pattern": "karyalabs.dev/matty*", "zone_name": "karyalabs.dev" },
+    // The old address; worker.js redirects it. Keeps its proxied DNS record.
     { "pattern": "matty.karyalabs.dev/*", "zone_name": "karyalabs.dev" }
   ],
   "workers_dev": false

@@ -1,6 +1,13 @@
 // Points the hero's download button at this computer's build. Nothing here is
 // sent anywhere: the guess stays in the page.
 (() => {
+  // karyalabs.dev/matty/ was the web app before the app moved to /matty/app/.
+  // A link with the app's own options (?demo=0, ?preview=1 and so on) still
+  // means the app, so it goes there.
+  if (/[?&](demo|preview|backend|threads|sw)=/.test(location.search)) {
+    location.replace("/matty/app/" + location.search + location.hash);
+    return;
+  }
   const ua = navigator.userAgent;
   const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
   let os = null;
@@ -21,10 +28,10 @@
   const card = document.querySelector(`.platform[data-os="${os}"]`);
   if (card) card.classList.add("detected");
   const choices = {
-    mac: ["/download/mac", "Download for macOS", "macOS 13 or later, Apple silicon and Intel."],
-    windows: ["/download/windows", "Download for Windows", "For Windows on x86_64. It installs without an administrator prompt."],
-    linux: ["/download/deb", "Download .deb for Linux", "Debian and Ubuntu. Fedora, AppImage and more are below."],
-    web: ["https://karyalabs.dev/matty/", "Open Matty in your browser", "Matty runs on desktops and in the browser."],
+    mac: ["/matty/download/mac", "Download for macOS", "macOS 13 or later, Apple silicon and Intel."],
+    windows: ["/matty/download/windows", "Download for Windows", "For Windows on x86_64. It installs without an administrator prompt."],
+    linux: ["/matty/download/deb", "Download .deb for Linux", "Debian and Ubuntu. Fedora, AppImage and more are below."],
+    web: ["/matty/app/", "Open Matty in your browser", "Matty runs on desktops and in the browser."],
   };
   const [href, text, sub] = choices[os];
   if (button && label) {

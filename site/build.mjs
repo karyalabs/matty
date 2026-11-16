@@ -3,21 +3,24 @@
 //
 //   node site/build.mjs [--assets <karyalabs/assets checkout>] [--releases <file>]
 //
-// Copies public/, fills in the newest release (version, date, sizes, and the
-// file addresses /download/<kind> redirects to), and fetches the screenshots
+// Copies public/ into dist/matty, fills in the newest release (version, date, sizes, and the
+// file addresses /matty/download/<kind> redirects to), and fetches the screenshots
 // from karyalabs/assets at ASSETS_REF, or from a local checkout.
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const dist = join(here, "dist");
+// The site is karyalabs.dev/matty/, so its files are in dist/matty; only
+// _headers, which Cloudflare reads from the root, stays at the top.
+const root = join(here, "dist");
+const dist = join(root, "matty");
 const REPO = "karyalabs/matty";
 // The karyalabs/assets commit the screenshots come from. Move it when the
 // images under matty/site/ change.
 const ASSETS_REF = "fa0271b62492e0b48320fef6f1bbfdb01b2dbdc7";
 
-// Which release file each /download/<kind> serves.
+// Which release file each /matty/download/<kind> serves.
 const KINDS = {
   mac: (n) => n.endsWith(".dmg"),
   "mac-zip": (n) => n.endsWith("-macos-universal.zip"),
@@ -75,8 +78,9 @@ const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
 const date = (iso) =>
   new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
-await rm(dist, { recursive: true, force: true });
+await rm(root, { recursive: true, force: true });
 await cp(join(here, "public"), dist, { recursive: true });
+await rename(join(dist, "_headers"), join(root, "_headers"));
 
 const release = await latestRelease();
 await writeFile(join(dist, "release.json"), JSON.stringify(release, null, 2) + "\n");

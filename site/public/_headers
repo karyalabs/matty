@@ -3,7 +3,9 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: interest-cohort=(), browsing-topics=()
   Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'self'; form-action 'none'
-/fonts/*
+/matty/fonts/*
   Cache-Control: public, max-age=31536000, immutable
-/img/*
+/matty/img/*
   Cache-Control: public, max-age=86400
+/matty/sw.js
+  Cache-Control: no-cache
