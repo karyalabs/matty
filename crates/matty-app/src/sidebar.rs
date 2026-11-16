@@ -386,7 +386,8 @@ impl SidebarModel {
     /// Whether `id` sits in the Favorites category.
     pub fn is_favorite(&self, id: &str) -> bool {
         self.categories.iter().any(|category| {
-            category.id == FAVORITES_ID && category.rows.iter().any(|row| row.id.as_ref() == id)
+            category.kind == CategoryKind::Favorites
+                && category.rows.iter().any(|row| row.id.as_ref() == id)
         })
     }
 
@@ -405,20 +406,32 @@ impl SidebarModel {
     /// Missing categories are created so the row never disappears.
     pub fn set_favorite(&mut self, id: &str, favorite: bool) {
         let Some(row) = self.remove(id) else { return };
-        let (target_id, target_name) = if favorite {
-            (FAVORITES_ID, t!("sidebar-favorites"))
+        let (target_kind, target_id, target_name) = if favorite {
+            (
+                CategoryKind::Favorites,
+                FAVORITES_ID,
+                t!("sidebar-favorites"),
+            )
         } else if matches!(
             row.kind,
             ChannelKind::Direct { .. } | ChannelKind::Group { .. }
         ) {
-            (DIRECT_ID, t!("sidebar-direct-messages"))
+            (
+                CategoryKind::Direct,
+                DIRECT_ID,
+                t!("sidebar-direct-messages"),
+            )
         } else {
-            (CHANNELS_ID, t!("sidebar-channels"))
+            (CategoryKind::Channels, CHANNELS_ID, t!("sidebar-channels"))
         };
-        match self.categories.iter_mut().find(|c| c.id == target_id) {
+        // By kind, not id: the server's categories are named per user and
+        // team (`favorites_<user>_<team>`), so looking for `favorites` made
+        // a second Favorites the first time a channel was starred.
+        match self.categories.iter_mut().find(|c| c.kind == target_kind) {
             Some(category) => category.rows.push(row),
             None => {
-                let category = Category::new(target_id, target_name, vec![row]);
+                let mut category = Category::new(target_id, target_name, vec![row]);
+                category.kind = target_kind;
                 if favorite {
                     self.categories.insert(0, category);
                 } else {
@@ -2603,6 +2616,10 @@ mod tests {
 
     #[test]
     fn favorite_moves_rows_between_categories() {
+        fn kind(mut category: Category, kind: CategoryKind) -> Category {
+            category.kind = kind;
+            category
+        }
         let mut model = SidebarModel {
             loading: false,
             selected: None,
@@ -2611,25 +2628,32 @@ mod tests {
             drafts: 0,
             drafted: Default::default(),
             categories: vec![
-                Category::new(FAVORITES_ID, "Favorites", vec![]),
+                // Ids as the server names them, per user and team.
+                kind(
+                    Category::new("favorites_u_t", "Favorites", vec![]),
+                    CategoryKind::Favorites,
+                ),
                 Category::new(
-                    CHANNELS_ID,
+                    "channels_u_t",
                     "Channels",
                     vec![
                         ChannelRow::new("a", "a", ChannelKind::Public),
                         ChannelRow::new("b", "b", ChannelKind::Public),
                     ],
                 ),
-                Category::new(
-                    DIRECT_ID,
-                    "Direct messages",
-                    vec![ChannelRow::new(
-                        "d",
-                        "Dana",
-                        ChannelKind::Direct {
-                            presence: Presence::Online,
-                        },
-                    )],
+                kind(
+                    Category::new(
+                        "direct_messages_u_t",
+                        "Direct messages",
+                        vec![ChannelRow::new(
+                            "d",
+                            "Dana",
+                            ChannelKind::Direct {
+                                presence: Presence::Online,
+                            },
+                        )],
+                    ),
+                    CategoryKind::Direct,
                 ),
             ],
         };
@@ -2647,6 +2671,7 @@ mod tests {
         assert_eq!(model.categories[2].rows[0].id, "d");
         assert_eq!(model.remove("b").map(|row| row.id), Some("b".into()));
         assert!(model.remove("b").is_none());
+        assert_eq!(model.categories.len(), 3, "no category was added");
     }
 
     fn ids(model: &SidebarModel) -> Vec<Vec<&str>> {
