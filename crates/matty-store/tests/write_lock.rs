@@ -66,7 +66,7 @@ fn a_deferred_transaction_loses_its_batch_which_is_why_writes_take_the_lock_firs
         .conn()
         .execute_batch("CREATE TABLE probe (n INTEGER)")
         .unwrap();
-    let mut second = Store::open(&path).unwrap();
+    let second = Store::open(&path).unwrap();
     let tx = first.conn_mut().transaction().unwrap();
     tx.query_row("SELECT count(*) FROM probe", [], |row| row.get::<_, i64>(0))
         .unwrap();
