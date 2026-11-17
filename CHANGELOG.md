@@ -9,6 +9,30 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.31] - 2026-11-17
+
+Bold text and channel headers read the way Mattermost shows them, and
+team dialogs and menus answer the keyboard again.
+
+### Changed
+
+- Bold and channel headers are parsed the way Mattermost's own app shows
+  them (#937).
+- An empty Favorites section is hidden until a channel is starred, as in
+  Mattermost (#951).
+- Built on gpuicn 0.13.4 (#947).
+
+### Fixed
+
+- Join a team now closes with Escape or a click outside when no list
+  shows (#942).
+- A team tab's menu takes the keyboard, and Escape closes the Leave team
+  confirm while keeping the team (#944, #952).
+- Starring a channel puts it in the server's Favorites instead of a second
+  Favorites section (#946).
+- Leaving the team on screen opens the next team's channel instead of
+  leaving the old team's channel showing (#949).
+
 ## [0.1.0-beta.30] - 2026-11-16
 
 Matty keeps syncing and notifying with its window closed, GPUI Kit 0.10,
@@ -622,6 +646,7 @@ The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
 [Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.30...HEAD
+[0.1.0-beta.31]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.31
 [0.1.0-beta.30]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.30
 [0.1.0-beta.29]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.29
 [0.1.0-beta.28]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.28
