@@ -307,7 +307,19 @@ impl NewMessageView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("directory-search-people")));
-        let subscription = cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify());
+        let subscription = cx.subscribe_in(
+            &search,
+            window,
+            |this: &mut Self, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    if let Some(first) = this.matches(cx).first().cloned() {
+                        this.message(first, window, cx);
+                    }
+                } else {
+                    cx.notify();
+                }
+            },
+        );
         Self {
             profiles: Vec::new(),
             search,
@@ -332,6 +344,20 @@ impl NewMessageView {
         self.handle.open(window, cx);
         self.focus_search = true;
         cx.notify();
+    }
+
+    /// The people the search matches, in list order.
+    fn matches(&self, cx: &gpui_kit::App) -> Vec<UserProfile> {
+        let query = self.search.read(cx).value().trim().to_lowercase();
+        self.profiles
+            .iter()
+            .filter(|profile| {
+                query.is_empty()
+                    || profile.display_name.to_lowercase().contains(&query)
+                    || profile.username.to_lowercase().contains(&query)
+            })
+            .cloned()
+            .collect()
     }
 
     fn message(&mut self, profile: UserProfile, window: &mut Window, cx: &mut Context<Self>) {
@@ -435,13 +461,8 @@ impl Render for NewMessageView {
         }
         let query = self.search.read(cx).value().trim().to_lowercase();
         let rows: Vec<_> = self
-            .profiles
+            .matches(cx)
             .iter()
-            .filter(|profile| {
-                query.is_empty()
-                    || profile.display_name.to_lowercase().contains(&query)
-                    || profile.username.to_lowercase().contains(&query)
-            })
             .map(|profile| self.row(profile, cx).into_any_element())
             .collect();
         div()

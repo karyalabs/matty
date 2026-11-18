@@ -2662,8 +2662,19 @@ impl MainWindow {
             && let Some(row) = live.row(&id)
         {
             let model = live.open(row);
+            let hidden = !self
+                .sidebar
+                .read(cx)
+                .model()
+                .categories
+                .iter()
+                .any(|category| category.rows.iter().any(|row| row.id == id));
+            let sidebar = hidden.then(|| live.sidebar());
             self.channel
                 .update(cx, |view, cx| view.set_model(Some(model), window, cx));
+            if let Some(sidebar) = sidebar {
+                self.apply_update(sidebar, window, cx);
+            }
         }
         cx.notify();
     }

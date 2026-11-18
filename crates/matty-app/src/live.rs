@@ -2204,8 +2204,11 @@ impl Live {
     }
 
     /// The sidebar row for `channel_id` in the shown team.
+    /// A direct message hidden by the sidebar's limit on conversations
+    /// counts: opening it shows it (matty#955).
     pub fn row(&self, channel_id: &str) -> Option<ChannelRow> {
-        self.shown_categories()?
+        let sections = self.sections.get(self.team.as_ref()?)?;
+        self.categories_showing(sections, Some(channel_id))
             .into_iter()
             .flat_map(|category| category.rows)
             .find(|row| row.id.as_ref() == channel_id)
@@ -3035,6 +3038,15 @@ impl Live {
             .any(|post| users.contains(post.user_id.as_str()))
     }
 
+    /// The shown team's sidebar as it is now, for a view that just opened
+    /// a conversation the sidebar had hidden.
+    pub fn sidebar(&self) -> Update {
+        Update {
+            categories: self.shown_categories(),
+            ..Update::default()
+        }
+    }
+
     fn shown_categories(&self) -> Option<Vec<Category>> {
         let sections = self.sections.get(self.team.as_ref()?)?;
         Some(self.categories(sections))
@@ -3103,6 +3115,12 @@ impl Live {
 
     fn categories(&self, sections: &[SidebarSection]) -> Vec<Category> {
         let open = self.open.as_ref().map(|row| row.id.as_ref());
+        self.categories_showing(sections, open)
+    }
+
+    /// The categories, with `open` shown even past the limit on direct
+    /// messages.
+    fn categories_showing(&self, sections: &[SidebarSection], open: Option<&str>) -> Vec<Category> {
         sections
             .iter()
             .map(|section| {
@@ -3967,6 +3985,37 @@ mod tests {
         // Manual, and the server default, keep the category's own order.
         assert_eq!(names("manual"), ["zoe", "me (you)", "ada"]);
         assert_eq!(names(""), ["zoe", "me (you)", "ada"]);
+    }
+
+    /// New message on a direct message past the sidebar's limit opened
+    /// nothing: the sidebar hid its row, so there was no row to open
+    /// (matty#955).
+    #[test]
+    fn a_direct_message_past_the_limit_opens_and_shows() {
+        let mut live = live();
+        live.dm_limit = 1;
+        let dm = |id: &str, active_at: i64| SidebarChannel {
+            active_at,
+            ..channel(id, "D", 0, 0)
+        };
+        let dms = SidebarSection {
+            kind: "direct_messages".into(),
+            ..section("dms", vec![dm("new", 20), dm("old", 10)])
+        };
+        live.sections.insert("t1".into(), Arc::from(vec![dms]));
+        live.team = Some("t1".into());
+        let shown = |live: &Live| {
+            live.sidebar().categories.unwrap()[0]
+                .rows
+                .iter()
+                .map(|row| row.id.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shown(&live), ["new"]);
+
+        let row = live.row("old").expect("the hidden conversation has a row");
+        live.open(row);
+        assert_eq!(shown(&live), ["new", "old"]);
     }
 
     #[test]
