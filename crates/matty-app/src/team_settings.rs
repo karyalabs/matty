@@ -1,0 +1,347 @@
+//! Team settings for a team admin (#987): the team's name, description,
+//! whether anyone on the server may join, and its invite link.
+
+use gpui_kit::{
+    App, AppContext as _, Context, Entity, EventEmitter, Focusable as _, IntoElement,
+    ParentElement as _, Render, SharedString, Styled as _, Window, div,
+};
+
+use crate::style::{self, TypeStyleExt as _};
+use crate::t;
+use crate::ui::{
+    button::{Button, ButtonVariant},
+    dialog::{DialogHandle, dialog_description, dialog_title},
+    field::Field,
+    input::{InputEvent, InputState},
+    switch::Switch,
+    theme::UiTheme,
+};
+
+/// Mattermost's limits on a team's display name and description.
+const NAME_MAX: usize = 64;
+const DESCRIPTION_MAX: usize = 255;
+
+/// A team as the dialog shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TeamSettings {
+    pub id: SharedString,
+    pub name: SharedString,
+    pub description: SharedString,
+    /// Anyone on the server may join without an invite.
+    pub open: bool,
+    /// The invite link, when the server gave its id.
+    pub link: Option<SharedString>,
+}
+
+/// What the dialog asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TeamSettingsEvent {
+    Save {
+        team_id: SharedString,
+        name: Option<String>,
+        description: Option<String>,
+        open: Option<bool>,
+    },
+    RegenerateInvite {
+        team_id: SharedString,
+    },
+}
+
+pub struct TeamSettingsView {
+    team: Option<TeamSettings>,
+    name: Entity<InputState>,
+    description: Entity<InputState>,
+    open: bool,
+    copied: bool,
+    handle: DialogHandle,
+    focus_name: bool,
+    _subscriptions: Vec<gpui_kit::Subscription>,
+}
+
+impl EventEmitter<TeamSettingsEvent> for TeamSettingsView {}
+
+impl TeamSettingsView {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let name = cx.new(|cx| InputState::new(window, cx));
+        let description = cx.new(|cx| InputState::new(window, cx));
+        let on_input = |this: &mut Self,
+                        _: &Entity<InputState>,
+                        event: &InputEvent,
+                        window: &mut Window,
+                        cx: &mut Context<Self>| {
+            if let InputEvent::PressEnter { .. } = event {
+                this.save(window, cx);
+            } else {
+                cx.notify();
+            }
+        };
+        let subscriptions = vec![
+            cx.subscribe_in(&name, window, on_input),
+            cx.subscribe_in(&description, window, on_input),
+        ];
+        Self {
+            team: None,
+            name,
+            description,
+            open: false,
+            copied: false,
+            handle: DialogHandle::new(false),
+            focus_name: false,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    pub fn handle(&self) -> &DialogHandle {
+        &self.handle
+    }
+
+    /// The team the dialog is open for.
+    pub fn team_id(&self) -> Option<&SharedString> {
+        self.team.as_ref().map(|team| &team.id)
+    }
+
+    /// Opens the dialog for `team` as far as it is known; [`Self::set_team`]
+    /// fills in the server's answer.
+    pub fn open(&mut self, team: TeamSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.fill(&team, window, cx);
+        self.team = Some(team);
+        self.copied = false;
+        self.handle.open(window, cx);
+        self.focus_name = true;
+        cx.notify();
+    }
+
+    /// The server's answer for the open team: its fields, unless the user
+    /// started typing, and its invite link.
+    pub fn set_team(&mut self, team: TeamSettings, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(shown_link) = self
+            .team
+            .as_ref()
+            .filter(|shown| shown.id == team.id)
+            .map(|shown| shown.link.clone())
+        else {
+            return;
+        };
+        if !self.edited(cx) {
+            self.fill(&team, window, cx);
+        }
+        if shown_link != team.link {
+            self.copied = false;
+        }
+        self.team = Some(team);
+        cx.notify();
+    }
+
+    fn fill(&mut self, team: &TeamSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.name.update(cx, |input, cx| {
+            input.set_value(team.name.as_ref(), window, cx);
+            input.set_placeholder(t!("team-settings-name-placeholder"), window, cx);
+        });
+        self.description.update(cx, |input, cx| {
+            input.set_value(team.description.as_ref(), window, cx);
+            input.set_placeholder(t!("team-settings-description-placeholder"), window, cx);
+        });
+        self.open = team.open;
+    }
+
+    fn name(&self, cx: &App) -> String {
+        self.name.read(cx).value().trim().to_string()
+    }
+
+    fn description(&self, cx: &App) -> String {
+        self.description.read(cx).value().trim().to_string()
+    }
+
+    fn edited(&self, cx: &App) -> bool {
+        self.team.as_ref().is_some_and(|team| {
+            self.name(cx) != team.name.as_ref()
+                || self.description(cx) != team.description.as_ref()
+                || self.open != team.open
+        })
+    }
+
+    fn can_save(&self, cx: &App) -> bool {
+        let name = self.name(cx).chars().count();
+        self.edited(cx)
+            && (2..=NAME_MAX).contains(&name)
+            && self.description(cx).chars().count() <= DESCRIPTION_MAX
+    }
+
+    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_save(cx) {
+            return;
+        }
+        let Some(team) = &self.team else {
+            return;
+        };
+        let (name, description) = (self.name(cx), self.description(cx));
+        let event = TeamSettingsEvent::Save {
+            team_id: team.id.clone(),
+            name: (name != team.name.as_ref()).then_some(name),
+            description: (description != team.description.as_ref()).then_some(description),
+            open: (self.open != team.open).then_some(self.open),
+        };
+        self.handle.close(window, cx);
+        cx.emit(event);
+    }
+
+    fn copy_link(&mut self, cx: &mut Context<Self>) {
+        if let Some(link) = self.team.as_ref().and_then(|team| team.link.as_ref()) {
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(link.to_string()));
+            self.copied = true;
+            cx.notify();
+        }
+    }
+}
+
+impl Render for TeamSettingsView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = UiTheme::read(cx).clone();
+        if self.focus_name {
+            self.focus_name = false;
+            let focus = self.name.read(cx).focus_handle(cx);
+            window.on_next_frame(move |window, cx| window.focus(&focus, cx));
+        }
+        let name_len = self.name(cx).chars().count();
+        let description_len = self.description(cx).chars().count();
+        let mut name = Field::new("team-settings.name", &self.name).label(t!("team-settings-name"));
+        if name_len > NAME_MAX {
+            name = name.error(t!("channel-edit-too-long", max = NAME_MAX));
+        } else if name_len < 2 {
+            name = name.error(t!("teams-create-short"));
+        }
+        let mut description = Field::new("team-settings.description", &self.description)
+            .label(t!("team-settings-description"));
+        description = if description_len > DESCRIPTION_MAX {
+            description.error(t!("channel-edit-too-long", max = DESCRIPTION_MAX))
+        } else {
+            description.description(t!(
+                "channel-edit-count",
+                len = description_len,
+                max = DESCRIPTION_MAX
+            ))
+        };
+        let open = Switch::new("team-settings.open.switch")
+            .checked(self.open)
+            .aria_label(t!("team-settings-open"))
+            .on_change(cx.listener(|this, &next: &bool, _, cx| {
+                this.open = next;
+                cx.notify();
+            }));
+        let team_id = self.team.as_ref().map(|team| team.id.clone());
+        let link = self.team.as_ref().and_then(|team| team.link.clone());
+        let label = |text: SharedString| {
+            div()
+                .type_style(style::BODY, &theme)
+                .text_color(theme.colors.foreground)
+                .child(text)
+        };
+        let detail = |text: SharedString| {
+            div()
+                .type_style(style::META, &theme)
+                .text_color(theme.colors.muted_foreground)
+                .child(text)
+        };
+        let mut invite = div()
+            .flex()
+            .flex_col()
+            .gap(theme.space(1.))
+            .child(label(t!("team-settings-invite")));
+        invite = match link {
+            Some(link) => invite
+                .child(
+                    div()
+                        .type_style(style::META, &theme)
+                        .text_color(theme.colors.muted_foreground)
+                        .truncate()
+                        .child(link),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(theme.space(2.))
+                        .pt(theme.space(1.))
+                        .child(
+                            Button::new("team-settings.copy")
+                                .variant(ButtonVariant::Outline)
+                                .label(if self.copied {
+                                    t!("invite-link-copied")
+                                } else {
+                                    t!("invite-copy-link")
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| this.copy_link(cx))),
+                        )
+                        .child(
+                            Button::new("team-settings.regenerate")
+                                .variant(ButtonVariant::Ghost)
+                                .label(t!("team-settings-regenerate"))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    if let Some(team_id) = team_id.clone() {
+                                        cx.emit(TeamSettingsEvent::RegenerateInvite { team_id });
+                                    }
+                                })),
+                        ),
+                )
+                .child(detail(t!("team-settings-regenerate-detail"))),
+            None => invite.child(detail(t!("team-settings-loading"))),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(theme.space(4.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(theme.space(1.))
+                    .child(dialog_title("team-settings.title", cx).child(t!("team-settings-title")))
+                    .child(
+                        dialog_description("team-settings.description-text", cx)
+                            .child(t!("team-settings-detail")),
+                    ),
+            )
+            .child(name)
+            .child(description)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(theme.space(4.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(theme.space(0.5))
+                            .child(label(t!("team-settings-open")))
+                            .child(detail(t!("team-settings-open-detail"))),
+                    )
+                    .child(div().flex_none().child(open)),
+            )
+            .child(invite)
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(theme.space(2.))
+                    .pt(theme.space(2.))
+                    .child(
+                        Button::new("team-settings.cancel")
+                            .variant(ButtonVariant::Outline)
+                            .label(t!("channel-settings-cancel"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.handle.close(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("team-settings.save")
+                            .variant(ButtonVariant::Default)
+                            .disabled(!self.can_save(cx))
+                            .label(t!("channel-settings-save"))
+                            .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
+                    ),
+            )
+    }
+}

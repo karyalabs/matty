@@ -196,6 +196,8 @@ pub(crate) enum Loaded {
         invite_id: String,
         users: Vec<User>,
     },
+    /// A team as its settings show it.
+    TeamSettings(Box<matty_api::models::Team>),
     /// The user's signed-in sessions.
     Sessions(Vec<matty_api::models::Session>),
     /// The user's password changed.

@@ -183,7 +183,8 @@ impl Live {
             .map(|team| {
                 let rail = crate::teams::Team::new(team.id.clone(), team.display_name.clone())
                     .icon(team.icon)
-                    .mentions(usize::try_from(team.mentions).unwrap_or_default());
+                    .mentions(usize::try_from(team.mentions).unwrap_or_default())
+                    .manage(self.may_manage_team(&team.id));
                 if team.has_unreads {
                     rail.unread()
                 } else {

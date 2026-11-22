@@ -64,3 +64,21 @@ teams-create-button = Create
 teams-create-url = Its address: { $url }
 teams-create-short = Use at least two letters.
 teams-create-failed = Couldn't create the team: { $error }
+
+## Team settings (#987)
+
+teams-settings = Team settings…
+team-settings-title = Team settings
+team-settings-detail = Everyone on the team sees these.
+team-settings-name = Team name
+team-settings-name-placeholder = Team name
+team-settings-description = Description
+team-settings-description-placeholder = What the team is for
+team-settings-open = Anyone on the server can join
+team-settings-open-detail = The team shows in Join a team for everyone with an account. Off, people need an invite.
+team-settings-invite = Invite link
+team-settings-loading = Loading…
+team-settings-regenerate = Regenerate
+team-settings-regenerate-detail = Regenerating stops the old link from working.
+team-settings-failed = Couldn't change the team's settings: { $error }
+team-settings-regenerate-failed = Couldn't regenerate the invite link: { $error }

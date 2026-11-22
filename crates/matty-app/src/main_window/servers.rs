@@ -309,6 +309,7 @@ impl MainWindow {
             TeamsEvent::Invite { id, name } => {
                 self.invite_to_team(id.clone(), name.clone(), window, cx)
             }
+            TeamsEvent::Settings { id } => self.open_team_settings(id.clone(), window, cx),
             TeamsEvent::Leave { id, name } => {
                 self.ask_leave_team(id.clone(), name.clone(), window, cx)
             }
@@ -475,6 +476,70 @@ impl MainWindow {
                 team_id: team_id.to_string(),
                 emails: emails.clone(),
             });
+        }
+    }
+
+    /// Team settings (#987) over this window: what the rail knows at
+    /// once, then the server's answer with the description and invite link.
+    pub(super) fn open_team_settings(
+        &mut self,
+        id: gpui_kit::SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = self
+            .teams_model
+            .read(cx)
+            .teams()
+            .iter()
+            .find(|team| team.id == id)
+            .map(|team| team.name.clone())
+            .unwrap_or_default();
+        let team = crate::team_settings::TeamSettings {
+            id: id.clone(),
+            name,
+            description: gpui_kit::SharedString::default(),
+            open: false,
+            link: None,
+        };
+        self.team_settings
+            .update(cx, |view, cx| view.open(team, window, cx));
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::TeamSettings {
+                team_id: id.to_string(),
+            });
+        }
+    }
+
+    pub(super) fn on_team_settings_event(
+        &mut self,
+        _: &Entity<crate::team_settings::TeamSettingsView>,
+        event: &crate::team_settings::TeamSettingsEvent,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        match event {
+            crate::team_settings::TeamSettingsEvent::Save {
+                team_id,
+                name,
+                description,
+                open,
+            } => live.send(matty_sync::Command::PatchTeam {
+                team_id: team_id.to_string(),
+                patch: matty_api::TeamPatch {
+                    display_name: name.clone(),
+                    description: description.clone(),
+                    allow_open_invite: *open,
+                },
+            }),
+            crate::team_settings::TeamSettingsEvent::RegenerateInvite { team_id } => {
+                live.send(matty_sync::Command::RegenerateInvite {
+                    team_id: team_id.to_string(),
+                })
+            }
         }
     }
 

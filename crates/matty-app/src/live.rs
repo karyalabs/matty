@@ -256,6 +256,8 @@ pub struct Update {
     /// Invite people's answer (#962): the team, its invite link when the
     /// user may invite, and the server's people not on it.
     pub team_invitees: Option<(SharedString, Option<SharedString>, Vec<UserProfile>)>,
+    /// A team's settings, for Team settings (#987).
+    pub team_settings: Option<crate::team_settings::TeamSettings>,
     /// The user's signed-in sessions, for Security (#964).
     pub sessions: Option<std::sync::Arc<[matty_api::models::Session]>>,
     /// How a password change went: `Ok`, or the server's reason.
@@ -1293,8 +1295,16 @@ impl Live {
             self.asked_team_roles = true;
             self.send(Command::TeamRoles);
         }
-        let names: Vec<String> = self
-            .role_names()
+        let mut names = self.role_names();
+        // Every team's, for whether Team settings shows (#987).
+        for member in self.team_roles.iter().flat_map(|roles| roles.values()) {
+            for name in Self::team_role_names(member) {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        let names: Vec<String> = names
             .into_iter()
             .filter(|name| !self.roles.contains_key(name) && self.asked_roles.insert(name.clone()))
             .collect();
@@ -1345,6 +1355,53 @@ impl Live {
             convert: public && may("convert_public_channel_to_private"),
             unarchive: may("manage_team"),
         }
+    }
+
+    /// A team's invite link from its invite id; none when the server left
+    /// the id out, for someone who may not invite.
+    fn invite_link(&self, invite_id: &str) -> Option<SharedString> {
+        (!invite_id.is_empty()).then(|| {
+            format!(
+                "{}/signup_user_complete/?id={invite_id}",
+                self.server.trim_end_matches('/')
+            )
+            .into()
+        })
+    }
+
+    /// A team member's role names: `team_user`, `team_admin` from the
+    /// scheme, and the roles named on the membership.
+    fn team_role_names(member: &matty_api::models::TeamMember) -> Vec<String> {
+        let mut names = vec!["team_user".to_owned()];
+        if member.scheme_admin {
+            names.push("team_admin".to_owned());
+        }
+        names.extend(member.roles.split_whitespace().map(str::to_owned));
+        names
+    }
+
+    /// Whether the user may change `team_id`'s settings (`manage_team`).
+    /// Until their roles are known, they may not: Team settings stays out
+    /// of the menu rather than offering what the server would refuse.
+    pub(super) fn may_manage_team(&self, team_id: &str) -> bool {
+        if self.is_system_admin() {
+            return true;
+        }
+        let Some(member) = self
+            .team_roles
+            .as_ref()
+            .and_then(|roles| roles.get(team_id))
+        else {
+            return false;
+        };
+        let mut names = Self::team_role_names(member);
+        if let Some(me) = self.users.get(&self.me.0) {
+            names.extend(me.roles.split_whitespace().map(str::to_owned));
+        }
+        names
+            .iter()
+            .filter_map(|name| self.roles.get(name))
+            .any(|permissions| permissions.iter().any(|p| p == "manage_team"))
     }
 
     /// Whether the user is a system admin.
@@ -2764,6 +2821,20 @@ impl Live {
                 update.password_changed = Some(Err(said.to_owned().into()));
             }
             ChangeSet::Failed(matty_sync::CommandError::Server {
+                action: action @ ("change team settings" | "regenerate the invite link"),
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.refused = Some(if *action == "change team settings" {
+                    crate::t!("team-settings-failed", error = said)
+                } else {
+                    crate::t!("team-settings-regenerate-failed", error = said)
+                });
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
                 action: "unarchive channel",
                 error,
                 ..
@@ -2830,6 +2901,7 @@ impl Live {
                         .insert(role.name.clone(), role.permissions.clone());
                 }
                 update.details = self.shown_details();
+                update.teams = Some(self.rail_teams());
             }
             ChangeSet::TeamMembers(members) => {
                 self.team_roles = Some(
@@ -2842,6 +2914,7 @@ impl Live {
                 // The team roles' permissions may not be known yet.
                 self.ask_roles();
                 update.details = self.shown_details();
+                update.teams = Some(self.rail_teams());
             }
             ChangeSet::TeamNonMembers {
                 team_id,
@@ -2858,14 +2931,17 @@ impl Live {
                     .map(|user| self.profile(user))
                     .collect();
                 people.sort_by_key(|person| person.display_name.to_lowercase());
-                let link = (!invite_id.is_empty()).then(|| {
-                    format!(
-                        "{}/signup_user_complete/?id={invite_id}",
-                        self.server.trim_end_matches('/')
-                    )
-                    .into()
-                });
+                let link = self.invite_link(invite_id);
                 update.team_invitees = Some((team_id.clone().into(), link, people));
+            }
+            ChangeSet::TeamSettings(team) => {
+                update.team_settings = Some(crate::team_settings::TeamSettings {
+                    id: team.id.clone().into(),
+                    name: team.display_name.clone().into(),
+                    description: team.description.clone().into(),
+                    open: team.allow_open_invite,
+                    link: self.invite_link(&team.invite_id),
+                });
             }
             ChangeSet::NonMembers { channel_id, users } if self.is_open(channel_id) => {
                 for user in users.iter() {

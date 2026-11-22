@@ -199,6 +199,16 @@ pub(crate) enum Write {
     TeamNonMembers {
         team_id: String,
     },
+    TeamSettings {
+        team_id: String,
+    },
+    PatchTeam {
+        team_id: String,
+        patch: matty_api::TeamPatch,
+    },
+    RegenerateInvite {
+        team_id: String,
+    },
     Sessions,
     RevokeSession {
         session_id: String,
@@ -331,6 +341,9 @@ impl Write {
             Self::Notify { .. } => "change notifications",
             Self::AddMembers { .. } => "add members",
             Self::TeamNonMembers { .. } => "find people to invite",
+            Self::TeamSettings { .. } => "load team settings",
+            Self::PatchTeam { .. } => "change team settings",
+            Self::RegenerateInvite { .. } => "regenerate the invite link",
             Self::Sessions => "list your sessions",
             Self::RevokeSession { .. } => "sign out a session",
             Self::Password(_) => "change your password",
@@ -387,6 +400,9 @@ impl Write {
             Self::JoinTeam { team_id }
             | Self::LeaveTeam { team_id }
             | Self::TeamNonMembers { team_id }
+            | Self::TeamSettings { team_id }
+            | Self::PatchTeam { team_id, .. }
+            | Self::RegenerateInvite { team_id }
             | Self::AddTeamMembers { team_id, .. }
             | Self::InviteByEmail { team_id, .. } => team_id.clone(),
             Self::Join { channel_id }
@@ -1134,6 +1150,15 @@ pub(crate) async fn run(
                     users,
                 })
             }
+            Write::TeamSettings { team_id } => {
+                Some(Loaded::TeamSettings(Box::new(client.team(&team_id).await?)))
+            }
+            Write::PatchTeam { team_id, patch } => Some(Loaded::TeamSettings(Box::new(
+                client.patch_team(&team_id, &patch).await?,
+            ))),
+            Write::RegenerateInvite { team_id } => Some(Loaded::TeamSettings(Box::new(
+                client.regenerate_invite_id(&team_id).await?,
+            ))),
             Write::Sessions => Some(Loaded::Sessions(sessions(&client, &user_id).await?)),
             Write::RevokeSession { session_id } => {
                 client.revoke_session(&user_id, &session_id).await?;

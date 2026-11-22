@@ -651,6 +651,26 @@ pub enum Command {
         /// The team.
         team_id: String,
     },
+    /// A team's settings, for a team admin (#987);
+    /// [`ChangeSet::TeamSettings`](crate::ChangeSet::TeamSettings) answers.
+    TeamSettings {
+        /// The team.
+        team_id: String,
+    },
+    /// Changes a team's name, description or openness (#987); the team
+    /// comes back in [`ChangeSet::TeamSettings`](crate::ChangeSet::TeamSettings).
+    PatchTeam {
+        /// The team.
+        team_id: String,
+        /// What to change.
+        patch: matty_api::TeamPatch,
+    },
+    /// Replaces a team's invite link (#987); the team comes back in
+    /// [`ChangeSet::TeamSettings`](crate::ChangeSet::TeamSettings).
+    RegenerateInvite {
+        /// The team.
+        team_id: String,
+    },
     /// The user's signed-in sessions (#964);
     /// [`ChangeSet::Sessions`](crate::ChangeSet::Sessions) answers.
     Sessions,
@@ -1214,6 +1234,19 @@ impl std::fmt::Debug for Command {
                 .finish(),
             Self::TeamNonMembers { team_id } => f
                 .debug_struct("TeamNonMembers")
+                .field("team_id", team_id)
+                .finish(),
+            Self::TeamSettings { team_id } => f
+                .debug_struct("TeamSettings")
+                .field("team_id", team_id)
+                .finish(),
+            Self::PatchTeam { team_id, patch } => f
+                .debug_struct("PatchTeam")
+                .field("team_id", team_id)
+                .field("patch", patch)
+                .finish(),
+            Self::RegenerateInvite { team_id } => f
+                .debug_struct("RegenerateInvite")
                 .field("team_id", team_id)
                 .finish(),
             Self::Sessions => f.write_str("Sessions"),
@@ -2383,6 +2416,15 @@ impl Engine {
                 }
                 Message::Command(Command::TeamNonMembers { team_id }) => {
                     writes.push(Write::TeamNonMembers { team_id });
+                }
+                Message::Command(Command::TeamSettings { team_id }) => {
+                    writes.push(Write::TeamSettings { team_id });
+                }
+                Message::Command(Command::PatchTeam { team_id, patch }) => {
+                    writes.push(Write::PatchTeam { team_id, patch });
+                }
+                Message::Command(Command::RegenerateInvite { team_id }) => {
+                    writes.push(Write::RegenerateInvite { team_id });
                 }
                 Message::Command(Command::Sessions) => writes.push(Write::Sessions),
                 Message::Command(Command::RevokeSession { session_id }) => {
@@ -4036,6 +4078,11 @@ impl Engine {
                     invite_id,
                     users: Arc::from(users),
                 });
+            }
+            Loaded::TeamSettings(team) => {
+                sidebar::upsert_teams(self.store.conn(), std::slice::from_ref(&*team))?;
+                dirty.unreads = true;
+                dirty.direct.push(ChangeSet::TeamSettings(Arc::from(team)));
             }
             Loaded::Sessions(sessions) => {
                 dirty.direct.push(ChangeSet::Sessions(Arc::from(sessions)));

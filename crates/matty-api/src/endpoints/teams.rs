@@ -8,6 +8,21 @@ use crate::{
     models::{Team, TeamMember},
 };
 
+/// The fields of a team to change, as `PUT teams/{id}/patch` takes them;
+/// `None` leaves a field alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct TeamPatch {
+    /// The name people see.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    /// What the team is for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Anyone on the server may join without an invite.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_open_invite: Option<bool>,
+}
+
 impl Client {
     /// `GET teams`: one page of the teams the user may see. For anyone but
     /// a system admin these are the open teams (`allow_open_invite`), the
@@ -49,6 +64,19 @@ impl Client {
     /// `GET teams/{team_id}`.
     pub async fn team(&self, team_id: &str) -> Result<Team, ApiError> {
         self.get(&format!("teams/{team_id}")).await
+    }
+
+    /// `PUT teams/{team_id}/patch`: renames a team, changes its
+    /// description, or opens or closes it to anyone on the server.
+    pub async fn patch_team(&self, team_id: &str, patch: &TeamPatch) -> Result<Team, ApiError> {
+        self.put(&format!("teams/{team_id}/patch"), patch).await
+    }
+
+    /// `POST teams/{team_id}/regenerate_invite_id`: a new invite link, so
+    /// the old one stops working.
+    pub async fn regenerate_invite_id(&self, team_id: &str) -> Result<Team, ApiError> {
+        self.post(&format!("teams/{team_id}/regenerate_invite_id"), &json!({}))
+            .await
     }
 
     /// `POST teams/{team_id}/invite/email`: emails an invite to each address.

@@ -96,6 +96,8 @@ pub struct Team {
     /// The team's `last_team_icon_update`; 0 when it has no icon, and the
     /// square shows initials.
     pub icon: i64,
+    /// The user may change the team's settings (#987).
+    pub manage: bool,
 }
 
 impl Team {
@@ -106,7 +108,14 @@ impl Team {
             unread: false,
             mentions: 0,
             icon: 0,
+            manage: false,
         }
+    }
+
+    /// The user may change the team's settings.
+    pub fn manage(mut self, manage: bool) -> Self {
+        self.manage = manage;
+        self
     }
 
     /// The team's icon version, from its `last_team_icon_update`.
@@ -176,6 +185,9 @@ pub enum TeamsEvent {
         id: SharedString,
         name: SharedString,
     },
+    /// Team settings, for a team admin (#987), from its tab's menu or the
+    /// team menu.
+    Settings { id: SharedString },
     /// The user asked to leave a team, from its tab's menu; the window
     /// asks first (#745).
     Leave {
@@ -326,18 +338,33 @@ impl TeamsModel {
             name: team.name.clone(),
         };
         let invite_view = view.clone();
-        let items = vec![
+        let mut items = vec![
             MenuItem::new("teams.team.invite", t!("teams-invite"))
                 .icon(LucideIcon::UserPlus)
                 .on_click(move |_, _, cx| {
                     invite_view.update(cx, |_, cx| cx.emit(invite.clone())).ok();
                 }),
-            MenuItem::new("teams.team.leave", t!("teams-leave"))
-                .icon(LucideIcon::LogOut)
-                .on_click(move |_, _, cx| {
-                    view.update(cx, |_, cx| cx.emit(event.clone())).ok();
-                }),
         ];
+        if team.manage {
+            let settings = TeamsEvent::Settings {
+                id: team.id.clone(),
+            };
+            let settings_view = view.clone();
+            items.push(
+                MenuItem::new("teams.team.settings", t!("teams-settings"))
+                    .icon(LucideIcon::Settings)
+                    .on_click(move |_, _, cx| {
+                        settings_view
+                            .update(cx, |_, cx| cx.emit(settings.clone()))
+                            .ok();
+                    }),
+            );
+        }
+        items.extend([MenuItem::new("teams.team.leave", t!("teams-leave"))
+            .icon(LucideIcon::LogOut)
+            .on_click(move |_, _, cx| {
+                view.update(cx, |_, cx| cx.emit(event.clone())).ok();
+            })]);
         self.team_menu.update(cx, |menu, cx| {
             menu.set_items(items, cx);
             menu.open_at(Some(at), window, cx);
@@ -439,6 +466,15 @@ impl TeamsModel {
                     name: team.name.clone(),
                 })),
             );
+            if team.manage {
+                items.push(
+                    MenuItem::new("teams.settings", t!("teams-settings"))
+                        .icon(LucideIcon::Settings)
+                        .on_click(emit(TeamsEvent::Settings {
+                            id: team.id.clone(),
+                        })),
+                );
+            }
         }
         items.push(
             MenuItem::new("teams.add-server", t!("teams-add-server"))

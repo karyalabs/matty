@@ -70,6 +70,7 @@ pub mod slash;
 mod spelling;
 pub mod style;
 pub mod switcher;
+pub mod team_settings;
 pub mod teams;
 pub mod threads;
 pub mod transcript;

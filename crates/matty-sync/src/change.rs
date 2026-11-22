@@ -340,6 +340,11 @@ pub enum ChangeSet {
         /// The people.
         users: Arc<[User]>,
     },
+    /// A team's name, description, openness and invite link, for Team
+    /// settings: the answer to
+    /// [`Command::TeamSettings`](crate::Command::TeamSettings) and to
+    /// changing them.
+    TeamSettings(Arc<matty_api::models::Team>),
     /// The user's signed-in sessions, most recently active first: the
     /// answer to [`Command::Sessions`](crate::Command::Sessions).
     Sessions(Arc<[matty_api::models::Session]>),
