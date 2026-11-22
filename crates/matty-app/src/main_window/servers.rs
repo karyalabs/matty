@@ -310,6 +310,16 @@ impl MainWindow {
                 self.invite_to_team(id.clone(), name.clone(), window, cx)
             }
             TeamsEvent::Settings { id } => self.open_team_settings(id.clone(), window, cx),
+            TeamsEvent::Members { id, name, manage } => {
+                self.team_members.update(cx, |view, cx| {
+                    view.open(id.clone(), name.clone(), *manage, window, cx)
+                });
+                if let Some(live) = &self.live {
+                    live.send(matty_sync::Command::TeamPeople {
+                        team_id: id.to_string(),
+                    });
+                }
+            }
             TeamsEvent::Leave { id, name } => {
                 self.ask_leave_team(id.clone(), name.clone(), window, cx)
             }
@@ -508,6 +518,40 @@ impl MainWindow {
             live.send(matty_sync::Command::TeamSettings {
                 team_id: id.to_string(),
             });
+        }
+    }
+
+    pub(super) fn on_team_members_event(
+        &mut self,
+        _: &Entity<crate::team_members::TeamMembersView>,
+        event: &crate::team_members::TeamMembersEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::team_members::TeamMembersEvent;
+        match event {
+            TeamMembersEvent::Message(profile) => self.message(profile, window, cx),
+            TeamMembersEvent::SetAdmin {
+                team_id,
+                user_id,
+                admin,
+            } => {
+                if let Some(live) = &self.live {
+                    live.send(matty_sync::Command::TeamAdmin {
+                        team_id: team_id.to_string(),
+                        user_id: user_id.to_string(),
+                        admin: *admin,
+                    });
+                }
+            }
+            TeamMembersEvent::Remove { team_id, user_id } => {
+                if let Some(live) = &self.live {
+                    live.send(matty_sync::Command::RemoveFromTeam {
+                        team_id: team_id.to_string(),
+                        user_id: user_id.to_string(),
+                    });
+                }
+            }
         }
     }
 

@@ -258,6 +258,8 @@ pub struct Update {
     pub team_invitees: Option<(SharedString, Option<SharedString>, Vec<UserProfile>)>,
     /// A team's settings, for Team settings (#987).
     pub team_settings: Option<crate::team_settings::TeamSettings>,
+    /// A team's people, for Team members (#988).
+    pub team_people: Option<(String, Vec<crate::team_members::TeamPerson>)>,
     /// The user's signed-in sessions, for Security (#964).
     pub sessions: Option<std::sync::Arc<[matty_api::models::Session]>>,
     /// How a password change went: `Ok`, or the server's reason.
@@ -2821,6 +2823,16 @@ impl Live {
                 update.password_changed = Some(Err(said.to_owned().into()));
             }
             ChangeSet::Failed(matty_sync::CommandError::Server {
+                action: "make team admin" | "remove team admin" | "remove from team",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.refused = Some(crate::t!("team-members-failed", error = said));
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
                 action: action @ ("change team settings" | "regenerate the invite link"),
                 error,
                 ..
@@ -2933,6 +2945,26 @@ impl Live {
                 people.sort_by_key(|person| person.display_name.to_lowercase());
                 let link = self.invite_link(invite_id);
                 update.team_invitees = Some((team_id.clone().into(), link, people));
+            }
+            ChangeSet::TeamPeople {
+                team_id,
+                users,
+                admins,
+            } => {
+                for user in users.iter() {
+                    self.avatars.learn(&user.id, user.last_picture_update);
+                    self.users.insert(user.id.clone(), user.clone());
+                }
+                let people = users
+                    .iter()
+                    .filter(|user| user.delete_at == 0 && !user.is_bot)
+                    .map(|user| crate::team_members::TeamPerson {
+                        profile: self.profile(user),
+                        admin: admins.iter().any(|id| id == &user.id),
+                        me: user.id == self.me.0,
+                    })
+                    .collect();
+                update.team_people = Some((team_id.clone(), people));
             }
             ChangeSet::TeamSettings(team) => {
                 update.team_settings = Some(crate::team_settings::TeamSettings {

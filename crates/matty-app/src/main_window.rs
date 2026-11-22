@@ -250,6 +250,7 @@ pub struct MainWindow {
     team_invite_view: Entity<crate::directory::AddMembersView>,
     inviting_team: Option<SharedString>,
     team_settings: Entity<crate::team_settings::TeamSettingsView>,
+    team_members: Entity<crate::team_members::TeamMembersView>,
     joining: Option<SharedString>,
     /// "Leave {team}?" from a team tab's menu, for the team in `leaving`.
     leave_team_dialog: DialogHandle,
@@ -505,6 +506,9 @@ impl MainWindow {
             .detach();
         let team_settings = cx.new(|cx| crate::team_settings::TeamSettingsView::new(window, cx));
         cx.subscribe_in(&team_settings, window, Self::on_team_settings_event)
+            .detach();
+        let team_members = cx.new(|cx| crate::team_members::TeamMembersView::new(window, cx));
+        cx.subscribe_in(&team_members, window, Self::on_team_members_event)
             .detach();
         let new_message = cx.new(|cx| NewMessageView::new(window, cx));
         if crate::preview::enabled() {
@@ -1322,6 +1326,7 @@ impl MainWindow {
             team_invite_view,
             inviting_team: None,
             team_settings,
+            team_members,
             joining: None,
             leave_team_dialog: DialogHandle::new(false),
             leaving: Default::default(),
@@ -2068,6 +2073,10 @@ impl MainWindow {
                 view.set_profiles(people, cx);
                 view.set_invite_link(invite_link, cx);
             });
+        }
+        if let Some((team_id, people)) = update.team_people.take() {
+            self.team_members
+                .update(cx, |view, cx| view.set_people(&team_id, people, cx));
         }
         if let Some(team) = update.team_settings.take() {
             self.team_settings
@@ -5011,6 +5020,14 @@ impl MainWindow {
                 &join,
                 dialog_popup("join-team.popup", crate::t!("teams-join-title"), cx)
                     .child(self.join_team_view.clone()),
+                window,
+                cx,
+            ))
+            .child(dialog(
+                "team-members",
+                &self.team_members.read(cx).handle().clone(),
+                dialog_popup("team-members.popup", crate::t!("teams-view-members"), cx)
+                    .child(self.team_members.clone()),
                 window,
                 cx,
             ))

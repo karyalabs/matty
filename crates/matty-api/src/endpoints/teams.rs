@@ -72,6 +72,45 @@ impl Client {
         self.put(&format!("teams/{team_id}/patch"), patch).await
     }
 
+    /// `GET teams/{team_id}/members`: one page of a team's memberships,
+    /// with their roles.
+    pub async fn team_members(
+        &self,
+        team_id: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<TeamMember>, ApiError> {
+        self.get_query(
+            &format!("teams/{team_id}/members"),
+            &[
+                ("page", page.to_string()),
+                ("per_page", per_page.to_string()),
+            ],
+        )
+        .await
+    }
+
+    /// `PUT teams/{team_id}/members/{user_id}/roles`: makes someone a team
+    /// admin, or takes it away.
+    pub async fn set_team_admin(
+        &self,
+        team_id: &str,
+        user_id: &str,
+        admin: bool,
+    ) -> Result<(), ApiError> {
+        let roles = if admin {
+            "team_user team_admin"
+        } else {
+            "team_user"
+        };
+        self.put::<_, Value>(
+            &format!("teams/{team_id}/members/{user_id}/roles"),
+            &json!({ "roles": roles }),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// `POST teams/{team_id}/regenerate_invite_id`: a new invite link, so
     /// the old one stops working.
     pub async fn regenerate_invite_id(&self, team_id: &str) -> Result<Team, ApiError> {

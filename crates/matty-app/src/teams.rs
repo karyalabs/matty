@@ -188,6 +188,12 @@ pub enum TeamsEvent {
     /// Team settings, for a team admin (#987), from its tab's menu or the
     /// team menu.
     Settings { id: SharedString },
+    /// The team's members (#988), from its tab's menu or the team menu.
+    Members {
+        id: SharedString,
+        name: SharedString,
+        manage: bool,
+    },
     /// The user asked to leave a team, from its tab's menu; the window
     /// asks first (#745).
     Leave {
@@ -345,6 +351,21 @@ impl TeamsModel {
                     invite_view.update(cx, |_, cx| cx.emit(invite.clone())).ok();
                 }),
         ];
+        let members = TeamsEvent::Members {
+            id: team.id.clone(),
+            name: team.name.clone(),
+            manage: team.manage,
+        };
+        let members_view = view.clone();
+        items.push(
+            MenuItem::new("teams.team.members", members_label(team.manage))
+                .icon(LucideIcon::Users)
+                .on_click(move |_, _, cx| {
+                    members_view
+                        .update(cx, |_, cx| cx.emit(members.clone()))
+                        .ok();
+                }),
+        );
         if team.manage {
             let settings = TeamsEvent::Settings {
                 id: team.id.clone(),
@@ -465,6 +486,15 @@ impl TeamsModel {
                     id: team.id.clone(),
                     name: team.name.clone(),
                 })),
+            );
+            items.push(
+                MenuItem::new("teams.members", members_label(team.manage))
+                    .icon(LucideIcon::Users)
+                    .on_click(emit(TeamsEvent::Members {
+                        id: team.id.clone(),
+                        name: team.name.clone(),
+                        manage: team.manage,
+                    })),
             );
             if team.manage {
                 items.push(
@@ -753,6 +783,15 @@ impl TeamsModel {
                 )
                 .into_any_element(),
         )
+    }
+}
+
+/// "View members", or "Manage members" for a team admin, as the web app.
+fn members_label(manage: bool) -> SharedString {
+    if manage {
+        t!("teams-manage-members")
+    } else {
+        t!("teams-view-members")
     }
 }
 

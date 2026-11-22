@@ -340,6 +340,17 @@ pub enum ChangeSet {
         /// The people.
         users: Arc<[User]>,
     },
+    /// A team's people and which are its admins, for Team members: the
+    /// answer to [`Command::TeamPeople`](crate::Command::TeamPeople) and to
+    /// changing them.
+    TeamPeople {
+        /// The team.
+        team_id: String,
+        /// Its active people.
+        users: Arc<[User]>,
+        /// The ids of its admins.
+        admins: Arc<[String]>,
+    },
     /// A team's name, description, openness and invite link, for Team
     /// settings: the answer to
     /// [`Command::TeamSettings`](crate::Command::TeamSettings) and to

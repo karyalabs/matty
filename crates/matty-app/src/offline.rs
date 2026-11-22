@@ -44,6 +44,7 @@ pub fn refusal(action: &str) -> Option<SharedString> {
         "archive channel" => t!("offline-archive-channel"),
         "unarchive channel" => t!("offline-unarchive-channel"),
         "change team settings" | "regenerate the invite link" => t!("offline-team-settings"),
+        "make team admin" | "remove team admin" | "remove from team" => t!("offline-team-members"),
         "create channel" => t!("offline-create-channel"),
         "change channel" => t!("offline-change-channel"),
         "change channel privacy" => t!("offline-change-channel-privacy"),

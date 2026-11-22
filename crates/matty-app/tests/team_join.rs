@@ -211,7 +211,8 @@ fn join_a_team_with_nothing_to_join_still_dismisses(cx: &mut gpui_kit::TestAppCo
 }
 
 /// A team tab's menu takes the keyboard like any menu: Escape closes it,
-/// and Down and Enter pick Leave team, under Invite people (matty#943).
+/// and Down picks View members, then Leave team, under Invite people
+/// (matty#943, #988).
 #[gpui_kit::test]
 fn a_team_tabs_menu_answers_the_keyboard(cx: &mut gpui_kit::TestAppContext) {
     matty_app::preview::set("1".into());
@@ -241,11 +242,25 @@ fn a_team_tabs_menu_answers_the_keyboard(cx: &mut gpui_kit::TestAppContext) {
     cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
     cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
     cx.run_until_parked();
+    assert!(!drew(&mut cx, "Search people"), "no members list yet");
     cx.simulate_keystrokes("down enter");
     cx.run_until_parked();
     assert!(
+        drew(&mut cx, "Search people"),
+        "Down and Enter pick View members"
+    );
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+
+    let tab = find(&mut cx, "Matty");
+    cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_keystrokes("down down enter");
+    cx.run_until_parked();
+    assert!(
         drew(&mut cx, "Leave team"),
-        "Down and Enter pick Leave team"
+        "Down twice and Enter pick Leave team"
     );
 }
 

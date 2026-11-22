@@ -202,6 +202,18 @@ pub(crate) enum Write {
     TeamSettings {
         team_id: String,
     },
+    TeamPeople {
+        team_id: String,
+    },
+    TeamAdmin {
+        team_id: String,
+        user_id: String,
+        admin: bool,
+    },
+    RemoveFromTeam {
+        team_id: String,
+        user_id: String,
+    },
     PatchTeam {
         team_id: String,
         patch: matty_api::TeamPatch,
@@ -342,6 +354,10 @@ impl Write {
             Self::AddMembers { .. } => "add members",
             Self::TeamNonMembers { .. } => "find people to invite",
             Self::TeamSettings { .. } => "load team settings",
+            Self::TeamPeople { .. } => "load team members",
+            Self::TeamAdmin { admin: true, .. } => "make team admin",
+            Self::TeamAdmin { admin: false, .. } => "remove team admin",
+            Self::RemoveFromTeam { .. } => "remove from team",
             Self::PatchTeam { .. } => "change team settings",
             Self::RegenerateInvite { .. } => "regenerate the invite link",
             Self::Sessions => "list your sessions",
@@ -401,6 +417,9 @@ impl Write {
             | Self::LeaveTeam { team_id }
             | Self::TeamNonMembers { team_id }
             | Self::TeamSettings { team_id }
+            | Self::TeamPeople { team_id }
+            | Self::TeamAdmin { team_id, .. }
+            | Self::RemoveFromTeam { team_id, .. }
             | Self::PatchTeam { team_id, .. }
             | Self::RegenerateInvite { team_id }
             | Self::AddTeamMembers { team_id, .. }
@@ -1150,6 +1169,19 @@ pub(crate) async fn run(
                     users,
                 })
             }
+            Write::TeamPeople { team_id } => Some(team_people(&client, team_id).await?),
+            Write::TeamAdmin {
+                team_id,
+                user_id,
+                admin,
+            } => {
+                client.set_team_admin(&team_id, &user_id, admin).await?;
+                Some(team_people(&client, team_id).await?)
+            }
+            Write::RemoveFromTeam { team_id, user_id } => {
+                client.remove_team_member(&team_id, &user_id).await?;
+                Some(team_people(&client, team_id).await?)
+            }
             Write::TeamSettings { team_id } => {
                 Some(Loaded::TeamSettings(Box::new(client.team(&team_id).await?)))
             }
@@ -1215,6 +1247,43 @@ pub(crate) async fn run(
 /// Loads a team the user just joined as the initial load would, then says
 /// it is joined. The `added_to_team` event may load it too; the store takes
 /// the same rows twice.
+/// A team's people and which of them are its admins, for Team members
+/// (#988).
+async fn team_people(client: &Client, team_id: String) -> Result<Loaded, ApiError> {
+    let mut users = Vec::new();
+    let mut admins = Vec::new();
+    for page in 0..PEOPLE_PAGES {
+        let batch = client.team_users(&team_id, page, PAGE).await?;
+        let last = batch.len() < PAGE as usize;
+        users.extend(batch);
+        if last {
+            break;
+        }
+    }
+    for page in 0..PEOPLE_PAGES {
+        let batch = client.team_members(&team_id, page, PAGE).await?;
+        let last = batch.len() < PAGE as usize;
+        admins.extend(
+            batch
+                .into_iter()
+                .filter(|member| {
+                    member.delete_at == 0
+                        && (member.scheme_admin
+                            || member.roles.split_whitespace().any(|r| r == "team_admin"))
+                })
+                .map(|member| member.user_id),
+        );
+        if last {
+            break;
+        }
+    }
+    Ok(Loaded::TeamPeople {
+        team_id,
+        users,
+        admins,
+    })
+}
+
 async fn joined_team(
     client: &Client,
     user_id: &str,

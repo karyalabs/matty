@@ -82,3 +82,19 @@ team-settings-regenerate = Regenerate
 team-settings-regenerate-detail = Regenerating stops the old link from working.
 team-settings-failed = Couldn't change the team's settings: { $error }
 team-settings-regenerate-failed = Couldn't regenerate the invite link: { $error }
+
+## Team members (#988)
+
+teams-view-members = View members
+teams-manage-members = Manage members
+team-members-title = Members of { $team }
+team-members-manage-title = Manage members of { $team }
+team-members-count = { $count ->
+        [one] { $count } member
+       *[other] { $count } members
+    }
+team-members-make-admin = Make admin
+team-members-remove-admin = Remove admin
+team-members-remove = Remove { $name } from the team
+team-members-close = Close
+team-members-failed = Couldn't change the team's members: { $error }

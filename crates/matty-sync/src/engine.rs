@@ -657,6 +657,30 @@ pub enum Command {
         /// The team.
         team_id: String,
     },
+    /// A team's people and admins (#988);
+    /// [`ChangeSet::TeamPeople`](crate::ChangeSet::TeamPeople) answers.
+    TeamPeople {
+        /// The team.
+        team_id: String,
+    },
+    /// Makes someone a team admin or takes it away (#988); the people come
+    /// back in [`ChangeSet::TeamPeople`](crate::ChangeSet::TeamPeople).
+    TeamAdmin {
+        /// The team.
+        team_id: String,
+        /// The person.
+        user_id: String,
+        /// Admin or not.
+        admin: bool,
+    },
+    /// Removes someone from a team (#988); the people come back in
+    /// [`ChangeSet::TeamPeople`](crate::ChangeSet::TeamPeople).
+    RemoveFromTeam {
+        /// The team.
+        team_id: String,
+        /// The person.
+        user_id: String,
+    },
     /// Changes a team's name, description or openness (#987); the team
     /// comes back in [`ChangeSet::TeamSettings`](crate::ChangeSet::TeamSettings).
     PatchTeam {
@@ -1239,6 +1263,25 @@ impl std::fmt::Debug for Command {
             Self::TeamSettings { team_id } => f
                 .debug_struct("TeamSettings")
                 .field("team_id", team_id)
+                .finish(),
+            Self::TeamPeople { team_id } => f
+                .debug_struct("TeamPeople")
+                .field("team_id", team_id)
+                .finish(),
+            Self::TeamAdmin {
+                team_id,
+                user_id,
+                admin,
+            } => f
+                .debug_struct("TeamAdmin")
+                .field("team_id", team_id)
+                .field("user_id", user_id)
+                .field("admin", admin)
+                .finish(),
+            Self::RemoveFromTeam { team_id, user_id } => f
+                .debug_struct("RemoveFromTeam")
+                .field("team_id", team_id)
+                .field("user_id", user_id)
                 .finish(),
             Self::PatchTeam { team_id, patch } => f
                 .debug_struct("PatchTeam")
@@ -2419,6 +2462,21 @@ impl Engine {
                 }
                 Message::Command(Command::TeamSettings { team_id }) => {
                     writes.push(Write::TeamSettings { team_id });
+                }
+                Message::Command(Command::TeamPeople { team_id }) => {
+                    writes.push(Write::TeamPeople { team_id });
+                }
+                Message::Command(Command::TeamAdmin {
+                    team_id,
+                    user_id,
+                    admin,
+                }) => writes.push(Write::TeamAdmin {
+                    team_id,
+                    user_id,
+                    admin,
+                }),
+                Message::Command(Command::RemoveFromTeam { team_id, user_id }) => {
+                    writes.push(Write::RemoveFromTeam { team_id, user_id });
                 }
                 Message::Command(Command::PatchTeam { team_id, patch }) => {
                     writes.push(Write::PatchTeam { team_id, patch });
@@ -4077,6 +4135,18 @@ impl Engine {
                     team_id,
                     invite_id,
                     users: Arc::from(users),
+                });
+            }
+            Loaded::TeamPeople {
+                team_id,
+                users,
+                admins,
+            } => {
+                sidebar::upsert_users(self.store.conn(), &users)?;
+                dirty.direct.push(ChangeSet::TeamPeople {
+                    team_id,
+                    users: Arc::from(users),
+                    admins: Arc::from(admins),
                 });
             }
             Loaded::TeamSettings(team) => {
