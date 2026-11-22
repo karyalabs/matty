@@ -2365,21 +2365,136 @@ impl ChannelView {
                 )
                 .into_any_element()
         } else if self.history.at_start {
-            let name: SharedString = match self.model.as_ref() {
-                Some(channel) => match channel.kind {
-                    ChannelKind::Direct { .. } | ChannelKind::Group { .. } => {
-                        t!("chan-this-conversation")
-                    }
-                    _ => format!("#{}", channel.name).into(),
-                },
-                None => t!("chan-the-channel"),
-            };
-            row.child(t!("chan-start-of", name = name.to_string()))
-                .into_any_element()
+            match self.model.clone() {
+                Some(channel) => Self::channel_intro(&channel, cx).into_any_element(),
+                None => row
+                    .child(t!(
+                        "chan-start-of",
+                        name = t!("chan-the-channel").to_string()
+                    ))
+                    .into_any_element(),
+            }
         } else {
             // Nothing to show yet; the request goes out as the row renders.
             div().h(theme.space(2.)).into_any_element()
         }
+    }
+
+    /// The top of a channel's whole history (#994): its name, where it
+    /// starts and its purpose, with the first things to do there, as in
+    /// the official client.
+    fn channel_intro(channel: &ChannelModel, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let group = matches!(channel.kind, ChannelKind::Group { .. });
+        let direct = group || matches!(channel.kind, ChannelKind::Direct { .. });
+        let (glyph, start) = if direct {
+            (
+                LucideIcon::MessageSquare,
+                t!("chan-start-direct", name = channel.name.to_string()),
+            )
+        } else {
+            (
+                if matches!(channel.kind, ChannelKind::Private) {
+                    LucideIcon::Lock
+                } else {
+                    LucideIcon::Hash
+                },
+                t!("chan-start-of", name = format!("#{}", channel.name)),
+            )
+        };
+        let action = |id: &'static str, icon: LucideIcon, label: SharedString| {
+            Button::new(id)
+                .variant(ButtonVariant::Outline)
+                .size(ButtonSize::Sm)
+                .aria_label(label.clone())
+                .child(
+                    lucide(icon)
+                        .size(scaled(&theme, metrics::ICON_SMALL))
+                        .text_color(theme.colors.muted_foreground),
+                )
+                .child(label)
+        };
+        let mut actions = Vec::new();
+        if group || (!direct && channel.rights.members) {
+            actions.push(
+                action(
+                    "channel.intro.add-members",
+                    LucideIcon::UserPlus,
+                    t!("chan-add-members"),
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.open_add_members(window, cx)))
+                .into_any_element(),
+            );
+        }
+        // Anyone in a conversation may set its header.
+        if channel.header.is_none() && (direct || channel.rights.edit) {
+            actions.push(
+                action(
+                    "channel.intro.header",
+                    LucideIcon::Pencil,
+                    t!("chan-intro-set-header"),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.edit_channel(ChannelField::Header, window, cx)
+                }))
+                .into_any_element(),
+            );
+        }
+        actions.push(
+            action(
+                "channel.intro.notifications",
+                LucideIcon::Bell,
+                t!("chan-intro-notifications"),
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.open_notifications(window, cx)))
+            .into_any_element(),
+        );
+        div()
+            .px(scaled(&theme, metrics::GUTTER))
+            .pt(theme.space(8.))
+            .pb(theme.space(4.))
+            .flex()
+            .flex_col()
+            .gap(theme.space(2.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(theme.space(2.))
+                    .type_style(style::TITLE, &theme)
+                    .text_color(theme.colors.foreground)
+                    .child(
+                        lucide(glyph)
+                            .size(scaled(&theme, metrics::ICON))
+                            .text_color(theme.colors.muted_foreground),
+                    )
+                    .child(channel.name.clone()),
+            )
+            .child(
+                div()
+                    .type_style(style::UI, &theme)
+                    .text_color(theme.colors.muted_foreground)
+                    .child(start),
+            )
+            .when_some(
+                channel.purpose.clone().filter(|_| !direct),
+                |intro, purpose| {
+                    intro.child(
+                        div()
+                            .type_style(style::UI, &theme)
+                            .text_color(theme.colors.foreground)
+                            .child(purpose),
+                    )
+                },
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(theme.space(2.))
+                    .pt(theme.space(1.))
+                    .children(actions),
+            )
     }
 
     /// Replaces a post the server changed (edit, reaction, pin) in place.
