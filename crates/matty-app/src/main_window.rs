@@ -244,6 +244,9 @@ pub struct MainWindow {
     /// The Join a team dialog (#745), and the team joined that the window
     /// shows once it is in the team list.
     join_team_view: Entity<crate::directory::JoinTeamView>,
+    /// Invite people to a team (#962), and the team it is open for.
+    team_invite_view: Entity<crate::directory::AddMembersView>,
+    inviting_team: Option<SharedString>,
     joining: Option<SharedString>,
     /// "Leave {team}?" from a team tab's menu, for the team in `leaving`.
     leave_team_dialog: DialogHandle,
@@ -491,6 +494,9 @@ impl MainWindow {
         }
         let join_team_view = cx.new(|cx| crate::directory::JoinTeamView::new(window, cx));
         cx.subscribe_in(&join_team_view, window, Self::on_join_team_event)
+            .detach();
+        let team_invite_view = cx.new(|cx| crate::directory::AddMembersView::new(window, cx));
+        cx.subscribe_in(&team_invite_view, window, Self::on_team_invite_event)
             .detach();
         let new_message = cx.new(|cx| NewMessageView::new(window, cx));
         if crate::preview::enabled() {
@@ -1251,6 +1257,8 @@ impl MainWindow {
             collapsed_threads: crate::preview::enabled().then_some((true, true)),
             browse,
             join_team_view,
+            team_invite_view,
+            inviting_team: None,
             joining: None,
             leave_team_dialog: DialogHandle::new(false),
             leaving: Default::default(),
@@ -1988,6 +1996,14 @@ impl MainWindow {
         if let Some(teams) = update.joinable.take() {
             self.join_team_view
                 .update(cx, |view, cx| view.set_teams(teams, cx));
+        }
+        if let Some((team_id, invite_link, people)) = update.team_invitees.take()
+            && self.inviting_team.as_ref() == Some(&team_id)
+        {
+            self.team_invite_view.update(cx, |view, cx| {
+                view.set_profiles(people, cx);
+                view.set_invite_link(invite_link, cx);
+            });
         }
         if let Some(team) = update.team_joined.take() {
             self.joining = Some(team);
@@ -4903,6 +4919,14 @@ impl MainWindow {
                 &join,
                 dialog_popup("join-team.popup", crate::t!("teams-join-title"), cx)
                     .child(self.join_team_view.clone()),
+                window,
+                cx,
+            ))
+            .child(dialog(
+                "team-invite",
+                &self.team_invite_view.read(cx).handle().clone(),
+                dialog_popup("team-invite.popup", crate::t!("teams-invite"), cx)
+                    .child(self.team_invite_view.clone()),
                 window,
                 cx,
             ))

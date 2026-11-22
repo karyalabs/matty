@@ -37,6 +37,18 @@ impl Client {
         .await
     }
 
+    /// `GET teams/{team_id}`.
+    pub async fn team(&self, team_id: &str) -> Result<Team, ApiError> {
+        self.get(&format!("teams/{team_id}")).await
+    }
+
+    /// `POST teams/{team_id}/invite/email`: emails an invite to each address.
+    pub async fn invite_by_email(&self, team_id: &str, emails: &[String]) -> Result<(), ApiError> {
+        self.post::<_, Value>(&format!("teams/{team_id}/invite/email"), &emails)
+            .await
+            .map(|_| ())
+    }
+
     /// `POST teams/members/invite?invite_id=`: joins the team an invite
     /// link names, open or not.
     pub async fn join_team_by_invite(&self, invite_id: &str) -> Result<TeamMember, ApiError> {

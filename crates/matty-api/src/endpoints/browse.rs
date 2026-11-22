@@ -303,6 +303,26 @@ impl Client {
 
     /// `GET users?in_team=&not_in_channel=`: one page of a team's active
     /// people who are not in a channel, for Add members (#208).
+    pub async fn users_not_in_team(
+        &self,
+        team_id: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<User>, ApiError> {
+        self.get_query(
+            "users",
+            &[
+                ("not_in_team", team_id.to_owned()),
+                ("active", "true".to_owned()),
+                ("page", page.to_string()),
+                ("per_page", per_page.to_string()),
+            ],
+        )
+        .await
+    }
+
+    /// `GET users?in_team=&not_in_channel=`: the team's people who are not
+    /// in the channel.
     pub async fn users_not_in_channel(
         &self,
         team_id: &str,

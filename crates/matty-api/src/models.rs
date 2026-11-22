@@ -114,6 +114,8 @@ pub struct Team {
     pub description: String,
     /// Anyone on the server may join it without an invite.
     pub allow_open_invite: bool,
+    /// The id in the team's invite link; empty unless the user may invite.
+    pub invite_id: String,
     /// Milliseconds since the epoch.
     pub last_team_icon_update: i64,
     /// Milliseconds since the epoch; nonzero when archived.

@@ -242,6 +242,9 @@ pub struct Update {
     /// A team the user just joined, now in the team list: the window
     /// switches to it.
     pub team_joined: Option<SharedString>,
+    /// Invite people's answer (#962): the team, its invite link when the
+    /// user may invite, and the server's people not on it.
+    pub team_invitees: Option<(SharedString, Option<SharedString>, Vec<UserProfile>)>,
     /// Something the server or an App refused, for a toast (#226).
     pub refused: Option<SharedString>,
     /// A link an App answered with, for Matty's link routing (#226).
@@ -2751,6 +2754,30 @@ impl Live {
                 // The team roles' permissions may not be known yet.
                 self.ask_roles();
                 update.details = self.shown_details();
+            }
+            ChangeSet::TeamNonMembers {
+                team_id,
+                invite_id,
+                users,
+            } => {
+                for user in users.iter() {
+                    self.avatars.learn(&user.id, user.last_picture_update);
+                    self.users.insert(user.id.clone(), user.clone());
+                }
+                let mut people: Vec<_> = users
+                    .iter()
+                    .filter(|user| user.id != self.me.0 && user.delete_at == 0 && !user.is_bot)
+                    .map(|user| self.profile(user))
+                    .collect();
+                people.sort_by_key(|person| person.display_name.to_lowercase());
+                let link = (!invite_id.is_empty()).then(|| {
+                    format!(
+                        "{}/signup_user_complete/?id={invite_id}",
+                        self.server.trim_end_matches('/')
+                    )
+                    .into()
+                });
+                update.team_invitees = Some((team_id.clone().into(), link, people));
             }
             ChangeSet::NonMembers { channel_id, users } if self.is_open(channel_id) => {
                 for user in users.iter() {

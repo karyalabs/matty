@@ -621,6 +621,27 @@ pub enum Command {
         /// The properties to change.
         props: std::collections::HashMap<String, String>,
     },
+    /// Finds the server's people who are not on a team, for Invite people
+    /// (#962); [`ChangeSet::TeamNonMembers`](crate::ChangeSet::TeamNonMembers)
+    /// answers.
+    TeamNonMembers {
+        /// The team.
+        team_id: String,
+    },
+    /// Adds people already on the server to a team (#962).
+    AddTeamMembers {
+        /// The team.
+        team_id: String,
+        /// The people.
+        user_ids: Vec<String>,
+    },
+    /// Emails invites to a team (#962).
+    InviteByEmail {
+        /// The team.
+        team_id: String,
+        /// The addresses.
+        emails: Vec<String>,
+    },
     /// Adds people to a channel; the counts come back in
     /// [`ChangeSet::Stats`](crate::ChangeSet::Stats).
     AddMembers {
@@ -1139,6 +1160,20 @@ impl std::fmt::Debug for Command {
                 .debug_struct("SetChannelNotifications")
                 .field("channel_id", channel_id)
                 .field("props", props)
+                .finish(),
+            Self::TeamNonMembers { team_id } => f
+                .debug_struct("TeamNonMembers")
+                .field("team_id", team_id)
+                .finish(),
+            Self::AddTeamMembers { team_id, user_ids } => f
+                .debug_struct("AddTeamMembers")
+                .field("team_id", team_id)
+                .field("user_ids", user_ids)
+                .finish(),
+            Self::InviteByEmail { team_id, emails } => f
+                .debug_struct("InviteByEmail")
+                .field("team_id", team_id)
+                .field("emails", &emails.len())
                 .finish(),
             Self::AddMembers {
                 channel_id,
@@ -2267,6 +2302,15 @@ impl Engine {
                 }),
                 Message::Command(Command::SetChannelNotifications { channel_id, props }) => {
                     writes.push(Write::Notify { channel_id, props });
+                }
+                Message::Command(Command::TeamNonMembers { team_id }) => {
+                    writes.push(Write::TeamNonMembers { team_id });
+                }
+                Message::Command(Command::AddTeamMembers { team_id, user_ids }) => {
+                    writes.push(Write::AddTeamMembers { team_id, user_ids });
+                }
+                Message::Command(Command::InviteByEmail { team_id, emails }) => {
+                    writes.push(Write::InviteByEmail { team_id, emails });
                 }
                 Message::Command(Command::AddMembers {
                     channel_id,
@@ -3895,6 +3939,18 @@ impl Engine {
                 dirty
                     .direct
                     .push(ChangeSet::TeamMembers(Arc::from(members)));
+            }
+            Loaded::TeamNonMembers {
+                team_id,
+                invite_id,
+                users,
+            } => {
+                sidebar::upsert_users(self.store.conn(), &users)?;
+                dirty.direct.push(ChangeSet::TeamNonMembers {
+                    team_id,
+                    invite_id,
+                    users: Arc::from(users),
+                });
             }
             Loaded::NonMembers { channel_id, users } => {
                 sidebar::upsert_users(self.store.conn(), &users)?;

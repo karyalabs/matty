@@ -306,6 +306,9 @@ impl MainWindow {
             TeamsEvent::AddServer => self.add_server(None, window, cx),
             TeamsEvent::Select(team) => self.switch_team(team.clone(), window, cx),
             TeamsEvent::Join => self.join_team(window, cx),
+            TeamsEvent::Invite { id, name } => {
+                self.invite_to_team(id.clone(), name.clone(), window, cx)
+            }
             TeamsEvent::Leave { id, name } => {
                 self.ask_leave_team(id.clone(), name.clone(), window, cx)
             }
@@ -416,6 +419,56 @@ impl MainWindow {
         {
             self.joining = None;
             self.switch_team(id, window, cx);
+        }
+    }
+
+    /// Invite people (#962): the server's people not on `team`, a field
+    /// for email invites, and the team's invite link once sync has them.
+    pub(super) fn invite_to_team(
+        &mut self,
+        id: gpui_kit::SharedString,
+        name: gpui_kit::SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let people = crate::preview::enabled().then(crate::preview::profiles);
+        self.inviting_team = Some(id.clone());
+        self.team_invite_view
+            .update(cx, |view, cx| view.open_for_team(name, people, window, cx));
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::TeamNonMembers {
+                team_id: id.to_string(),
+            });
+        }
+    }
+
+    pub(super) fn on_team_invite_event(
+        &mut self,
+        _: &Entity<crate::directory::AddMembersView>,
+        event: &crate::directory::AddMembersEvent,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        let crate::directory::AddMembersEvent::InviteToTeam { people, emails } = event else {
+            return;
+        };
+        let (Some(live), Some(team_id)) = (&self.live, self.inviting_team.take()) else {
+            return;
+        };
+        if !people.is_empty() {
+            live.send(matty_sync::Command::AddTeamMembers {
+                team_id: team_id.to_string(),
+                user_ids: people
+                    .iter()
+                    .map(|person| person.user_id.to_string())
+                    .collect(),
+            });
+        }
+        if !emails.is_empty() {
+            live.send(matty_sync::Command::InviteByEmail {
+                team_id: team_id.to_string(),
+                emails: emails.clone(),
+            });
         }
     }
 

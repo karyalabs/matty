@@ -87,7 +87,6 @@ impl BrowseView {
         }
     }
 
-    /// The dialog's open state, for the window's `dialog` wrapper.
     pub fn handle(&self) -> &DialogHandle {
         &self.handle
     }
@@ -883,6 +882,21 @@ impl Render for CreateChannelView {
 pub enum AddMembersEvent {
     /// Add these people (by user id) to the channel the dialog was opened for.
     Add(Vec<UserProfile>),
+    /// Invite people to the team the dialog was opened for (#962): those
+    /// already on the server, and email invites.
+    InviteToTeam {
+        people: Vec<UserProfile>,
+        emails: Vec<String>,
+    },
+}
+
+/// What Invite people knows about the team it adds to (#962).
+#[derive(Clone, Debug, Default)]
+struct TeamInvite {
+    /// The team's invite link, when the user may invite.
+    link: Option<SharedString>,
+    copied: bool,
+    emails: Option<Entity<InputState>>,
 }
 
 /// The "Add members" dialog: a searchable, multi-select people list.
@@ -895,10 +909,26 @@ pub struct AddMembersView {
     search: Entity<InputState>,
     handle: DialogHandle,
     focus_search: bool,
+    /// Set while the dialog invites people to a team instead.
+    team: Option<TeamInvite>,
     _subscription: gpui_kit::Subscription,
+    _emails_subscription: Option<gpui_kit::Subscription>,
 }
 
 impl EventEmitter<AddMembersEvent> for AddMembersView {}
+
+/// The addresses in a comma or space separated list that look like email
+/// addresses.
+fn email_list(text: &str) -> Vec<String> {
+    text.split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+        .map(str::trim)
+        .filter(|part| {
+            part.split_once('@')
+                .is_some_and(|(user, host)| !user.is_empty() && host.contains('.'))
+        })
+        .map(str::to_owned)
+        .collect()
+}
 
 impl AddMembersView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -913,10 +943,59 @@ impl AddMembersView {
             search,
             handle: DialogHandle::new(false),
             focus_search: false,
+            team: None,
             _subscription: subscription,
+            _emails_subscription: None,
         }
     }
 
+    /// Opens Invite people for `team` (#962): people on the server who
+    /// are not on it, or `None` while the server finds them.
+    pub fn open_for_team(
+        &mut self,
+        team: SharedString,
+        profiles: Option<Vec<UserProfile>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let emails =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("invite-emails-placeholder")));
+        self._emails_subscription =
+            Some(cx.subscribe(&emails, |_, _, _: &InputEvent, cx| cx.notify()));
+        self.open(team, profiles, window, cx);
+        self.team = Some(TeamInvite {
+            emails: Some(emails),
+            ..TeamInvite::default()
+        });
+    }
+
+    /// The team's invite link, once the server answered.
+    pub fn set_invite_link(&mut self, link: Option<SharedString>, cx: &mut Context<Self>) {
+        if let Some(team) = self.team.as_mut() {
+            team.link = link;
+            cx.notify();
+        }
+    }
+
+    fn copy_invite_link(&mut self, cx: &mut Context<Self>) {
+        if let Some(team) = self.team.as_mut()
+            && let Some(link) = &team.link
+        {
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(link.to_string()));
+            team.copied = true;
+            cx.notify();
+        }
+    }
+
+    fn typed_emails(&self, cx: &App) -> Vec<String> {
+        self.team
+            .as_ref()
+            .and_then(|team| team.emails.as_ref())
+            .map(|emails| email_list(&emails.read(cx).value()))
+            .unwrap_or_default()
+    }
+
+    /// The dialog's open state, for the window's `dialog` wrapper.
     pub fn handle(&self) -> &DialogHandle {
         &self.handle
     }
@@ -931,6 +1010,7 @@ impl AddMembersView {
         cx: &mut Context<Self>,
     ) {
         self.channel = channel;
+        self.team = None;
         self.loading = profiles.is_none();
         self.profiles = profiles.unwrap_or_default();
         self.selected.clear();
@@ -959,7 +1039,8 @@ impl AddMembersView {
     }
 
     fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected.is_empty() {
+        let emails = self.typed_emails(cx);
+        if self.selected.is_empty() && emails.is_empty() {
             return;
         }
         let people: Vec<UserProfile> = self
@@ -969,7 +1050,11 @@ impl AddMembersView {
             .cloned()
             .collect();
         self.handle.close(window, cx);
-        cx.emit(AddMembersEvent::Add(people));
+        if self.team.is_some() {
+            cx.emit(AddMembersEvent::InviteToTeam { people, emails });
+        } else {
+            cx.emit(AddMembersEvent::Add(people));
+        }
     }
 
     fn row(&self, profile: &UserProfile, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -994,16 +1079,25 @@ impl AddMembersView {
             .hover(|style| style.bg(theme.colors.accent))
             .on_click(cx.listener(move |this, _, _, cx| this.toggle(row_id.clone(), cx)))
             .child(
-                Checkbox::new(gpui_kit::ElementId::Name(
-                    format!("add-members.{username}.checkbox").into(),
-                ))
-                .checked(checked)
-                .aria_label(profile.display_name.clone())
-                .on_change(move |_, _, cx| {
-                    box_view
-                        .update(cx, |this, cx| this.toggle(box_id.clone(), cx))
-                        .ok();
-                }),
+                // The row toggles on a click too; a click on the box must
+                // not reach it, or the box toggles twice.
+                div()
+                    .id(gpui_kit::ElementId::Name(
+                        format!("add-members.{username}.checkbox-cell").into(),
+                    ))
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(
+                        Checkbox::new(gpui_kit::ElementId::Name(
+                            format!("add-members.{username}.checkbox").into(),
+                        ))
+                        .checked(checked)
+                        .aria_label(profile.display_name.clone())
+                        .on_change(move |_, _, cx| {
+                            box_view
+                                .update(cx, |this, cx| this.toggle(box_id.clone(), cx))
+                                .ok();
+                        }),
+                    ),
             )
             .child(crate::avatars::with_picture(
                 Avatar::new(gpui_kit::ElementId::Name(
@@ -1053,8 +1147,28 @@ impl Render for AddMembersView {
             })
             .map(|profile| self.row(profile, cx).into_any_element())
             .collect();
+        let emails = self.typed_emails(cx).len();
         let count = self.selected.len();
-        let add_label = t!("add-members-add", count = count);
+        let team = self.team.clone();
+        let add_label = if team.is_some() {
+            t!("invite-send", count = count + emails)
+        } else {
+            t!("add-members-add", count = count)
+        };
+        let (title, description) = if team.is_some() {
+            (
+                t!("invite-title", team = self.channel.to_string()),
+                t!("invite-description", team = self.channel.to_string()),
+            )
+        } else {
+            (
+                t!("add-members-title"),
+                t!(
+                    "add-members-description",
+                    channel = self.channel.to_string()
+                ),
+            )
+        };
         div()
             .flex()
             .flex_col()
@@ -1064,11 +1178,8 @@ impl Render for AddMembersView {
                     .flex()
                     .flex_col()
                     .gap(theme.space(1.))
-                    .child(dialog_title("add-members.title", cx).child(t!("add-members-title")))
-                    .child(dialog_description("add-members.description", cx).child(t!(
-                        "add-members-description",
-                        channel = self.channel.to_string()
-                    ))),
+                    .child(dialog_title("add-members.title", cx).child(title))
+                    .child(dialog_description("add-members.description", cx).child(description)),
             )
             .child(Input::new(&self.search).aria_label(t!("directory-search-people")))
             .child(
@@ -1089,6 +1200,8 @@ impl Render for AddMembersView {
                                 .text_color(theme.colors.muted_foreground)
                                 .child(if self.loading {
                                     t!("add-members-loading")
+                                } else if query.is_empty() && team.is_some() {
+                                    t!("invite-everyone-here")
                                 } else if query.is_empty() {
                                     t!("add-members-everyone-here")
                                 } else {
@@ -1098,11 +1211,40 @@ impl Render for AddMembersView {
                     })
                     .children(rows),
             )
+            .when_some(
+                team.as_ref().and_then(|team| team.emails.clone()),
+                |dialog, emails| {
+                    dialog.child(
+                        Field::new("invite.emails", &emails)
+                            .label(t!("invite-emails-label"))
+                            .description(t!("invite-emails-hint")),
+                    )
+                },
+            )
             .child(
                 div()
                     .flex()
                     .justify_end()
                     .gap(theme.space(2.))
+                    .when_some(
+                        team.and_then(|team| team.link.map(|_| team.copied)),
+                        |row, copied| {
+                            row.child(
+                                div().flex_1().flex().justify_start().child(
+                                    Button::new("invite.copy-link")
+                                        .variant(ButtonVariant::Ghost)
+                                        .label(if copied {
+                                            t!("invite-link-copied")
+                                        } else {
+                                            t!("invite-copy-link")
+                                        })
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.copy_invite_link(cx)),
+                                        ),
+                                ),
+                            )
+                        },
+                    )
                     .child(
                         Button::new("add-members.cancel")
                             .variant(ButtonVariant::Outline)
@@ -1114,7 +1256,7 @@ impl Render for AddMembersView {
                     .child(
                         Button::new("add-members.add")
                             .variant(ButtonVariant::Default)
-                            .disabled(count == 0)
+                            .disabled(count + emails == 0)
                             .label(add_label)
                             .on_click(cx.listener(|this, _, window, cx| this.add(window, cx))),
                     ),
@@ -1508,6 +1650,14 @@ impl Render for JoinTeamView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn email_invites_take_only_addresses() {
+        assert_eq!(
+            super::email_list("ada@example.com, sam@example.org;bad, @x.y lena@host"),
+            ["ada@example.com", "sam@example.org"]
+        );
+    }
+
     use super::channel_handle;
     use crate::t;
 

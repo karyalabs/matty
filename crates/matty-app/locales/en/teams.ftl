@@ -50,3 +50,8 @@ teams-leave-confirm = Leave team
 # What the server refused.
 teams-join-failed = Couldn't join the team: { $error }
 teams-leave-failed = Couldn't leave the team: { $error }
+
+## Invite people (#962)
+
+teams-invite = Invite people…
+teams-invite-to = Invite people to { $team }…

@@ -329,6 +329,17 @@ pub enum ChangeSet {
     /// The user's team memberships, with their team roles: the answer to
     /// [`Command::TeamRoles`](crate::Command::TeamRoles).
     TeamMembers(Arc<[matty_api::models::TeamMember]>),
+    /// The server's people who are not on a team, for Invite people: the
+    /// answer to [`Command::TeamNonMembers`](crate::Command::TeamNonMembers).
+    TeamNonMembers {
+        /// The team.
+        team_id: String,
+        /// The id in the team's invite link; empty when the user may not
+        /// invite.
+        invite_id: String,
+        /// The people.
+        users: Arc<[User]>,
+    },
     /// The team's people who are not in a channel, for Add members: the
     /// answer to [`Command::NonMembers`](crate::Command::NonMembers).
     NonMembers {

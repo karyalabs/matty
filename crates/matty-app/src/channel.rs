@@ -1738,7 +1738,9 @@ impl ChannelView {
                 this.apply_edit(*field, value.clone(), cx);
             }),
             cx.subscribe(&add_members, |this, _, event: &AddMembersEvent, cx| {
-                let AddMembersEvent::Add(people) = event;
+                let AddMembersEvent::Add(people) = event else {
+                    return;
+                };
                 if let Some(model) = this.model.as_mut().map(Rc::make_mut) {
                     model.members += people.len();
                 }

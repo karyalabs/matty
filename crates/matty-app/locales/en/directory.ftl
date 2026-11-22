@@ -50,6 +50,19 @@ add-members-title = Add members
 add-members-description = They join #{ $channel } and see its history.
 add-members-loading = Loading…
 add-members-everyone-here = Everyone on the team is already here
+invite-title = Invite people to { $team }
+invite-description = They join { $team } and can find its public channels.
+invite-everyone-here = Everyone on the server is already on this team
+invite-emails-label = Invite by email
+invite-emails-placeholder = ada@example.com, sam@example.com
+invite-emails-hint = Separate addresses with commas. Each gets an email with a link to join.
+invite-copy-link = Copy invite link
+invite-link-copied = Invite link copied
+invite-send = { $count ->
+        [0] Invite
+        [one] Invite { $count }
+       *[other] Invite { $count }
+    }
 add-members-add = { $count ->
         [0] Add
         [one] Add { $count } person

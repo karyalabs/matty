@@ -177,6 +177,17 @@ pub(crate) enum Write {
         channel_id: String,
         user_ids: Vec<String>,
     },
+    TeamNonMembers {
+        team_id: String,
+    },
+    AddTeamMembers {
+        team_id: String,
+        user_ids: Vec<String>,
+    },
+    InviteByEmail {
+        team_id: String,
+        emails: Vec<String>,
+    },
     /// Saves preferences already applied to the store.
     Preferences(Vec<matty_api::models::Preference>),
     /// Marks a thread read; the store already shows it read.
@@ -293,6 +304,9 @@ impl Write {
             Self::Patch { .. } => "change channel",
             Self::Notify { .. } => "change notifications",
             Self::AddMembers { .. } => "add members",
+            Self::TeamNonMembers { .. } => "find people to invite",
+            Self::AddTeamMembers { .. } => "add people to the team",
+            Self::InviteByEmail { .. } => "send email invites",
             Self::Preferences(_) => "save preferences",
             Self::ReadThread { .. } => "mark thread read",
             Self::ReadAllThreads { .. } => "mark threads read",
@@ -337,7 +351,11 @@ impl Write {
             Self::TeamRoles | Self::BrowseTeams | Self::JoinTeamByInvite { .. } => {
                 user_id.to_owned()
             }
-            Self::JoinTeam { team_id } | Self::LeaveTeam { team_id } => team_id.clone(),
+            Self::JoinTeam { team_id }
+            | Self::LeaveTeam { team_id }
+            | Self::TeamNonMembers { team_id }
+            | Self::AddTeamMembers { team_id, .. }
+            | Self::InviteByEmail { team_id, .. } => team_id.clone(),
             Self::Join { channel_id }
             | Self::Leave { channel_id }
             | Self::Archive { channel_id }
@@ -1033,6 +1051,35 @@ pub(crate) async fn run(
                 let mut posts: Vec<_> = list.ordered().cloned().collect();
                 posts.sort_by_key(|post| std::cmp::Reverse(post.create_at));
                 Some(Loaded::Listing { listing, posts })
+            }
+            Write::TeamNonMembers { team_id } => {
+                let mut users = Vec::new();
+                for page in 0..PEOPLE_PAGES {
+                    let batch = client.users_not_in_team(&team_id, page, PAGE).await?;
+                    let last = batch.len() < PAGE as usize;
+                    users.extend(batch);
+                    if last {
+                        break;
+                    }
+                }
+                // The server leaves the invite id out for people who may
+                // not invite.
+                let invite_id = client.team(&team_id).await?.invite_id;
+                Some(Loaded::TeamNonMembers {
+                    team_id,
+                    invite_id,
+                    users,
+                })
+            }
+            Write::AddTeamMembers { team_id, user_ids } => {
+                for id in &user_ids {
+                    client.add_team_member(&team_id, id).await?;
+                }
+                None
+            }
+            Write::InviteByEmail { team_id, emails } => {
+                client.invite_by_email(&team_id, &emails).await?;
+                None
             }
             Write::AddMembers {
                 channel_id,

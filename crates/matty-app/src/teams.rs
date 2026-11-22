@@ -170,6 +170,12 @@ pub enum TeamsEvent {
     AddServer,
     /// The user asked for Settings' Servers page.
     ManageServers,
+    /// Invite people to a team (#962), from its tab's menu or the team
+    /// menu.
+    Invite {
+        id: SharedString,
+        name: SharedString,
+    },
     /// The user asked to leave a team, from its tab's menu; the window
     /// asks first (#745).
     Leave {
@@ -315,7 +321,17 @@ impl TeamsModel {
             id: team.id.clone(),
             name: team.name.clone(),
         };
+        let invite = TeamsEvent::Invite {
+            id: team.id.clone(),
+            name: team.name.clone(),
+        };
+        let invite_view = view.clone();
         let items = vec![
+            MenuItem::new("teams.team.invite", t!("teams-invite"))
+                .icon(LucideIcon::UserPlus)
+                .on_click(move |_, _, cx| {
+                    invite_view.update(cx, |_, cx| cx.emit(invite.clone())).ok();
+                }),
             MenuItem::new("teams.team.leave", t!("teams-leave"))
                 .icon(LucideIcon::LogOut)
                 .on_click(move |_, _, cx| {
@@ -406,6 +422,23 @@ impl TeamsModel {
         }
         if !items.is_empty() {
             items.push(MenuItem::separator());
+        }
+        if let Some(team) = self
+            .current
+            .as_ref()
+            .and_then(|id| self.teams.iter().find(|team| &team.id == id))
+        {
+            items.push(
+                MenuItem::new(
+                    "teams.invite",
+                    t!("teams-invite-to", team = team.name.to_string()),
+                )
+                .icon(LucideIcon::UserPlus)
+                .on_click(emit(TeamsEvent::Invite {
+                    id: team.id.clone(),
+                    name: team.name.clone(),
+                })),
+            );
         }
         items.push(
             MenuItem::new("teams.add-server", t!("teams-add-server"))
