@@ -25,11 +25,8 @@ new-message-description = Pick someone to message, or tick up to 7 people for a 
 new-message-person = Message { $name }
 new-message-add-to-group = Add { $name } to the group
 new-message-group-hint = Tick people to start a group message.
-new-message-group-room = { $count ->
-        [one] You can add { $count } more person.
-       *[other] You can add { $count } more people.
-    }
-new-message-group-full = A group message holds you and { $count } others.
+new-message-group-room = { $count } more can join.
+new-message-group-full = The group is full.
 new-message-go = { $count ->
         [0] Go
         [one] Message 1 person

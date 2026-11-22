@@ -614,7 +614,7 @@ impl Render for NewMessageView {
             .collect();
         let count = self.selected.len();
         let note = if self.is_full() {
-            t!("new-message-group-full", count = GROUP_MAX_OTHERS)
+            t!("new-message-group-full")
         } else if count == 0 {
             t!("new-message-group-hint")
         } else {

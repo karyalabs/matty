@@ -5538,14 +5538,17 @@ impl ChannelView {
     /// A channel with no posts yet: its purpose and a way to bring people in.
     fn empty_channel(channel: &ChannelModel, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
-        let direct = matches!(channel.kind, ChannelKind::Direct { .. });
+        let group = matches!(channel.kind, ChannelKind::Group { .. });
+        let direct = group || matches!(channel.kind, ChannelKind::Direct { .. });
         let title: SharedString = if direct {
             t!("chan-start-direct", name = channel.name.to_string())
         } else {
             t!("chan-welcome", name = channel.name.to_string())
         };
         let description: SharedString = channel.purpose.clone().unwrap_or_else(|| {
-            if direct {
+            if group {
+                t!("chan-empty-group")
+            } else if direct {
                 t!("chan-empty-direct")
             } else {
                 t!("chan-empty-channel")

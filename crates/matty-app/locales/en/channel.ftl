@@ -181,6 +181,7 @@ chan-offline-description = Matty hasn't saved { $place } on this computer yet. I
 chan-start-direct = This is the start of your conversation with { $name }
 chan-welcome = Welcome to #{ $name }
 chan-empty-direct = Messages here stay between the two of you.
+chan-empty-group = Messages here stay within this group.
 chan-empty-channel = Nothing has been posted yet. Say hello, or set a purpose so people know what belongs here.
 chan-no-channel = No channel open
 chan-no-channel-detail = Pick a channel or a conversation in the sidebar.
