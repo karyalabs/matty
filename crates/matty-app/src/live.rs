@@ -84,6 +84,9 @@ pub struct Live {
     /// How many direct and group messages the sidebar shows (#619), from
     /// the user's `sidebar_settings/limit_visible_dms_gms`.
     dm_limit: usize,
+    /// Whether joins and leaves show (#967), from the user's
+    /// `advanced_settings/join_leave`.
+    join_leave: bool,
     /// How people's names read (#156), from settings.
     names: crate::settings::NameFormat,
     /// Not connected: an open channel with no posts may just not be saved
@@ -755,6 +758,7 @@ impl Live {
                 threads_on: None,
                 link_previews: true,
                 dm_limit: DM_LIMIT,
+                join_leave: true,
                 names: crate::settings::NameFormat::default(),
                 offline: crate::offline(),
                 zone: crate::clock::zone(),
@@ -991,6 +995,7 @@ impl Live {
             link_previews: false,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         let model =
             crate::transcript::channel_model(&row, Some(posts), &self.users, &viewer, None, &[]);
@@ -1008,6 +1013,7 @@ impl Live {
             link_previews: self.link_previews,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         let with_ephemeral = crate::interactive::with_ephemeral(
             self.posts.as_deref(),
@@ -1690,6 +1696,7 @@ impl Live {
             link_previews: self.link_previews,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         let listed: Vec<_> = posts
             .iter()
@@ -1878,6 +1885,7 @@ impl Live {
             link_previews: self.link_previews,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         let rows = threads
             .iter()
@@ -1917,6 +1925,7 @@ impl Live {
             link_previews: self.link_previews,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         let shown = |post| crate::transcript::listed_post(post, &self.users, &viewer);
         let mut model = crate::right_pane::ThreadModel {
@@ -2015,6 +2024,7 @@ impl Live {
             link_previews: self.link_previews,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         Some(
             files
@@ -2066,6 +2076,7 @@ impl Live {
             link_previews: self.link_previews,
             collapsed_threads: self.threads_on.unwrap_or(false),
             names: self.names,
+            join_leave: self.join_leave,
         };
         let files = self
             .search_files
@@ -3000,6 +3011,17 @@ impl Live {
                 if limit != self.dm_limit {
                     self.dm_limit = limit;
                     update.categories = self.shown_categories();
+                }
+                let join_leave = !preferences.iter().any(|p| {
+                    p.category == "advanced_settings"
+                        && p.name == "join_leave"
+                        && p.value == "false"
+                });
+                if join_leave != self.join_leave {
+                    self.join_leave = join_leave;
+                    if self.posts.is_some() {
+                        update.channel = self.channel_update();
+                    }
                 }
             }
             ChangeSet::LinkPreviews(on) if *on != self.link_previews => {

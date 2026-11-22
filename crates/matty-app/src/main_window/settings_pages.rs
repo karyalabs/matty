@@ -49,6 +49,7 @@ use crate::ui::{
 /// The Mattermost preference categories Settings mirrors.
 const DISPLAY: &str = "display_settings";
 const ADVANCED: &str = "advanced_settings";
+const SIDEBAR: &str = "sidebar_settings";
 
 /// The cache size limits Advanced offers, in MB.
 const CACHE_SIZES: [u32; 4] = [250, 500, 1000, 2000];
@@ -529,6 +530,15 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, DISPLAY, "collapse_previews") {
         settings.collapse_previews = value == "true";
     }
+    if let Some(value) = find(preferences, ADVANCED, "join_leave") {
+        settings.join_leave = value != "false";
+    }
+    if let Some(limit) = find(preferences, SIDEBAR, "limit_visible_dms_gms")
+        .and_then(|value| value.trim().parse().ok())
+        .filter(|limit| *limit > 0)
+    {
+        settings.visible_dms = limit;
+    }
     if let Some(value) = find(preferences, DISPLAY, "name_format") {
         settings.name_format = match value {
             "username" => NameFormat::Username,
@@ -572,6 +582,24 @@ pub(crate) fn collapse_previews_preference(collapsed: bool) -> Vec<Preference> {
         DISPLAY,
         "collapse_previews",
         if collapsed { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for showing joins and leaves.
+pub(crate) fn join_leave_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        ADVANCED,
+        "join_leave",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for how many direct messages the sidebar shows.
+pub(crate) fn visible_dms_preference(limit: usize) -> Vec<Preference> {
+    vec![preference(
+        SIDEBAR,
+        "limit_visible_dms_gms",
+        &limit.to_string(),
     )]
 }
 
@@ -1139,6 +1167,53 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let join_leave = Switch::new("preferences.join-leave.switch")
+            .checked(settings.join_leave)
+            .aria_label(t!("prefs-join-leave"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.join_leave = next,
+                            |s| join_leave_preference(s.join_leave),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
+        let dm_value = match settings.visible_dms {
+            10 => "10",
+            15 => "15",
+            40 => "40",
+            limit if limit >= 10_000 => "all",
+            _ => "20",
+        };
+        let visible_dms = selects.get(
+            "preferences.visible-dms",
+            &[
+                ("10", "10".into()),
+                ("15", "15".into()),
+                ("20", "20".into()),
+                ("40", "40".into()),
+                ("all", t!("prefs-visible-dms-all")),
+            ],
+            dm_value,
+            |value, this, cx| {
+                let limit = match value {
+                    "all" => 10_000,
+                    other => other.parse().unwrap_or(20),
+                };
+                this.set_synced(
+                    |s| s.visible_dms = limit,
+                    |s| visible_dms_preference(s.visible_dms),
+                    cx,
+                )
+            },
+            window,
+            cx,
+        );
         let mut reading = Group::new("preferences.reading", t!("prefs-reading"))
             .synced()
             .row(
@@ -1166,6 +1241,16 @@ impl MainWindow {
                 )
                 .description(t!("prefs-collapse-previews-detail"))
                 .control(previews),
+            )
+            .row(
+                Row::new("preferences.join-leave", t!("prefs-join-leave"))
+                    .description(t!("prefs-join-leave-detail"))
+                    .control(join_leave),
+            )
+            .row(
+                Row::new("preferences.visible-dms", t!("prefs-visible-dms"))
+                    .description(t!("prefs-visible-dms-detail"))
+                    .control(select(&visible_dms, t!("prefs-visible-dms"), &theme)),
             );
         if let Some((true, on)) = self.collapsed_threads {
             let view = view.clone();

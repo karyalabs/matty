@@ -1290,6 +1290,7 @@ fn activity(row: &ChannelRow) -> Vec<Post> {
         link_previews: true,
         collapsed_threads: value().as_deref() != Some("crt-off"),
         names: crate::settings::NameFormat::default(),
+        join_leave: true,
     };
     crate::transcript::channel_model(row, Some(&posts), &users, &viewer, None, &[]).posts
 }

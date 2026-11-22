@@ -38,6 +38,9 @@ pub struct Viewer<'a> {
     pub collapsed_threads: bool,
     /// How people's names read (#156).
     pub names: NameFormat,
+    /// Show joins and leaves (`advanced_settings/join_leave`, #967); the
+    /// viewer's own always show, as in the web app.
+    pub join_leave: bool,
 }
 
 /// The name Matty shows when the user has not chosen a format: nickname,
@@ -106,6 +109,9 @@ pub fn channel_model(
         }
         let stamp = when(post.create_at, viewer.zone, today);
         let day = stamp.1.clone();
+        if !viewer.join_leave && Verb::of(&post.kind).is_some() && !involves(post, viewer.user_id) {
+            continue;
+        }
         if let Some(entry) = Activity::of(post, users, viewer) {
             let last = rows.last_mut().filter(|last| {
                 last.kind == (PostKind::System { activity: true })
@@ -427,6 +433,15 @@ fn system_post(
         image_sizes: Vec::new(),
         priority: None,
     }
+}
+
+/// Whether a join or leave is the viewer's own: they joined or left, or
+/// someone added or removed them, or they added or removed someone.
+fn involves(post: &ApiPost, user_id: &str) -> bool {
+    post.user_id == user_id
+        || ["addedUserId", "removedUserId", "userId"]
+            .iter()
+            .any(|key| prop(post, key) == user_id)
 }
 
 /// A string prop, or empty.
@@ -815,6 +830,7 @@ mod tests {
             link_previews: true,
             collapsed_threads: false,
             names: NameFormat::default(),
+            join_leave: true,
         }
     }
 
@@ -1004,6 +1020,32 @@ mod tests {
         );
         let post = &model.posts[0];
         assert!(!post.mine && post.reactions.is_empty() && post.author.is_empty());
+    }
+
+    #[test]
+    fn hidden_joins_and_leaves_keep_the_viewers_own() {
+        let zone = TimeZone::UTC;
+        let users = HashMap::from([person("ada", "Ada"), person("me", "Me")]);
+        let posts = [
+            system("s1", "system_join_channel", "ada", NOON, &[]),
+            system("s2", "system_join_channel", "me", NOON + 1, &[]),
+            system(
+                "s3",
+                "system_add_to_channel",
+                "ada",
+                NOON + 2,
+                &[("addedUserId", "me")],
+            ),
+        ];
+        let row = ChannelRow::new("c1", "town", ChannelKind::Public);
+        let hidden = Viewer {
+            join_leave: false,
+            ..viewer(&zone)
+        };
+        let model = channel_model(&row, Some(&posts), &users, &hidden, None, &[]);
+        let ids: Vec<_> = model.posts.iter().map(|post| post.id.to_string()).collect();
+        assert_eq!(ids, ["s2"]);
+        assert_eq!(model.posts.len(), 1, "{:?}", model.posts[0].body);
     }
 
     #[test]

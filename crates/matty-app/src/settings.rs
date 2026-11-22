@@ -359,6 +359,12 @@ pub struct Settings {
     /// Link previews start collapsed: the account's `collapse_previews`
     /// display setting (#187).
     pub collapse_previews: bool,
+    /// Joins and leaves show: the account's `advanced_settings/join_leave`
+    /// (#967).
+    pub join_leave: bool,
+    /// How many direct messages the sidebar shows: the account's
+    /// `sidebar_settings/limit_visible_dms_gms` (#966); 10000 is "All".
+    pub visible_dms: usize,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -422,6 +428,8 @@ impl Default for Settings {
             name_format: NameFormat::NicknameFullName,
             reduce_motion: false,
             collapse_previews: false,
+            join_leave: true,
+            visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,
             servers: Vec::new(),

@@ -640,6 +640,7 @@ mod tests {
             link_previews: true,
             collapsed_threads: false,
             names: crate::settings::NameFormat::default(),
+            join_leave: true,
         };
         crate::transcript::listed_post(post, &HashMap::new(), &viewer)
     }
@@ -900,6 +901,7 @@ mod tests {
             link_previews: true,
             collapsed_threads: false,
             names: crate::settings::NameFormat::default(),
+            join_leave: true,
         };
         let row =
             crate::sidebar::ChannelRow::new("c1", "town", crate::sidebar::ChannelKind::Public);
