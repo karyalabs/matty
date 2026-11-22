@@ -2130,10 +2130,13 @@ impl Engine {
                         root_id: draft.root_id.clone(),
                         draft: stored.map(Arc::new),
                     });
+                    // The server allows it, and the user did not turn it off.
                     let synced = self
                         .capabilities
                         .as_ref()
-                        .is_some_and(|capabilities| capabilities.synced_drafts);
+                        .is_some_and(|capabilities| capabilities.synced_drafts)
+                        && sidebar::preference(&tx, "advanced_settings", "sync_drafts")?
+                            .is_none_or(|value| value != "false");
                     writes.extend(commands::draft_write(synced, draft));
                 }
                 Message::Command(Command::Typing {

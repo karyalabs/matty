@@ -394,6 +394,14 @@ pub struct Settings {
     /// `display_settings/channel_display_mode` is `centered`.
     #[serde(default)]
     pub centered: bool,
+    /// Messages render their Markdown: the account's
+    /// `advanced_settings/formatting`. Off, they show as typed.
+    #[serde(default = "yes")]
+    pub formatting: bool,
+    /// Drafts sync to the server and the user's other devices: the
+    /// account's `advanced_settings/sync_drafts`.
+    #[serde(default = "yes")]
+    pub sync_drafts: bool,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -469,6 +477,8 @@ impl Default for Settings {
             open_at_newest: false,
             click_to_reply: true,
             centered: false,
+            formatting: true,
+            sync_drafts: true,
             visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,

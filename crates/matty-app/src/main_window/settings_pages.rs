@@ -539,6 +539,12 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, ADVANCED, "unread_scroll_position") {
         settings.open_at_newest = value == "start_from_newest";
     }
+    if let Some(value) = find(preferences, ADVANCED, "formatting") {
+        settings.formatting = value != "false";
+    }
+    if let Some(value) = find(preferences, ADVANCED, "sync_drafts") {
+        settings.sync_drafts = value != "false";
+    }
     if let Some(value) = find(preferences, DISPLAY, "click_to_reply") {
         settings.click_to_reply = value != "false";
     }
@@ -634,6 +640,24 @@ pub(crate) fn open_at_newest_preference(newest: bool) -> Vec<Preference> {
         } else {
             "start_from_left_off"
         },
+    )]
+}
+
+/// The server preference for rendering Markdown in messages.
+pub(crate) fn formatting_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        ADVANCED,
+        "formatting",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for syncing drafts to the server.
+pub(crate) fn sync_drafts_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        ADVANCED,
+        "sync_drafts",
+        if on { "true" } else { "false" },
     )]
 }
 
@@ -1354,6 +1378,22 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let formatting = Switch::new("preferences.formatting.switch")
+            .checked(settings.formatting)
+            .aria_label(t!("prefs-formatting"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.formatting = next,
+                            |s| formatting_preference(s.formatting),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let click_to_reply = Switch::new("preferences.click-to-reply.switch")
             .checked(settings.click_to_reply)
             .aria_label(t!("prefs-click-to-reply"))
@@ -1534,6 +1574,11 @@ impl MainWindow {
                     .control(quick_reactions),
             )
             .row(
+                Row::new("preferences.formatting", t!("prefs-formatting"))
+                    .description(t!("prefs-formatting-detail"))
+                    .control(formatting),
+            )
+            .row(
                 Row::new("preferences.click-to-reply", t!("prefs-click-to-reply"))
                     .description(t!("prefs-click-to-reply-detail"))
                     .control(click_to_reply),
@@ -1625,6 +1670,26 @@ impl MainWindow {
                         settings.format_bar,
                         |s, v| s.format_bar = v,
                     )),
+            )
+            .row(
+                Row::new("preferences.sync-drafts", t!("prefs-sync-drafts"))
+                    .description(t!("prefs-sync-drafts-detail"))
+                    .control({
+                        let view = cx.entity().downgrade();
+                        Switch::new("preferences.sync-drafts.switch")
+                            .checked(settings.sync_drafts)
+                            .aria_label(t!("prefs-sync-drafts"))
+                            .on_change(move |&next, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.set_synced(
+                                        |s| s.sync_drafts = next,
+                                        |s| sync_drafts_preference(s.sync_drafts),
+                                        cx,
+                                    )
+                                })
+                                .ok();
+                            })
+                    }),
             )
             .row(
                 Row::new("preferences.skin-tone", t!("prefs-skin-tone"))

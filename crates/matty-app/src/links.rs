@@ -187,6 +187,8 @@ struct SourceCache {
     /// The custom emoji list the sources were made with: its identity and
     /// generation.
     emoji: (usize, u64),
+    /// Whether the sources were made with Markdown on.
+    formatting: bool,
     sources: std::collections::HashMap<SharedString, SharedString>,
 }
 
@@ -201,16 +203,27 @@ thread_local! {
 fn cached_source(body: &SharedString, cx: &App) -> SharedString {
     let custom = cx.try_global::<crate::emoji::CustomEmoji>();
     let emoji = custom.map_or((0, 0), crate::emoji::CustomEmoji::identity);
+    let formatting = crate::settings::SettingsStore::try_global(cx)
+        .is_none_or(|store| store.read(cx).get().formatting);
     SOURCES.with_borrow_mut(|cache| {
-        if cache.emoji != emoji || cache.sources.len() >= SOURCE_CACHE_LIMIT {
+        if cache.emoji != emoji
+            || cache.formatting != formatting
+            || cache.sources.len() >= SOURCE_CACHE_LIMIT
+        {
             cache.emoji = emoji;
+            cache.formatting = formatting;
             cache.sources.clear();
         }
         if let Some(source) = cache.sources.get(body) {
             return source.clone();
         }
         let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
-        let source: SharedString = body_source(body, &is_custom).into();
+        let source: SharedString = if formatting {
+            body_source(body, &is_custom)
+        } else {
+            plain_source(body)
+        }
+        .into();
         cache.sources.insert(body.clone(), source.clone());
         source
     })
@@ -351,6 +364,42 @@ fn body_source(body: &str, is_custom: &dyn Fn(&str) -> bool) -> String {
         &|name| crate::emoji::lookup(name).map(str::to_owned),
     );
     matty_markdown::hard_line_breaks(&linked)
+}
+
+/// A body shown as typed, for the web app's "Enable post formatting" off:
+/// Markdown punctuation is escaped so it reads literally, every line break
+/// stays, and links still link.
+fn plain_source(body: &str) -> String {
+    let mut out = String::with_capacity(body.len() + body.len() / 8);
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            out.push_str("\\\n");
+        }
+        // Leading spaces would make a code block: they stay as spaces that
+        // Markdown does not read.
+        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let (lead, line) = line.split_at(indent);
+        for c in lead.chars() {
+            out.push_str(if c == '\t' { "\u{a0}\u{a0}\u{a0}\u{a0}" } else { "\u{a0}" });
+        }
+        for (at, word) in line.split(' ').enumerate() {
+            if at > 0 {
+                out.push(' ');
+            }
+            if word.starts_with("http://") || word.starts_with("https://") {
+                out.push_str(word);
+                continue;
+            }
+            for c in word.chars() {
+                // Colons stay, so :emoji: still shows.
+                if c.is_ascii_punctuation() && c != ':' && c != '@' {
+                    out.push('\\');
+                }
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// What to do with the channel a link named, once found.
@@ -597,6 +646,19 @@ mod tests {
             Opening::Closed
         );
         assert_eq!(opening(&channel("D", "", 0), false, shown), Opening::Closed);
+    }
+
+    #[test]
+    fn plain_bodies_read_as_typed() {
+        let parsed = |body: &str| {
+            matty_markdown::to_plain(&matty_markdown::parse(&plain_source(body)))
+        };
+        assert_eq!(
+            parsed("**bold** and `code`\n- not a list"),
+            "**bold** and `code`\n- not a list"
+        );
+        assert_eq!(plain_source("see https://a.com/x_y"), "see https://a.com/x_y");
+        assert!(!plain_source("    indented").starts_with(' '));
     }
 
     #[test]
