@@ -559,6 +559,12 @@ impl Client {
         self.post("posts", post).await
     }
 
+    /// `GET posts/{post_id}/edit_history`: the earlier versions of the
+    /// viewer's own post, each with the message it had then.
+    pub async fn edit_history(&self, post_id: &str) -> Result<Vec<Post>, ApiError> {
+        self.get(&format!("posts/{post_id}/edit_history")).await
+    }
+
     /// `PUT posts/{post_id}/patch`.
     pub async fn patch_post(&self, post_id: &str, patch: &PostPatch) -> Result<Post, ApiError> {
         self.put(&format!("posts/{post_id}/patch"), patch).await

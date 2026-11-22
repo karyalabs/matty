@@ -256,6 +256,9 @@ pub enum RightPaneContent {
     Search(SearchModel),
     /// Someone's profile (#212).
     Profile(UserProfile),
+    /// One of the user's posts as it is now, then its earlier versions,
+    /// newest first (#963).
+    EditHistory(Vec<ListedPost>),
 }
 
 /// What the pane asks the window to do.
@@ -380,6 +383,13 @@ pub enum RightPaneEvent {
     ViewImages(Vec<SharedString>),
     /// The channel info pane asked for the pinned listing.
     OpenPinned,
+    /// "View edit history" on one of the user's edited posts (#963).
+    OpenEditHistory(SharedString),
+    /// "Restore" on an earlier version in the edit history (#963).
+    RestoreVersion {
+        post: SharedString,
+        text: SharedString,
+    },
     /// "Files" in the channel info (#208).
     OpenChannelFiles,
     /// "Add members" in the channel info (#208).
@@ -2433,6 +2443,15 @@ impl RightPaneView {
                     t!("pane-mark-unread"),
                     RightPaneEvent::MarkUnread(id.clone()),
                 ),
+            ]);
+            if post.mine && post.edited {
+                items.push(emit(
+                    "history",
+                    t!("chan-edit-history"),
+                    RightPaneEvent::OpenEditHistory(id.clone()),
+                ));
+            }
+            items.extend([
                 MenuItem::submenu(
                     "thread.context.remind",
                     t!("pane-remind"),
@@ -3412,6 +3431,96 @@ impl RightPaneView {
             }))
     }
 
+    /// The edit history: the post as it is now, then each earlier version
+    /// under its time with Restore, as the web app's Edit history panel.
+    fn edit_history(
+        &self,
+        versions: &[ListedPost],
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let theme = UiTheme::read(cx).clone();
+        if versions.is_empty() {
+            return div()
+                .flex_1()
+                .px(theme.space(4.))
+                .py(theme.space(3.))
+                .type_style(style::META, &theme)
+                .text_color(theme.colors.muted_foreground)
+                .child(t!("pane-loading"))
+                .into_any_element();
+        }
+        let view = cx.entity().downgrade();
+        let current = versions.first().map(|item| item.post.id.clone());
+        div()
+            .id("right-pane.edit-history")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .py(theme.space(2.))
+            .children(versions.iter().enumerate().map(|(index, item)| {
+                let caption = if index == 0 {
+                    t!("pane-current-version")
+                } else {
+                    t!("pane-earlier-version")
+                };
+                let restore = (index > 0).then(|| {
+                    let (view, post, text) = (
+                        view.clone(),
+                        current.clone().unwrap_or_default(),
+                        item.post.body.clone(),
+                    );
+                    Button::new(gpui_kit::ElementId::Name(
+                        format!("right-pane.edit-history.{index}.restore").into(),
+                    ))
+                    .variant(ButtonVariant::Link)
+                    .size(ButtonSize::Xs)
+                    .label(t!("pane-restore"))
+                    .on_click(move |_, _, cx| {
+                        let event = RightPaneEvent::RestoreVersion {
+                            post: post.clone(),
+                            text: text.clone(),
+                        };
+                        view.update(cx, |_, cx| cx.emit(event)).ok();
+                    })
+                });
+                div()
+                    .pb(theme.space(2.))
+                    .mb(theme.space(2.))
+                    .border_b(style::hairline())
+                    .border_color(theme.colors.border)
+                    .child(
+                        div()
+                            .px(theme.space(4.))
+                            .pb(theme.space(1.))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .type_style(style::META, &theme)
+                                    .text_color(theme.colors.muted_foreground)
+                                    .child(caption),
+                            )
+                            .children(restore),
+                    )
+                    .child(Self::post_row(
+                        &view,
+                        &Post {
+                            continues: false,
+                            // An earlier version has no actions of its own.
+                            mine: index == 0 && item.post.mine,
+                            ..item.post.clone()
+                        },
+                        true,
+                        MessageHighlight::None,
+                        (false, None, None),
+                        self.presence_of(&item.post.author),
+                        cx,
+                    ))
+            }))
+            .into_any_element()
+    }
+
     /// Saved, pinned and mention listings: each post under a caption with
     /// its channel and a Jump link, separated by hairlines.
     fn listing(
@@ -4306,6 +4415,9 @@ impl Render for RightPaneView {
                     None,
                     cx,
                 )),
+            Some(RightPaneContent::EditHistory(versions)) => root
+                .child(self.chromed_header(window, t!("pane-edit-history"), None, cx))
+                .child(self.edit_history(&versions, cx)),
             Some(RightPaneContent::Saved(posts)) => root
                 .child(self.chromed_header(window, t!("pane-saved"), None, cx))
                 .child(self.listing(

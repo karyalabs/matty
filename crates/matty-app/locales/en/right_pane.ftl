@@ -126,3 +126,10 @@ pane-leave-this-channel = this channel
 pane-leave-title = Leave { $name }?
 pane-leave-description = You stop receiving its messages and it leaves your sidebar. You can join again later.
 pane-leave-cancel = Cancel
+
+## Edit history (#963)
+
+pane-edit-history = Edit history
+pane-current-version = Current version
+pane-earlier-version = Earlier version
+pane-restore = Restore

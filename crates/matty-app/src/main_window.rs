@@ -693,6 +693,7 @@ impl MainWindow {
                 }
                 ChannelEvent::OpenThreadWindow(root) => this.pop_out_thread(root.clone(), None, cx),
                 ChannelEvent::OpenPinned => this.show_pinned(cx),
+                ChannelEvent::OpenEditHistory(post) => this.show_edit_history(post, cx),
                 ChannelEvent::OpenInfo => this.show_channel_info(cx),
                 ChannelEvent::SwapPanes => this.swap_panes(window, cx),
                 ChannelEvent::ClosePane => this.close_main_pane(window, cx),
@@ -3203,6 +3204,16 @@ impl MainWindow {
             RightPaneEvent::OpenLink(url) => self.open_message_link(url.clone(), window, cx),
             RightPaneEvent::OpenInBrowser(post) => self.open_in_browser(post, cx),
             RightPaneEvent::OpenPinned => self.show_pinned(cx),
+            RightPaneEvent::OpenEditHistory(post) => self.show_edit_history(post, cx),
+            RightPaneEvent::RestoreVersion { post, text } => {
+                if let Some(live) = self.live.as_mut() {
+                    live.send(matty_sync::Command::EditPost {
+                        post_id: post.to_string(),
+                        message: text.to_string(),
+                    });
+                    live.show_edit_history(post);
+                }
+            }
             RightPaneEvent::AddToChannel(profile) => self.pick_channel_for(profile, window),
             RightPaneEvent::OpenChannelFiles => self.show_channel_files(cx),
             RightPaneEvent::AddMembers => self
@@ -3483,6 +3494,16 @@ impl MainWindow {
                 .right_pane
                 .update(cx, |pane, cx| pane.set_search(model, window, cx)),
             None => self.search("".into(), window, cx),
+        }
+    }
+
+    /// Opens the edit history of one of the user's posts (#963).
+    fn show_edit_history(&mut self, post: &SharedString, cx: &mut Context<Self>) {
+        self.show_listing(RightPaneContent::EditHistory(Vec::new()), cx);
+        if let Some(live) = self.live.as_mut() {
+            live.show_edit_history(post);
+            self.right_pane
+                .update(cx, |pane, cx| pane.set_loading(true, cx));
         }
     }
 

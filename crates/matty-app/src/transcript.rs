@@ -293,6 +293,11 @@ fn display_post(
         PostKind::Regular
     } else if is_system(&post.kind) {
         PostKind::System { activity: false }
+    } else if has_content(post) {
+        // A plugin's post (a poll, a Playbooks update, a call) usually
+        // carries a readable message or attachments; the web app's
+        // fallback for a type without a renderer draws those too.
+        PostKind::Regular
     } else {
         PostKind::Unsupported(post.kind.clone().into())
     };
@@ -371,6 +376,16 @@ fn display_post(
 /// attachments, and `/me`.
 fn is_regular(kind: &str) -> bool {
     matches!(kind, "" | "slack_attachment" | "me")
+}
+
+fn has_content(post: &ApiPost) -> bool {
+    !post.message.trim().is_empty()
+        || !post.metadata.files.is_empty()
+        || post
+            .props
+            .get("attachments")
+            .and_then(|value| value.as_array())
+            .is_some_and(|attachments| !attachments.is_empty())
 }
 
 fn is_system(kind: &str) -> bool {
@@ -1194,8 +1209,10 @@ mod tests {
     }
 
     #[test]
-    fn plugin_posts_are_unsupported_and_others_are_regular() {
+    fn plugin_posts_with_text_read_as_messages() {
         let zone = TimeZone::UTC;
+        let mut empty = post("p0", "ada", NOON - 1, "");
+        empty.kind = "custom_calls".into();
         let mut poll = post("p1", "ada", NOON, "Poll: lunch?");
         poll.kind = "custom_matterpoll".into();
         let mut hook = post("p2", "ada", NOON + 1, "");
@@ -1203,7 +1220,7 @@ mod tests {
         let mut me = post("p3", "ada", NOON + 2, "waves");
         me.kind = "me".into();
         let row = ChannelRow::new("c1", "town", ChannelKind::Public);
-        let posts = [poll, hook, me];
+        let posts = [empty, poll, hook, me];
         let model = channel_model(
             &row,
             Some(&posts),
@@ -1216,11 +1233,13 @@ mod tests {
         assert_eq!(
             kinds,
             [
-                PostKind::Unsupported("custom_matterpoll".into()),
+                PostKind::Unsupported("custom_calls".into()),
+                PostKind::Regular,
                 PostKind::Regular,
                 PostKind::Regular,
             ]
         );
+        assert_eq!(model.posts[1].body, "Poll: lunch?");
         // An unsupported post still has its author and groups like any other.
         assert_eq!(model.posts[0].author, "Someone");
         assert!(model.posts[1].continues);

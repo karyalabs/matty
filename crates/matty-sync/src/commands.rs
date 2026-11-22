@@ -277,6 +277,7 @@ impl Write {
             Self::ChannelAdmin { admin: false, .. } => "remove channel admin",
             Self::Search { .. } => "search",
             Self::Listing(crate::Listing::Saved) => "load saved messages",
+            Self::Listing(crate::Listing::EditHistory { .. }) => "load edit history",
             Self::Listing(crate::Listing::Pinned { .. }) => "load pinned messages",
             Self::Listing(crate::Listing::Mentions { .. }) => "load recent mentions",
             Self::Listing(crate::Listing::Unreads { .. }) => "load unread messages",
@@ -353,6 +354,7 @@ impl Write {
                 user_id.to_owned()
             }
             Self::Listing(crate::Listing::Pinned { channel_id }) => channel_id.clone(),
+            Self::Listing(crate::Listing::EditHistory { post_id }) => post_id.clone(),
             Self::Listing(crate::Listing::Mentions { team_id, .. })
             | Self::Browse { team_id }
             | Self::People { team_id }
@@ -967,6 +969,19 @@ pub(crate) async fn run(
                 let list = match &listing {
                     crate::Listing::Saved => client.saved_posts(&user_id, 0, LISTING_PAGE).await,
                     crate::Listing::Pinned { channel_id } => client.pinned_posts(channel_id).await,
+                    crate::Listing::EditHistory { post_id } => {
+                        let versions = match client.edit_history(post_id).await {
+                            Ok(versions) => versions,
+                            Err(error) if told(&error).is_none() => {
+                                return Ok(Some(Loaded::ListingOffline(listing)));
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        let current = client.get_post(post_id).await?;
+                        // The server lists the versions newest first.
+                        let posts = std::iter::once(current).chain(versions).collect();
+                        return Ok(Some(Loaded::Listing { listing, posts }));
+                    }
                     crate::Listing::Mentions { team_id, terms } => {
                         let mut query = SearchQuery::new(terms.clone());
                         query.is_or_search = true;

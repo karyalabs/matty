@@ -1091,6 +1091,8 @@ pub enum ChannelEvent {
     JumpLatest,
     /// The user asked for the channel's pinned messages.
     OpenPinned,
+    /// "View edit history" on one of the user's edited posts (#963).
+    OpenEditHistory(SharedString),
     /// The user clicked a link or an entity chip in a message (#103).
     OpenLink(SharedString),
     /// The user changed the channel's bookmarks (#226).
@@ -1295,6 +1297,10 @@ pub struct ChannelView {
     notifications: Entity<NotificationsView>,
     add_members: Entity<AddMembersView>,
     leave: DialogHandle,
+    /// Asks before @all, @channel or @here notifies a big channel (#960),
+    /// holding the message until the answer.
+    channel_wide: DialogHandle,
+    held_send: Option<SharedString>,
     /// Confirmations for archiving the channel and making it private.
     archive: DialogHandle,
     convert: DialogHandle,
@@ -1816,6 +1822,8 @@ impl ChannelView {
             notifications,
             add_members,
             leave: DialogHandle::new(false),
+            channel_wide: DialogHandle::new(false),
+            held_send: None,
             archive: DialogHandle::new(false),
             convert: DialogHandle::new(false),
             picker,
@@ -2700,7 +2708,9 @@ impl ChannelView {
     /// Sends what the composer holds now, for a send that waited on uploads.
     fn send_queued(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.composer.read(cx).value(cx);
-        self.send(text, window, cx);
+        // Slash commands and the channel-wide question were settled before
+        // the send waited.
+        self.send_confirmed(text, window, cx);
     }
 
     /// Opens the lightbox over the images of `post`, at image `index`:
@@ -3019,6 +3029,15 @@ impl ChannelView {
         if self.run_slash(&text, window, cx) {
             return;
         }
+        if self.asks_channel_wide(&text, cx) {
+            self.held_send = Some(text);
+            self.channel_wide.open(window, cx);
+            return;
+        }
+        self.send_confirmed(text, window, cx);
+    }
+
+    fn send_confirmed(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
         let body: SharedString = text.trim().to_string().into();
         if body.chars().count() > self.max_post_size() {
             return;
@@ -3661,6 +3680,16 @@ impl ChannelView {
             t!("chan-mark-unread"),
             Box::new(move |_, _, cx| cx.emit(ChannelEvent::MarkUnread(unread_id.clone()))),
         ));
+        if post.mine && post.edited {
+            let history_id = id.clone();
+            items.push(act(
+                "history",
+                t!("chan-edit-history"),
+                Box::new(move |_, _, cx| {
+                    cx.emit(ChannelEvent::OpenEditHistory(history_id.clone()))
+                }),
+            ));
+        }
         items.push(MenuItem::submenu(
             gpui_kit::ElementId::Name("post.menu.remind".into()),
             t!("chan-remind"),
@@ -5675,6 +5704,7 @@ impl Render for ChannelView {
             .child(self.notifications_dialog(window, cx))
             .child(self.add_members_dialog(window, cx))
             .child(self.leave_dialog(window, cx))
+            .child(self.channel_wide_dialog(window, cx))
             .child(self.archive_dialog(window, cx))
             .child(self.convert_dialog(window, cx))
             .child(self.lightbox(window, cx))

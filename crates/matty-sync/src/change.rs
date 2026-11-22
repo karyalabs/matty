@@ -664,6 +664,12 @@ pub enum Listing {
         /// The mention keys, space separated, such as `@ada ada deploy`.
         terms: String,
     },
+    /// The earlier versions of one of the user's posts (#963), newest
+    /// first, after the post as it is now.
+    EditHistory {
+        /// The post.
+        post_id: String,
+    },
     /// The unread digest (#223): the first unread posts of each channel,
     /// channel by channel in the order given, oldest first within each.
     Unreads {

@@ -157,6 +157,9 @@ pub struct ServerCapabilities {
     pub scheduled_posts: bool,
     /// The longest message the server accepts, in characters.
     pub max_post_size: usize,
+    /// Ask before @all, @channel or @here notifies a big channel
+    /// (`EnableConfirmNotificationsToChannel`).
+    pub confirm_notifications_to_channel: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -247,6 +250,7 @@ impl ServerCapabilities {
             collapsed_threads,
             custom_emoji: flag(config, "EnableCustomEmoji"),
             link_previews: flag(config, "EnableLinkPreviews"),
+            confirm_notifications_to_channel: flag(config, "EnableConfirmNotificationsToChannel"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,
             post_acknowledgements,

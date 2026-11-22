@@ -25,7 +25,100 @@ pub(super) fn schedule_dialog(
     (dialog, subscription)
 }
 
+/// Mattermost asks before a channel-wide mention in a channel with more
+/// members than this (`Constants.NOTIFY_ALL_MEMBERS`).
+const CHANNEL_WIDE_ASK_ABOVE: usize = 5;
+
+/// Whether `text` says @all, @channel or @here outside code, as the web
+/// app's `containsAtChannel` reads it.
+pub(crate) fn mentions_channel_wide(text: &str) -> bool {
+    let mut in_fence = false;
+    text.lines().any(|line| {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            return false;
+        }
+        if in_fence {
+            return false;
+        }
+        line.split('`').step_by(2).any(channel_wide_in)
+    })
+}
+
+fn channel_wide_in(text: &str) -> bool {
+    // `\B@(all|channel|here)\b` in the web app.
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices('@').any(|(at, _)| {
+        if text[..at].chars().next_back().is_some_and(word) {
+            return false;
+        }
+        let rest = &text[at + 1..];
+        ["all", "channel", "here"].iter().any(|name| {
+            rest.get(..name.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(name))
+                && !rest[name.len()..].chars().next().is_some_and(word)
+        })
+    })
+}
+
 impl ChannelView {
+    /// Whether sending `text` here first asks "Notify everyone?" (#960).
+    pub(super) fn asks_channel_wide(&self, text: &str, cx: &Context<Self>) -> bool {
+        Features::read(cx).confirm_channel_wide
+            && self
+                .model
+                .as_ref()
+                .is_some_and(|channel| channel.members > CHANNEL_WIDE_ASK_ABOVE)
+            && mentions_channel_wide(text)
+    }
+
+    pub(super) fn channel_wide_dialog(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl gpui_kit::IntoElement + use<> {
+        use crate::t;
+        use crate::ui::{
+            alert_dialog::{alert_dialog, alert_dialog_action, alert_dialog_cancel},
+            button::ButtonVariant,
+            dialog::{dialog_description, dialog_popup, dialog_title},
+            theme::UiTheme,
+        };
+        use gpui_kit::{ParentElement as _, Styled as _, div};
+        let theme = UiTheme::read(cx).clone();
+        let members = self.model.as_ref().map_or(0, |channel| channel.members);
+        let popup = dialog_popup("channel.wide.popup", t!("chan-wide-label"), cx)
+            .child(dialog_title("channel.wide.title", cx).child(t!("chan-wide-title")))
+            .child(
+                dialog_description("channel.wide.description", cx)
+                    .child(t!("chan-wide-description", count = members)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(theme.space(2.))
+                    .pt(theme.space(2.))
+                    .child(
+                        alert_dialog_cancel("channel.wide.cancel")
+                            .variant(ButtonVariant::Outline)
+                            .label(t!("chan-cancel")),
+                    )
+                    .child(alert_dialog_action("channel.wide.confirm").label(t!("chan-wide-send"))),
+            );
+        let view = cx.entity().downgrade();
+        alert_dialog("channel.wide", &self.channel_wide, popup, window, cx).on_ok(
+            move |_, window, cx| {
+                view.update(cx, |this, cx| {
+                    if let Some(text) = this.held_send.take() {
+                        this.send_confirmed(text, window, cx);
+                    }
+                })
+                .ok();
+                true
+            },
+        )
+    }
     /// The priority the next post goes with, as sync sends it.
     pub(super) fn take_priority(
         &mut self,
@@ -186,6 +279,17 @@ impl ChannelView {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn channel_wide_mentions_outside_code_only() {
+        assert!(mentions_channel_wide("@channel lunch is here"));
+        assert!(mentions_channel_wide("heads up @HERE."));
+        assert!(mentions_channel_wide("ping @all, thanks"));
+        assert!(!mentions_channel_wide("@channels and @hereford"));
+        assert!(!mentions_channel_wide("mail ada@all.example"));
+        assert!(!mentions_channel_wide("run `@channel` here"));
+        assert!(!mentions_channel_wide("```\n@all\n```"));
+    }
     use super::*;
     use crate::priority::Level;
     use std::{cell::RefCell, rc::Rc};

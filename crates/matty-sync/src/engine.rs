@@ -4787,6 +4787,11 @@ fn cached_listing(conn: &Db, listing: crate::Listing) -> Result<ChangeSet, Store
                 action: "load unread messages",
             }));
         }
+        crate::Listing::EditHistory { .. } => {
+            return Ok(ChangeSet::Failed(CommandError::Offline {
+                action: "load edit history",
+            }));
+        }
     };
     found.sort_by(|a, b| (b.create_at, &b.id).cmp(&(a.create_at, &a.id)));
     Ok(ChangeSet::Listing {

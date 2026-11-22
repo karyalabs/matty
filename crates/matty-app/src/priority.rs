@@ -43,6 +43,9 @@ pub struct Features {
     pub interval_minutes: u64,
     /// How many times it repeats at most.
     pub max_count: u64,
+    /// Ask before @all, @channel or @here notifies a big channel
+    /// (`EnableConfirmNotificationsToChannel`, #960).
+    pub confirm_channel_wide: bool,
 }
 
 impl Global for Features {}
@@ -57,6 +60,7 @@ impl Features {
             scheduled: capabilities.scheduled_posts,
             interval_minutes: capabilities.persistent_notification_interval_minutes,
             max_count: capabilities.persistent_notification_max_count,
+            confirm_channel_wide: capabilities.confirm_notifications_to_channel,
         }
     }
 
@@ -69,6 +73,7 @@ impl Features {
             scheduled: true,
             interval_minutes: 5,
             max_count: 6,
+            confirm_channel_wide: true,
         }
     }
 

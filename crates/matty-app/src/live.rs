@@ -1527,6 +1527,27 @@ impl Live {
         self.show_listing(matty_sync::Listing::Saved);
     }
 
+    /// Loads a post's edit history (#963); it comes as [`Update::listing`].
+    pub fn show_edit_history(&mut self, post_id: &str) {
+        self.show_listing(matty_sync::Listing::EditHistory {
+            post_id: post_id.to_owned(),
+        });
+    }
+
+    /// The post whose open edit history no longer matches its message,
+    /// such as right after Restore (#963).
+    fn edit_history_stale(&self, posts: &[matty_api::models::Post]) -> Option<String> {
+        let Some((matty_sync::Listing::EditHistory { post_id }, Some(shown))) = &self.listing
+        else {
+            return None;
+        };
+        let current = shown.first()?;
+        posts
+            .iter()
+            .any(|post| &post.id == post_id && post.edit_at != current.edit_at)
+            .then(|| post_id.clone())
+    }
+
     /// Loads a channel's pinned posts; they come as [`Update::listing`].
     pub fn show_pinned(&mut self, channel_id: &str) {
         self.show_listing(matty_sync::Listing::Pinned {
@@ -1669,7 +1690,10 @@ impl Live {
         };
         let listed: Vec<_> = posts
             .iter()
-            .filter(|post| post.delete_at == 0)
+            // Mattermost keeps a post's earlier versions as deleted copies.
+            .filter(|post| {
+                post.delete_at == 0 || matches!(listing, matty_sync::Listing::EditHistory { .. })
+            })
             // An unsaved post leaves the Saved listing at once.
             .filter(|post| {
                 !matches!(listing, matty_sync::Listing::Saved) || self.saved.contains(&post.id)
@@ -1684,6 +1708,7 @@ impl Live {
             .collect();
         Some(match listing {
             matty_sync::Listing::Saved => RightPaneContent::Saved(listed),
+            matty_sync::Listing::EditHistory { .. } => RightPaneContent::EditHistory(listed),
             matty_sync::Listing::Mentions { .. } => RightPaneContent::Mentions(listed),
             matty_sync::Listing::Unreads { .. } => RightPaneContent::Unreads(listed),
             matty_sync::Listing::Pinned { channel_id } => RightPaneContent::Pinned {
@@ -2791,6 +2816,11 @@ impl Live {
                 }
             }
             ChangeSet::Posts { channel_id, posts } => {
+                if let Some(post_id) = self.edit_history_stale(posts) {
+                    self.send(Command::LoadListing(matty_sync::Listing::EditHistory {
+                        post_id,
+                    }));
+                }
                 if self.pins_changed(channel_id, posts) {
                     self.send(Command::LoadListing(matty_sync::Listing::Pinned {
                         channel_id: channel_id.clone(),

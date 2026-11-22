@@ -186,3 +186,14 @@ chan-no-channel = No channel open
 chan-no-channel-detail = Pick a channel or a conversation in the sidebar.
 chan-not-connected = Not connected yet
 chan-not-connected-detail = Your channels appear here once Matty is connected to a Mattermost server.
+
+## Asking before a channel-wide mention (#960)
+
+chan-wide-label = Notify everyone
+chan-wide-title = Notify everyone in this channel?
+chan-wide-description = { $count ->
+        [one] @all, @channel and @here notify its { $count } member.
+       *[other] @all, @channel and @here notify all { $count } members.
+    }
+chan-wide-send = Send
+chan-edit-history = View edit history
