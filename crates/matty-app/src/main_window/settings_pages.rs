@@ -536,6 +536,9 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, DISPLAY, "one_click_reactions_enabled") {
         settings.quick_reactions = value != "false";
     }
+    if let Some(value) = find(preferences, DISPLAY, "colorize_usernames") {
+        settings.colorize_names = value != "false";
+    }
     if let Some(value) = find(preferences, DISPLAY, "availability_status_on_posts") {
         settings.avatar_status = value != "false";
     }
@@ -608,6 +611,15 @@ pub(crate) fn quick_reactions_preference(on: bool) -> Vec<Preference> {
     vec![preference(
         DISPLAY,
         "one_click_reactions_enabled",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for colored names in compact messages.
+pub(crate) fn colorize_names_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "colorize_usernames",
         if on { "true" } else { "false" },
     )]
 }
@@ -1286,6 +1298,22 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let colorize_names = Switch::new("preferences.colorize-names.switch")
+            .checked(settings.colorize_names)
+            .aria_label(t!("prefs-colorize-names"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.colorize_names = next,
+                            |s| colorize_names_preference(s.colorize_names),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let avatar_status = Switch::new("preferences.avatar-status.switch")
             .checked(settings.avatar_status)
             .aria_label(t!("prefs-avatar-status"))
@@ -1358,7 +1386,15 @@ impl MainWindow {
                         MessageDisplay::Compact => t!("prefs-display-compact-hint"),
                     })
                     .control(select(&display, t!("prefs-display"), &theme)),
-            )
+            );
+        if settings.display == MessageDisplay::Compact {
+            reading = reading.row(
+                Row::new("preferences.colorize-names", t!("prefs-colorize-names"))
+                    .description(t!("prefs-colorize-names-detail"))
+                    .control(colorize_names),
+            );
+        }
+        reading = reading
             .row(Row::new("preferences.clock", t!("prefs-clock")).control(clock))
             .row(
                 Row::new("preferences.names", t!("prefs-names-label"))

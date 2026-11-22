@@ -377,6 +377,10 @@ pub struct Settings {
     /// account's `display_settings/availability_status_on_posts`.
     #[serde(default = "yes")]
     pub avatar_status: bool,
+    /// Names in compact messages take a color of their own: the
+    /// account's `display_settings/colorize_usernames`.
+    #[serde(default = "yes")]
+    pub colorize_names: bool,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -448,6 +452,7 @@ impl Default for Settings {
             unread_section: false,
             quick_reactions: true,
             avatar_status: true,
+            colorize_names: true,
             visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,
