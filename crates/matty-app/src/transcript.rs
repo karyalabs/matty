@@ -738,15 +738,15 @@ fn reactions(
 /// The Mattermost name for what a reaction chip or the picker gives: a
 /// glyph becomes its shortcode, `:name:` loses its colons.
 pub fn emoji_name(emoji: &str) -> String {
-    emojis::get(emoji)
-        .and_then(crate::emoji::name_of)
+    crate::emoji::name_of(emoji)
+        .map(str::to_owned)
         .unwrap_or_else(|| emoji.trim_matches(':').to_string())
 }
 
 /// The glyph for a Mattermost emoji name, or `:name:` for custom emoji.
 fn emoji(name: &str) -> String {
     crate::emoji::lookup(name)
-        .map(|emoji| emoji.as_str().to_string())
+        .map(str::to_owned)
         .unwrap_or_else(|| format!(":{name}:"))
 }
 

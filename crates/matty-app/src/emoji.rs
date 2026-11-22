@@ -1,12 +1,13 @@
 //! Matty's emoji catalog for gpuicn's picker (PLAN §3 M1 "Reactions"):
-//! the standard set from the `emojis` crate under its shortcodes, grouped
-//! the way the picker tabs show them. Custom emoji join once sync loads
-//! them from the server.
+//! the Mattermost webapp's own list (`emoji.tsv`, from
+//! `scripts/import-emoji.py`), so every name, alias and skin tone the
+//! official client sends means the same emoji here. Custom emoji join once
+//! sync loads them from the server.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use gpui_icons::LucideIcon;
 use gpui_kit::{App, Context, Global, Image, ImageSource, SharedString};
@@ -20,52 +21,117 @@ use crate::ui::message::Reaction;
 /// How many recently picked emoji the picker remembers.
 pub const RECENT_LIMIT: usize = 27;
 
+/// One emoji of the picker, as the webapp lists it.
+struct Entry {
+    category: &'static str,
+    glyph: &'static str,
+    /// Mattermost's names for it; the first is the one reactions use.
+    names: Vec<&'static str>,
+    /// Its Unicode name, which the picker's search also matches.
+    label: &'static str,
+    /// Its five single-tone versions' names, lightest first, or none.
+    tones: Vec<&'static str>,
+}
+
+struct Catalog {
+    entries: Vec<Entry>,
+    /// Every name, toned ones included, to its glyph.
+    glyphs: HashMap<&'static str, &'static str>,
+    /// Every glyph, without its variation selectors, to its first name.
+    names: HashMap<String, &'static str>,
+    /// A toned version's name to the name of its default-tone emoji.
+    untoned: HashMap<&'static str, &'static str>,
+}
+
+fn catalog() -> &'static Catalog {
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG.get_or_init(|| parse(include_str!("emoji.tsv")))
+}
+
+fn parse(source: &'static str) -> Catalog {
+    let mut catalog = Catalog {
+        entries: Vec::new(),
+        glyphs: HashMap::new(),
+        names: HashMap::new(),
+        untoned: HashMap::new(),
+    };
+    for line in source.lines().filter(|line| !line.starts_with('#')) {
+        let fields: Vec<&'static str> = line.split('\t').collect();
+        let (glyph, names) = match fields.as_slice() {
+            ["E", category, glyph, names, label, tones] => {
+                let names: Vec<&'static str> = names.split(' ').collect();
+                let tones: Vec<&'static str> = tones.split(' ').filter(|t| !t.is_empty()).collect();
+                if let Some(first) = names.first() {
+                    for tone in &tones {
+                        catalog.untoned.insert(tone, first);
+                    }
+                }
+                catalog.entries.push(Entry {
+                    category,
+                    glyph,
+                    names: names.clone(),
+                    label,
+                    tones,
+                });
+                (*glyph, names)
+            }
+            ["T", glyph, names] => (*glyph, names.split(' ').collect()),
+            _ => continue,
+        };
+        for name in &names {
+            catalog.glyphs.entry(name).or_insert(glyph);
+        }
+        if let Some(first) = names.first() {
+            catalog.names.entry(plain(glyph)).or_insert(first);
+        }
+    }
+    catalog
+}
+
+/// `glyph` without variation selectors, which some clients send and
+/// others leave out (❤️ and ❤ are the same heart).
+fn plain(glyph: &str) -> String {
+    glyph
+        .chars()
+        .filter(|c| *c != '\u{fe0f}' && *c != '\u{fe0e}')
+        .collect()
+}
+
 /// The picker's categories, in tab order.
 pub fn categories() -> Vec<EmojiCategory> {
-    use emojis::Group;
     let groups = [
         (
-            Group::SmileysAndEmotion,
+            "smileys-emotion",
             t!("emoji-group-smileys"),
             LucideIcon::FaceSlightlySmiling,
         ),
+        ("people-body", t!("emoji-group-people"), LucideIcon::Hand),
         (
-            Group::PeopleAndBody,
-            t!("emoji-group-people"),
-            LucideIcon::Hand,
-        ),
-        (
-            Group::AnimalsAndNature,
+            "animals-nature",
             t!("emoji-group-animals"),
             LucideIcon::Leaf,
         ),
+        ("food-drink", t!("emoji-group-food"), LucideIcon::Coffee),
+        ("travel-places", t!("emoji-group-travel"), LucideIcon::Plane),
         (
-            Group::FoodAndDrink,
-            t!("emoji-group-food"),
-            LucideIcon::Coffee,
-        ),
-        (
-            Group::TravelAndPlaces,
-            t!("emoji-group-travel"),
-            LucideIcon::Plane,
-        ),
-        (
-            Group::Activities,
+            "activities",
             t!("emoji-group-activities"),
             LucideIcon::Trophy,
         ),
-        (
-            Group::Objects,
-            t!("emoji-group-objects"),
-            LucideIcon::Lightbulb,
-        ),
-        (Group::Symbols, t!("emoji-group-symbols"), LucideIcon::Heart),
-        (Group::Flags, t!("emoji-group-flags"), LucideIcon::Flag),
+        ("objects", t!("emoji-group-objects"), LucideIcon::Lightbulb),
+        ("symbols", t!("emoji-group-symbols"), LucideIcon::Heart),
+        ("flags", t!("emoji-group-flags"), LucideIcon::Flag),
     ];
+    let catalog = catalog();
     groups
         .into_iter()
         .map(|(group, name, icon)| {
-            EmojiCategory::new(name, icon, group.emojis().filter_map(convert))
+            let emoji = catalog
+                .entries
+                .iter()
+                .filter(|entry| entry.category == group)
+                .filter_map(convert);
+            EmojiCategory::new(name, icon, emoji)
         })
         .collect()
 }
@@ -89,17 +155,14 @@ pub fn suggest(
         .collect();
     let mut starts = used.clone();
     let mut contains = Vec::new();
-    for emoji in emojis::iter() {
-        let Some(name) = emoji.shortcodes().find(|code| code.contains(&query)) else {
+    for entry in &catalog().entries {
+        let Some(name) = entry.names.iter().find(|name| name.contains(&query)) else {
             continue;
         };
         if used.iter().any(|(seen, _)| seen == name) {
             continue;
         }
-        let pair = (
-            SharedString::from(name.to_string()),
-            SharedString::from(emoji.as_str()),
-        );
+        let pair = (SharedString::from(*name), SharedString::from(entry.glyph));
         if name.starts_with(&query) {
             starts.push(pair);
         } else {
@@ -116,7 +179,7 @@ pub fn suggest(
 
 /// The glyph behind a shortcode, for reactions and the composer.
 pub fn glyph(name: &str) -> Option<SharedString> {
-    lookup(name).map(|emoji| emoji.as_str().into())
+    lookup(name).map(SharedString::from)
 }
 
 /// `text` with each `:shortcode:` it knows replaced by its glyph, as a
@@ -130,8 +193,8 @@ pub fn with_glyphs(text: &str) -> String {
         let name_end = after.find(|c: char| !(c.is_alphanumeric() || "_+-".contains(c)));
         match name_end {
             Some(end) if end > 0 && after[end..].starts_with(':') => match lookup(&after[..end]) {
-                Some(emoji) => {
-                    out.push_str(emoji.as_str());
+                Some(glyph) => {
+                    out.push_str(glyph);
                     rest = &after[end + 1..];
                 }
                 None => {
@@ -155,7 +218,7 @@ pub fn name_for(emoji: &str) -> Option<String> {
     if let Some(name) = emoji.strip_prefix(':').and_then(|e| e.strip_suffix(':')) {
         return Some(name.to_owned());
     }
-    emojis::get(emoji).and_then(name_of)
+    name_of(emoji).map(str::to_owned)
 }
 
 /// A reaction value as Mattermost writes it in "reacted with :tada:".
@@ -166,49 +229,16 @@ pub fn shortcode(emoji: &str) -> String {
     }
 }
 
-/// Mattermost's tones, lightest first: `+1_medium_skin_tone` is 👍🏽.
-const TONES: [(emojis::SkinTone, &str); 5] = [
-    (emojis::SkinTone::Light, "_light_skin_tone"),
-    (emojis::SkinTone::MediumLight, "_medium_light_skin_tone"),
-    (emojis::SkinTone::Medium, "_medium_skin_tone"),
-    (emojis::SkinTone::MediumDark, "_medium_dark_skin_tone"),
-    (emojis::SkinTone::Dark, "_dark_skin_tone"),
-];
-
-/// The emoji a Mattermost name stands for, in a skin tone when the name
-/// ends in one (the `emojis` crate names only the default tone).
-pub fn lookup(name: &str) -> Option<&'static emojis::Emoji> {
-    if let Some(emoji) = base(name) {
-        return Some(emoji);
-    }
-    TONES
-        .iter()
-        .find_map(|(tone, suffix)| base(name.strip_suffix(suffix)?)?.with_skin_tone(*tone))
+/// The glyph a Mattermost name stands for, `+1_medium_skin_tone` and
+/// aliases such as `thumbsup` included.
+pub fn lookup(name: &str) -> Option<&'static str> {
+    catalog().glyphs.get(name).copied()
 }
 
-/// A default-tone emoji by its gemoji shortcode, or by Mattermost's name
-/// for a flag (`flag-us`), which gemoji names by country (`us`).
-fn base(name: &str) -> Option<&'static emojis::Emoji> {
-    emojis::get_by_shortcode(name).or_else(|| {
-        let country = name.strip_prefix("flag-")?;
-        emojis::get_by_shortcode(country)
-            .or_else(|| emojis::get_by_shortcode(&format!("flag_{country}")))
-    })
-}
-
-/// The Mattermost name for `emoji`, with its skin tone's suffix.
-pub fn name_of(emoji: &emojis::Emoji) -> Option<String> {
-    let base = emoji
-        .with_skin_tone(emojis::SkinTone::Default)
-        .unwrap_or(emoji);
-    let name = base.shortcode()?;
-    match emoji.skin_tone() {
-        None | Some(emojis::SkinTone::Default) => Some(name.to_owned()),
-        Some(tone) => TONES
-            .iter()
-            .find(|(known, _)| *known == tone)
-            .map(|(_, suffix)| format!("{name}{suffix}")),
-    }
+/// The Mattermost name for a glyph, with its skin tone's suffix when it
+/// has one.
+pub fn name_of(glyph: &str) -> Option<&'static str> {
+    catalog().names.get(&plain(glyph)).copied()
 }
 
 /// The emoji picked most, for the picker's first row and the top of the
@@ -250,9 +280,12 @@ pub fn prepare_picker(picker: &mut EmojiPickerState, cx: &mut Context<EmojiPicke
 
 /// `name` in the default tone: `+1_medium_skin_tone` counts as `+1`.
 fn base_name(name: &str) -> String {
-    lookup(name)
-        .and_then(|emoji| emoji.with_skin_tone(emojis::SkinTone::Default))
-        .and_then(emojis::Emoji::shortcode)
+    // An alias counts as the name reactions use.
+    let name = lookup(name).and_then(name_of).unwrap_or(name);
+    catalog()
+        .untoned
+        .get(name)
+        .copied()
         .unwrap_or(name)
         .to_owned()
 }
@@ -363,26 +396,21 @@ pub fn reaction(emoji: &SharedString, count: usize, mine: bool, cx: &App) -> Rea
     }
 }
 
-fn convert(emoji: &'static emojis::Emoji) -> Option<Emoji> {
-    let name = emoji.shortcode()?;
-    let keywords = emoji
-        .shortcodes()
-        .skip(1)
-        .map(str::to_string)
-        .chain(std::iter::once(emoji.name().to_string()));
-    let mut out = Emoji::new(name, emoji.as_str()).keywords(keywords);
-    // One tone per person only: the picker has five, lightest first.
-    let tones: Vec<Emoji> = TONES
+fn convert(entry: &Entry) -> Option<Emoji> {
+    let (name, aliases) = entry.names.split_first()?;
+    let keywords = aliases
         .iter()
-        .filter_map(|(tone, suffix)| {
-            let toned = emoji.with_skin_tone(*tone)?;
-            Some(Emoji::new(format!("{name}{suffix}"), toned.as_str()))
-        })
-        .collect();
-    if tones.len() == TONES.len() {
-        out = out.skin_tones(tones);
-    }
-    Some(out)
+        .map(|alias| alias.to_string())
+        .chain(std::iter::once(entry.label.to_string()));
+    let tones = entry
+        .tones
+        .iter()
+        .filter_map(|tone| Some(Emoji::new(*tone, lookup(tone)?)));
+    Some(
+        Emoji::new(*name, entry.glyph)
+            .keywords(keywords)
+            .skin_tones(tones),
+    )
 }
 
 #[cfg(test)]
@@ -393,11 +421,8 @@ mod tests {
     fn tones_count_as_their_default_and_used_emoji_suggest_first() {
         assert_eq!(base_name("+1_medium_skin_tone"), "+1");
         assert_eq!(glyph("+1_dark_skin_tone").as_deref(), Some("👍🏿"));
-        assert_eq!(
-            emojis::get("👍🏼").and_then(name_of).as_deref(),
-            Some("+1_medium_light_skin_tone")
-        );
-        assert_eq!(emojis::get("👍").and_then(name_of).as_deref(), Some("+1"));
+        assert_eq!(name_of("👍🏼"), Some("+1_medium_light_skin_tone"));
+        assert_eq!(name_of("👍"), Some("+1"));
         let hand = categories()
             .into_iter()
             .flat_map(|category| category.emoji)
@@ -428,10 +453,26 @@ mod tests {
             ("thumbsup", "👍"),
             ("+1", "👍"),
             ("flag-us", "🇺🇸"),
+            ("us", "🇺🇸"),
         ] {
-            assert_eq!(lookup(name).map(|e| e.as_str()), Some(glyph), "{name}");
+            assert_eq!(lookup(name), Some(glyph), "{name}");
         }
         assert!(lookup("not_an_emoji").is_none());
+        // The names the official client gives reactions (#973).
+        for (name, glyph) in [
+            ("badminton_racquet_and_shuttlecock", "🏸"),
+            ("table_tennis_paddle_and_ball", "🏓"),
+            ("man-biking", "🚴\u{200d}♂\u{fe0f}"),
+            (
+                "people_holding_hands_medium_skin_tone_medium_skin_tone",
+                "🧑🏽\u{200d}🤝\u{200d}🧑🏽",
+            ),
+        ] {
+            assert_eq!(lookup(name), Some(glyph), "{name}");
+        }
+        assert_eq!(name_of("🏸"), Some("badminton_racquet_and_shuttlecock"));
+        assert_eq!(name_of("❤"), Some("heart"), "with or without U+FE0F");
+        assert_eq!(base_name("thumbsup_dark_skin_tone"), "+1");
     }
 
     #[test]

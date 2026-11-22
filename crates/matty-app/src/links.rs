@@ -348,7 +348,7 @@ fn body_source(body: &str, is_custom: &dyn Fn(&str) -> bool) -> String {
     let linked = matty_markdown::link_entities_and_emoji_in_source(
         &body,
         &|name| crate::emoji::lookup(name).is_some() || is_custom(name),
-        &|name| crate::emoji::lookup(name).map(|emoji| emoji.as_str().to_owned()),
+        &|name| crate::emoji::lookup(name).map(str::to_owned),
     );
     matty_markdown::hard_line_breaks(&linked)
 }
