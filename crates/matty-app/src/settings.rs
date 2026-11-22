@@ -365,6 +365,10 @@ pub struct Settings {
     /// How many direct messages the sidebar shows: the account's
     /// `sidebar_settings/limit_visible_dms_gms` (#966); 10000 is "All".
     pub visible_dms: usize,
+    /// Unread channels gather in their own section at the top of the
+    /// sidebar: the account's `sidebar_settings/show_unread_section`
+    /// (#966).
+    pub unread_section: bool,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -429,6 +433,7 @@ impl Default for Settings {
             reduce_motion: false,
             collapse_previews: false,
             join_leave: true,
+            unread_section: false,
             visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,

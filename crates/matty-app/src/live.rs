@@ -84,6 +84,12 @@ pub struct Live {
     /// How many direct and group messages the sidebar shows (#619), from
     /// the user's `sidebar_settings/limit_visible_dms_gms`.
     dm_limit: usize,
+    /// Whether unread channels gather in an Unreads section (#966), from
+    /// the user's `sidebar_settings/show_unread_section`.
+    unread_section: bool,
+    /// The channel opened while unread: it stays in Unreads, read, until
+    /// another opens, as in the web app.
+    kept_unread: Option<SharedString>,
     /// Whether joins and leaves show (#967), from the user's
     /// `advanced_settings/join_leave`.
     join_leave: bool,
@@ -762,6 +768,8 @@ impl Live {
                 threads_on: None,
                 link_previews: true,
                 dm_limit: DM_LIMIT,
+                unread_section: false,
+                kept_unread: None,
                 join_leave: true,
                 names: crate::settings::NameFormat::default(),
                 offline: crate::offline(),
@@ -920,6 +928,7 @@ impl Live {
         self.members = None;
         self.typing.clear();
         self.ask_bindings(&row.id);
+        self.kept_unread = (row.unread || row.mentions > 0).then(|| row.id.clone());
         self.open = Some(row);
         self.channel_model().expect("a channel is open")
     }
@@ -3024,8 +3033,14 @@ impl Live {
             ChangeSet::AccountPreferences(preferences) => {
                 update.account_preferences = Some(preferences.clone());
                 let limit = dm_limit(preferences);
-                if limit != self.dm_limit {
+                let unread_section = preferences.iter().any(|p| {
+                    p.category == "sidebar_settings"
+                        && p.name == "show_unread_section"
+                        && p.value == "true"
+                });
+                if limit != self.dm_limit || unread_section != self.unread_section {
                     self.dm_limit = limit;
+                    self.unread_section = unread_section;
                     update.categories = self.shown_categories();
                 }
                 let join_leave = !preferences.iter().any(|p| {
@@ -3216,6 +3231,17 @@ impl Live {
     /// The categories, with `open` shown even past the limit on direct
     /// messages.
     fn categories_showing(&self, sections: &[SidebarSection], open: Option<&str>) -> Vec<Category> {
+        let mut categories = self.server_categories(sections, open);
+        if self.unread_section {
+            let kept = self.kept_unread.as_deref().filter(|id| open == Some(*id));
+            if let Some(unreads) = unreads_section(&mut categories, sections, kept) {
+                categories.insert(0, unreads);
+            }
+        }
+        categories
+    }
+
+    fn server_categories(&self, sections: &[SidebarSection], open: Option<&str>) -> Vec<Category> {
         sections
             .iter()
             .map(|section| {
@@ -3287,6 +3313,45 @@ impl Live {
             .collect()
     }
 }
+
+/// Takes the unread rows, and `kept`, out of `categories` into an Unreads
+/// category, most recently active first (#966); `None` when there are none.
+/// A favorite keeps its star there.
+fn unreads_section(
+    categories: &mut [Category],
+    sections: &[SidebarSection],
+    kept: Option<&str>,
+) -> Option<Category> {
+    let active_at = |id: &str| {
+        sections
+            .iter()
+            .flat_map(|section| section.channels.iter())
+            .find(|channel| channel.id == id)
+            .map_or(0, |channel| channel.active_at)
+    };
+    let mut rows = Vec::new();
+    for category in categories.iter_mut() {
+        let favorites = category.kind == crate::sidebar::CategoryKind::Favorites;
+        let (unread, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut category.rows)
+            .into_iter()
+            .partition(|row| row.unread || row.mentions > 0 || kept == Some(row.id.as_ref()));
+        category.rows = rest;
+        rows.extend(unread.into_iter().map(|mut row| {
+            row.favorite = favorites;
+            row
+        }));
+    }
+    if rows.is_empty() {
+        return None;
+    }
+    rows.sort_by_key(|row| std::cmp::Reverse(active_at(&row.id)));
+    let mut unreads = Category::new(UNREADS_ID, crate::t!("sidebar-unreads"), rows);
+    unreads.kind = crate::sidebar::CategoryKind::Unreads;
+    Some(unreads)
+}
+
+/// The Unreads section's id; no server category has it.
+const UNREADS_ID: &str = "matty-unreads";
 
 /// How many direct and group messages the sidebar shows when the user has
 /// not chosen, as in the web app.
@@ -4082,6 +4147,66 @@ mod tests {
         // Manual, and the server default, keep the category's own order.
         assert_eq!(names("manual"), ["zoe", "me (you)", "ada"]);
         assert_eq!(names(""), ["zoe", "me (you)", "ada"]);
+    }
+
+    /// Unreads gathers unread channels newest first, keeps the one opened
+    /// while unread until another opens, and remembers favorites (#966).
+    #[test]
+    fn unread_channels_gather_in_unreads() {
+        let mut live = live();
+        live.unread_section = true;
+        let active = |channel: SidebarChannel, active_at: i64| SidebarChannel {
+            active_at,
+            ..channel
+        };
+        let favorites = SidebarSection {
+            kind: "favorites".into(),
+            ..section("fav", vec![active(channel("starred", "O", 1, 0), 10)])
+        };
+        let channels = section(
+            "chan",
+            vec![
+                active(channel("quiet", "O", 0, 0), 30),
+                active(channel("busy", "O", 3, 1), 20),
+            ],
+        );
+        live.sections
+            .insert("t1".into(), Arc::from(vec![favorites, channels]));
+        live.team = Some("t1".into());
+        let ids = |live: &Live| {
+            live.sidebar()
+                .categories
+                .unwrap()
+                .iter()
+                .map(|category| {
+                    category
+                        .rows
+                        .iter()
+                        .map(|row| row.id.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&live), [vec!["busy", "starred"], vec![], vec!["quiet"]]);
+        let categories = live.sidebar().categories.unwrap();
+        assert!(categories[0].rows[1].favorite);
+
+        let row = live.row("busy").expect("busy has a row");
+        live.open(row);
+        if let Some(sections) = live.sections.get_mut("t1") {
+            let mut read: Vec<SidebarSection> = sections.to_vec();
+            read[1].channels[1].unreads.messages = 0;
+            read[1].channels[1].unreads.mentions = 0;
+            *sections = Arc::from(read);
+        }
+        assert_eq!(
+            ids(&live)[0],
+            ["busy", "starred"],
+            "read but open, it stays"
+        );
+        let row = live.row("quiet").expect("quiet has a row");
+        live.open(row);
+        assert_eq!(ids(&live), [vec!["starred"], vec![], vec!["quiet", "busy"]]);
     }
 
     /// New message on a direct message past the sidebar's limit opened

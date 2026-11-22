@@ -100,6 +100,8 @@ pub struct ChannelRow {
     /// A direct message's other person's custom status: its emoji after
     /// the name (#221), its text in the emoji's tooltip (#681).
     pub status: Option<crate::custom_status::StatusLine>,
+    /// A favorite shown in Unreads, away from the Favorites category.
+    pub favorite: bool,
 }
 
 impl ChannelRow {
@@ -118,6 +120,7 @@ impl ChannelRow {
             person: None,
             handle: None,
             status: None,
+            favorite: false,
         }
     }
 
@@ -168,6 +171,9 @@ pub enum CategoryKind {
     Direct,
     /// Made by the user; holds anything.
     Custom,
+    /// Unread channels gathered at the top (#966): made by Matty, not the
+    /// server, so nothing moves into, out of or around it.
+    Unreads,
 }
 
 impl CategoryKind {
@@ -188,6 +194,7 @@ impl CategoryKind {
             Self::Favorites | Self::Custom => true,
             Self::Channels => !direct,
             Self::Direct => direct,
+            Self::Unreads => false,
         }
     }
 }
@@ -401,8 +408,9 @@ impl SidebarModel {
     /// Whether `id` sits in the Favorites category.
     pub fn is_favorite(&self, id: &str) -> bool {
         self.categories.iter().any(|category| {
-            category.kind == CategoryKind::Favorites
-                && category.rows.iter().any(|row| row.id.as_ref() == id)
+            category.rows.iter().any(|row| {
+                row.id.as_ref() == id && (category.kind == CategoryKind::Favorites || row.favorite)
+            })
         })
     }
 
@@ -1041,6 +1049,9 @@ impl SidebarView {
             return;
         };
         let category = &categories[index];
+        if category.kind == CategoryKind::Unreads {
+            return;
+        }
         let custom = category.kind == CategoryKind::Custom;
         let view = cx.weak_entity();
         let emit = |id: &'static str, label: SharedString, event: SidebarEvent| {
@@ -1261,7 +1272,14 @@ impl SidebarView {
     }
 
     fn toggle_category(&mut self, id: &SharedString, cx: &mut Context<Self>) {
-        if let Some(category) = self.model.categories.iter_mut().find(|c| &c.id == id) {
+        // Unreads holds only rows a collapsed category shows anyway, so it
+        // stays open, as in the web app.
+        if let Some(category) = self
+            .model
+            .categories
+            .iter_mut()
+            .find(|c| &c.id == id && c.kind != CategoryKind::Unreads)
+        {
             category.collapsed = !category.collapsed;
             cx.notify();
         }
@@ -2201,9 +2219,14 @@ impl SidebarView {
             .child(
                 // The chevron turns from right to down as the category opens
                 // (DESIGN.md §1 motion), snapping under reduced motion.
+                // Unreads does not collapse; its blank keeps the name in line.
                 lucide(LucideIcon::ChevronRight)
                     .size(scaled(&theme, metrics::ICON_TINY))
-                    .text_color(theme.colors.sidebar_muted_foreground())
+                    .text_color(if category.kind == CategoryKind::Unreads {
+                        gpui_kit::transparent_black().into()
+                    } else {
+                        theme.colors.sidebar_muted_foreground()
+                    })
                     .with_transformation(gpui_kit::Transformation::rotate(gpui_kit::radians(
                         turn * std::f32::consts::FRAC_PI_2,
                     ))),
@@ -2220,7 +2243,7 @@ impl SidebarView {
         // + and options show on hover, and on focus for the keyboard
         // (spec §2.4); Favorites takes nothing new.
         let add = match category.kind {
-            CategoryKind::Favorites => None,
+            CategoryKind::Favorites | CategoryKind::Unreads => None,
             CategoryKind::Direct => Some((t!("sidebar-new-message"), SidebarEvent::NewMessage)),
             CategoryKind::Channels | CategoryKind::Custom => {
                 Some((t!("sidebar-browse-channels"), SidebarEvent::BrowseChannels))
@@ -2308,7 +2331,9 @@ impl SidebarView {
                 .bottom_0()
                 .gap(px(2.))
                 .children(add)
-                .child(options),
+                .when(category.kind != CategoryKind::Unreads, |row| {
+                    row.child(options)
+                }),
             )
     }
 
@@ -2417,7 +2442,7 @@ impl SidebarView {
         else {
             return;
         };
-        if from.id != to.id && !to.kind.takes(&row.kind) {
+        if from.kind == CategoryKind::Unreads || (from.id != to.id && !to.kind.takes(&row.kind)) {
             return;
         }
         let full: Vec<SharedString> = to
@@ -2453,9 +2478,21 @@ impl SidebarView {
         if from >= self.model.categories.len() {
             return;
         }
+        // Unreads stays on top, and the server does not know it: its
+        // categories' places count from below it.
+        let unreads = usize::from(
+            self.model.categories.first().map(|category| category.kind)
+                == Some(CategoryKind::Unreads),
+        );
+        if from < unreads || to < unreads {
+            return;
+        }
         let id = self.model.categories[from].id.clone();
         move_group(&mut self.model.categories, from, to);
-        cx.emit(SidebarEvent::PlaceCategory { id, index: to });
+        cx.emit(SidebarEvent::PlaceCategory {
+            id,
+            index: to - unreads,
+        });
         cx.notify();
     }
 }

@@ -533,6 +533,9 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, ADVANCED, "join_leave") {
         settings.join_leave = value != "false";
     }
+    if let Some(value) = find(preferences, SIDEBAR, "show_unread_section") {
+        settings.unread_section = value == "true";
+    }
     if let Some(limit) = find(preferences, SIDEBAR, "limit_visible_dms_gms")
         .and_then(|value| value.trim().parse().ok())
         .filter(|limit| *limit > 0)
@@ -590,6 +593,15 @@ pub(crate) fn join_leave_preference(on: bool) -> Vec<Preference> {
     vec![preference(
         ADVANCED,
         "join_leave",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for the sidebar's Unreads section.
+pub(crate) fn unread_section_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        SIDEBAR,
+        "show_unread_section",
         if on { "true" } else { "false" },
     )]
 }
@@ -1234,6 +1246,22 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let unread_section = Switch::new("preferences.unread-section.switch")
+            .checked(settings.unread_section)
+            .aria_label(t!("prefs-unread-section"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.unread_section = next,
+                            |s| unread_section_preference(s.unread_section),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let dm_value = match settings.visible_dms {
             10 => "10",
             15 => "15",
@@ -1297,6 +1325,11 @@ impl MainWindow {
                 Row::new("preferences.join-leave", t!("prefs-join-leave"))
                     .description(t!("prefs-join-leave-detail"))
                     .control(join_leave),
+            )
+            .row(
+                Row::new("preferences.unread-section", t!("prefs-unread-section"))
+                    .description(t!("prefs-unread-section-detail"))
+                    .control(unread_section),
             )
             .row(
                 Row::new("preferences.visible-dms", t!("prefs-visible-dms"))

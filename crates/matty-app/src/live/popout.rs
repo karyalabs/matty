@@ -105,6 +105,8 @@ impl Live {
             threads_on: self.threads_on,
             link_previews: self.link_previews,
             dm_limit: self.dm_limit,
+            unread_section: self.unread_section,
+            kept_unread: None,
             join_leave: self.join_leave,
             names: self.names,
             offline: self.offline,
