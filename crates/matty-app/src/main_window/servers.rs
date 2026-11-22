@@ -379,6 +379,12 @@ impl MainWindow {
                         invite_id: invite_id.to_string(),
                     })
                 }
+                JoinTeamEvent::Create { display_name, name } => {
+                    live.send(matty_sync::Command::CreateTeam {
+                        display_name: display_name.to_string(),
+                        name: name.clone(),
+                    })
+                }
             }
             return;
         }

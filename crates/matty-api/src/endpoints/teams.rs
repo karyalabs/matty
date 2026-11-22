@@ -37,6 +37,15 @@ impl Client {
         .await
     }
 
+    /// `POST teams`: an open team with the user as its admin.
+    pub async fn create_team(&self, display_name: &str, name: &str) -> Result<Team, ApiError> {
+        self.post(
+            "teams",
+            &serde_json::json!({ "display_name": display_name, "name": name, "type": "O" }),
+        )
+        .await
+    }
+
     /// `GET teams/{team_id}`.
     pub async fn team(&self, team_id: &str) -> Result<Team, ApiError> {
         self.get(&format!("teams/{team_id}")).await

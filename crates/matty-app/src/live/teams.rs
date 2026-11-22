@@ -45,7 +45,7 @@ impl Live {
                 },
             ) => update.joinable = Some(JoinableTeams::Unavailable),
             ChangeSet::Failed(CommandError::Server {
-                action: action @ ("join team" | "leave team"),
+                action: action @ ("join team" | "leave team" | "create team"),
                 error,
                 ..
             }) => {
@@ -54,10 +54,10 @@ impl Live {
                     .rsplit_once(" (")
                     .map_or(error.as_str(), |(said, _)| said)
                     .to_owned();
-                update.refused = Some(if *action == "join team" {
-                    crate::t!("teams-join-failed", error = said)
-                } else {
-                    crate::t!("teams-leave-failed", error = said)
+                update.refused = Some(match *action {
+                    "join team" => crate::t!("teams-join-failed", error = said),
+                    "create team" => crate::t!("teams-create-failed", error = said),
+                    _ => crate::t!("teams-leave-failed", error = said),
                 });
             }
             _ => return false,

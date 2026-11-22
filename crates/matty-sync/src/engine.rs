@@ -444,6 +444,14 @@ pub enum Command {
         /// The link's invite id.
         invite_id: String,
     },
+    /// Creates an open team and joins it (#971);
+    /// [`ChangeSet::TeamJoined`](crate::ChangeSet::TeamJoined) follows.
+    CreateTeam {
+        /// The name people see.
+        display_name: String,
+        /// The URL name.
+        name: String,
+    },
     /// Leaves a team; it drops out of the team list once the server
     /// agrees.
     LeaveTeam {
@@ -1097,6 +1105,11 @@ impl std::fmt::Debug for Command {
                 .field("team_id", team_id)
                 .finish(),
             // The invite id lets anyone join, so it stays out of logs.
+            Self::CreateTeam { display_name, name } => f
+                .debug_struct("CreateTeam")
+                .field("display_name", display_name)
+                .field("name", name)
+                .finish(),
             Self::JoinTeamByInvite { .. } => {
                 f.debug_struct("JoinTeamByInvite").finish_non_exhaustive()
             }
@@ -2170,6 +2183,9 @@ impl Engine {
                 Message::Command(Command::BrowseTeams) => writes.push(Write::BrowseTeams),
                 Message::Command(Command::JoinTeam { team_id }) => {
                     writes.push(Write::JoinTeam { team_id });
+                }
+                Message::Command(Command::CreateTeam { display_name, name }) => {
+                    writes.push(Write::CreateTeam { display_name, name });
                 }
                 Message::Command(Command::JoinTeamByInvite { invite_id }) => {
                     writes.push(Write::JoinTeamByInvite { invite_id });

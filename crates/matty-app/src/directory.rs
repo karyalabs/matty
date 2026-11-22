@@ -1294,6 +1294,31 @@ pub enum JoinTeamEvent {
     Join(SharedString),
     /// Join the team an invite link names.
     Invite(SharedString),
+    /// Create an open team and join it (#971).
+    Create {
+        display_name: SharedString,
+        name: String,
+    },
+}
+
+/// A team's URL name for `display_name`, as the web app makes it:
+/// lowercase letters, digits and dashes, starting with a letter, at most
+/// 64 characters.
+pub fn team_handle(display_name: &str) -> String {
+    let mut handle = String::new();
+    for c in display_name.trim().chars() {
+        let c = c.to_ascii_lowercase();
+        if c.is_ascii_lowercase() || (c.is_ascii_digit() && !handle.is_empty()) {
+            handle.push(c);
+        } else if !handle.is_empty() && !handle.ends_with('-') {
+            handle.push('-');
+        }
+    }
+    handle.truncate(64);
+    while handle.ends_with('-') {
+        handle.pop();
+    }
+    handle
 }
 
 /// What an invite link the user pasted names.
@@ -1349,6 +1374,8 @@ pub struct JoinTeamView {
     invite: Entity<InputState>,
     /// Why the pasted link cannot join, until it changes.
     invite_error: Option<SharedString>,
+    /// A new team's name (#971).
+    create: Entity<InputState>,
     handle: DialogHandle,
     focus_search: bool,
     _subscriptions: Vec<gpui_kit::Subscription>,
@@ -1361,8 +1388,21 @@ impl JoinTeamView {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("teams-join-search")));
         let invite =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("teams-invite-placeholder")));
+        let create =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("teams-create-placeholder")));
         let subscriptions = vec![
             cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe_in(
+                &create,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.create_team(window, cx);
+                    } else {
+                        cx.notify();
+                    }
+                },
+            ),
             cx.subscribe_in(
                 &invite,
                 window,
@@ -1382,6 +1422,7 @@ impl JoinTeamView {
             search,
             invite,
             invite_error: None,
+            create,
             handle: DialogHandle::new(false),
             focus_search: false,
             _subscriptions: subscriptions,
@@ -1419,6 +1460,8 @@ impl JoinTeamView {
             .update(cx, |search, cx| search.set_value("", window, cx));
         self.invite
             .update(cx, |invite, cx| invite.set_value("", window, cx));
+        self.create
+            .update(cx, |create, cx| create.set_value("", window, cx));
         self.handle.open(window, cx);
         self.focus_search = true;
         cx.notify();
@@ -1427,6 +1470,22 @@ impl JoinTeamView {
     fn join(&mut self, id: SharedString, window: &mut Window, cx: &mut Context<Self>) {
         self.handle.close(window, cx);
         cx.emit(JoinTeamEvent::Join(id));
+    }
+
+    /// The typed team name and its URL name, once the URL name is long
+    /// enough for the server.
+    fn new_team(&self, cx: &App) -> Option<(SharedString, String)> {
+        let display_name = self.create.read(cx).value().trim().to_owned();
+        let name = team_handle(&display_name);
+        (name.len() >= 2).then(|| (display_name.into(), name))
+    }
+
+    fn create_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((display_name, name)) = self.new_team(cx) else {
+            return;
+        };
+        self.handle.close(window, cx);
+        cx.emit(JoinTeamEvent::Create { display_name, name });
     }
 
     fn join_invite(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1448,6 +1507,64 @@ impl JoinTeamView {
                 cx.notify();
             }
         }
+    }
+
+    /// "Create a team": its name, and the address the name gives it.
+    fn create_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let new_team = self.new_team(cx);
+        let typed = !self.create.read(cx).value().trim().is_empty();
+        let hint = match &new_team {
+            Some((_, name)) => Some((
+                t!(
+                    "teams-create-url",
+                    url = format!("{}/{name}", self.server_url.trim_end_matches('/'))
+                ),
+                theme.colors.muted_foreground,
+            )),
+            None if typed => Some((t!("teams-create-short"), theme.colors.destructive)),
+            None => None,
+        };
+        div()
+            .pt(theme.space(3.))
+            .border_t_1()
+            .border_color(theme.colors.border)
+            .flex()
+            .flex_col()
+            .gap(theme.space(1.5))
+            .child(
+                div()
+                    .type_style(style::UI_STRONG, &theme)
+                    .text_color(theme.colors.foreground)
+                    .child(t!("teams-create-label")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(theme.space(2.))
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.create).aria_label(t!("teams-create-placeholder")),
+                        ),
+                    )
+                    .child(
+                        Button::new("join-team.create")
+                            .variant(ButtonVariant::Outline)
+                            .label(t!("teams-create-button"))
+                            .disabled(new_team.is_none())
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.create_team(window, cx)),
+                            ),
+                    ),
+            )
+            .children(hint.map(|(text, color)| {
+                div()
+                    .type_style(style::META, &theme)
+                    .text_color(color)
+                    .truncate()
+                    .child(text)
+            }))
     }
 
     fn row(&self, team: &JoinableTeam, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -1645,6 +1762,7 @@ impl Render for JoinTeamView {
                             .child(error)
                     })),
             )
+            .child(self.create_section(cx))
     }
 }
 
@@ -1660,6 +1778,14 @@ mod tests {
 
     use super::channel_handle;
     use crate::t;
+
+    #[test]
+    fn team_urls_start_with_a_letter() {
+        use super::team_handle;
+        assert_eq!(team_handle("Design Guild"), "design-guild");
+        assert_eq!(team_handle("  2026 Offsite!  "), "offsite");
+        assert_eq!(team_handle("R&D_team"), "r-d-team");
+    }
 
     #[test]
     fn handles_follow_mattermost_rules() {

@@ -27,7 +27,7 @@ teams-manage = Manage servers…
 ## Joining and leaving teams (#745)
 
 # The Join a team dialog: the server's open teams, then an invite link.
-teams-join-title = Join a team
+teams-join-title = Join or create a team
 teams-join-description = Teams on { $server } that anyone can join.
 teams-join-search = Search teams
 teams-join-loading = Loading teams…
@@ -55,3 +55,12 @@ teams-leave-failed = Couldn't leave the team: { $error }
 
 teams-invite = Invite people…
 teams-invite-to = Invite people to { $team }…
+
+## Create a team (#971)
+
+teams-create-label = Start a new team
+teams-create-placeholder = Team name
+teams-create-button = Create
+teams-create-url = Its address: { $url }
+teams-create-short = Use at least two letters.
+teams-create-failed = Couldn't create the team: { $error }

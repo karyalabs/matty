@@ -95,6 +95,10 @@ pub(crate) enum Write {
     JoinTeamByInvite {
         invite_id: String,
     },
+    CreateTeam {
+        display_name: String,
+        name: String,
+    },
     LeaveTeam {
         team_id: String,
     },
@@ -288,6 +292,7 @@ impl Write {
             Self::OpenDirect { .. } => "open direct message",
             Self::BrowseTeams => "browse teams",
             Self::JoinTeam { .. } | Self::JoinTeamByInvite { .. } => "join team",
+            Self::CreateTeam { .. } => "create team",
             Self::LeaveTeam { .. } => "leave team",
             Self::Join { .. } => "join channel",
             Self::Leave { .. } => "leave channel",
@@ -371,6 +376,7 @@ impl Write {
             Self::DeleteEmoji { emoji_id } => emoji_id.clone(),
             Self::OpenDirect { user_ids } => user_ids.join(","),
             Self::Roles { names } => names.join(","),
+            Self::CreateTeam { name, .. } => name.clone(),
             Self::TeamRoles | Self::BrowseTeams | Self::JoinTeamByInvite { .. } => {
                 user_id.to_owned()
             }
@@ -742,6 +748,10 @@ pub(crate) async fn run(
             Write::JoinTeamByInvite { invite_id } => {
                 let member = client.join_team_by_invite(&invite_id).await?;
                 joined_team(&client, &user_id, member.team_id, &results).await?
+            }
+            Write::CreateTeam { display_name, name } => {
+                let team = client.create_team(&display_name, &name).await?;
+                joined_team(&client, &user_id, team.id, &results).await?
             }
             Write::LeaveTeam { team_id } => {
                 client.remove_team_member(&team_id, &user_id).await?;
