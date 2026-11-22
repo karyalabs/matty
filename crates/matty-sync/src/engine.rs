@@ -328,6 +328,15 @@ pub enum Command {
         /// `alpha`, `recent` or `manual`.
         sorting: String,
     },
+    /// Mutes or unmutes a category as a whole, as its menu does in the web
+    /// app; the server mutes its channels, and
+    /// [`ChangeSet::Sidebar`](crate::ChangeSet::Sidebar) follows.
+    MuteCategory {
+        /// The category.
+        category_id: String,
+        /// Muted or not.
+        muted: bool,
+    },
     /// Puts a category at `index` in its team's sidebar, as dragging its
     /// header does; [`ChangeSet::Sidebar`](crate::ChangeSet::Sidebar)
     /// follows.
@@ -1077,6 +1086,7 @@ impl std::fmt::Debug for Command {
             Self::MoveCategory { .. } => f.write_str("MoveCategory"),
             Self::MoveChannel { .. } => f.write_str("MoveChannel"),
             Self::SortCategory { .. } => f.write_str("SortCategory"),
+            Self::MuteCategory { .. } => f.write_str("MuteCategory"),
             Self::PlaceCategory { .. } => f.write_str("PlaceCategory"),
             Self::PlaceChannel { .. } => f.write_str("PlaceChannel"),
             Self::OpenDirect { user_ids } => f
@@ -2313,6 +2323,14 @@ impl Engine {
                         && category.sorting != sorting
                     {
                         category.sorting = sorting;
+                        writes.push(category_write(self.me.as_deref(), category));
+                    }
+                }
+                Message::Command(Command::MuteCategory { category_id, muted }) => {
+                    if let Some(mut category) = sidebar::category(&tx, &category_id)?
+                        && category.muted != muted
+                    {
+                        category.muted = muted;
                         writes.push(category_write(self.me.as_deref(), category));
                     }
                 }

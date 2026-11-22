@@ -1154,6 +1154,19 @@ impl MainWindow {
                         }
                         return;
                     }
+                    SidebarEvent::MuteCategory { id, muted } => {
+                        if let Some(live) = &this.live {
+                            live.send(matty_sync::Command::MuteCategory {
+                                category_id: id.to_string(),
+                                muted: *muted,
+                            });
+                        }
+                        return;
+                    }
+                    SidebarEvent::MarkCategoryRead(ids) => {
+                        let ids = ids.clone();
+                        return this.view_channels(&ids);
+                    }
                     SidebarEvent::SortCategory { id, sorting } => {
                         if let Some(live) = &this.live {
                             live.send(matty_sync::Command::SortCategory {

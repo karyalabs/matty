@@ -3360,6 +3360,7 @@ impl Live {
                 category.collapsed = section.collapsed;
                 category.kind = crate::sidebar::CategoryKind::from_server(&section.kind);
                 category.sorting = crate::sidebar::Sorting::from_server(&section.sorting);
+                category.muted = section.muted;
                 category
             })
             .collect()

@@ -241,6 +241,8 @@ pub struct Category {
     pub kind: CategoryKind,
     /// How its rows are ordered; they arrive in that order.
     pub sorting: Sorting,
+    /// Muted as a whole: its channels, and any that join it later.
+    pub muted: bool,
     pub rows: Vec<ChannelRow>,
 }
 
@@ -256,6 +258,7 @@ impl Category {
             collapsed: false,
             kind: CategoryKind::Channels,
             sorting: Sorting::Manual,
+            muted: false,
             rows,
         }
     }
@@ -664,6 +667,10 @@ pub enum SidebarEvent {
     MoveCategory { id: SharedString, up: bool },
     /// A choice in a category's Sort menu.
     SortCategory { id: SharedString, sorting: Sorting },
+    /// "Mute category" or "Unmute category" from its menu.
+    MuteCategory { id: SharedString, muted: bool },
+    /// "Mark category as read" from its menu; its rows are already clear.
+    MarkCategoryRead(Vec<SharedString>),
     /// "Move up" or "Move down" in a row's Move to menu: within its
     /// category, which then sorts by hand.
     MoveChannel {
@@ -1061,6 +1068,12 @@ impl SidebarView {
             })
         };
         let (id, name) = (category.id.clone(), category.name.clone());
+        let unread: Vec<SharedString> = category
+            .rows
+            .iter()
+            .filter(|row| row.unread || row.mentions > 0)
+            .map(|row| row.id.clone())
+            .collect();
         let mut items = vec![
             MenuItem::new("sidebar.category.unreads", t!("sidebar-show-unread-only"))
                 .checked(self.unreads_only)
@@ -1068,7 +1081,37 @@ impl SidebarView {
                     window.dispatch_action(Box::new(crate::actions::UnreadsFilter), cx)
                 }),
             MenuItem::separator(),
+            {
+                let view = view.clone();
+                let read = unread.clone();
+                MenuItem::new("sidebar.category.read", t!("sidebar-mark-category-read"))
+                    .disabled(unread.is_empty())
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            for id in &read {
+                                this.mark_read(id, cx);
+                            }
+                            cx.emit(SidebarEvent::MarkCategoryRead(read.clone()));
+                        })
+                        .ok();
+                    })
+            },
         ];
+        // As in the web app, the direct messages category can't be muted.
+        if category.kind != CategoryKind::Direct {
+            items.push(emit(
+                "sidebar.category.mute",
+                if category.muted {
+                    t!("sidebar-unmute-category")
+                } else {
+                    t!("sidebar-mute-category")
+                },
+                SidebarEvent::MuteCategory {
+                    id: id.clone(),
+                    muted: !category.muted,
+                },
+            ));
+        }
         if custom {
             items.push(emit(
                 "sidebar.category.rename",
