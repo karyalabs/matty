@@ -536,6 +536,9 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, DISPLAY, "one_click_reactions_enabled") {
         settings.quick_reactions = value != "false";
     }
+    if let Some(value) = find(preferences, ADVANCED, "unread_scroll_position") {
+        settings.open_at_newest = value == "start_from_newest";
+    }
     if let Some(value) = find(preferences, DISPLAY, "colorize_usernames") {
         settings.colorize_names = value != "false";
     }
@@ -612,6 +615,19 @@ pub(crate) fn quick_reactions_preference(on: bool) -> Vec<Preference> {
         DISPLAY,
         "one_click_reactions_enabled",
         if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for where an unread channel opens.
+pub(crate) fn open_at_newest_preference(newest: bool) -> Vec<Preference> {
+    vec![preference(
+        ADVANCED,
+        "unread_scroll_position",
+        if newest {
+            "start_from_newest"
+        } else {
+            "start_from_left_off"
+        },
     )]
 }
 
@@ -1377,6 +1393,28 @@ impl MainWindow {
             window,
             cx,
         );
+        let open_at = selects.get(
+            "preferences.open-at",
+            &[
+                ("left-off", t!("prefs-open-at-left-off")),
+                ("newest", t!("prefs-open-at-newest")),
+            ],
+            if settings.open_at_newest {
+                "newest"
+            } else {
+                "left-off"
+            },
+            |value, this, cx| {
+                let newest = value == "newest";
+                this.set_synced(
+                    |s| s.open_at_newest = newest,
+                    |s| open_at_newest_preference(s.open_at_newest),
+                    cx,
+                )
+            },
+            window,
+            cx,
+        );
         let mut reading = Group::new("preferences.reading", t!("prefs-reading"))
             .synced()
             .row(
@@ -1417,6 +1455,11 @@ impl MainWindow {
                 Row::new("preferences.join-leave", t!("prefs-join-leave"))
                     .description(t!("prefs-join-leave-detail"))
                     .control(join_leave),
+            )
+            .row(
+                Row::new("preferences.open-at", t!("prefs-open-at"))
+                    .description(t!("prefs-open-at-detail"))
+                    .control(select(&open_at, t!("prefs-open-at"), &theme)),
             )
             .row(
                 Row::new("preferences.quick-reactions", t!("prefs-quick-reactions"))

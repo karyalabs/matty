@@ -381,6 +381,11 @@ pub struct Settings {
     /// account's `display_settings/colorize_usernames`.
     #[serde(default = "yes")]
     pub colorize_names: bool,
+    /// An unread channel opens at its newest message rather than at the
+    /// "New messages" line: the account's
+    /// `advanced_settings/unread_scroll_position` is `start_from_newest`.
+    #[serde(default)]
+    pub open_at_newest: bool,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -453,6 +458,7 @@ impl Default for Settings {
             quick_reactions: true,
             avatar_status: true,
             colorize_names: true,
+            open_at_newest: false,
             visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,

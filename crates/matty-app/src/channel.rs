@@ -1965,7 +1965,9 @@ impl ChannelView {
         self.editing = None;
         // Open at the "New messages" line when there is one, as Mattermost
         // does, so nothing unread scrolls past; the pill leads to the end.
-        let at_end = std::mem::take(&mut self.open_at_end);
+        let at_end = std::mem::take(&mut self.open_at_end)
+            || SettingsStore::try_global(cx)
+                .is_some_and(|store| store.read(cx).get().open_at_newest);
         let divider = self.rows.iter().position(|row| *row == Row::NewMessages);
         if let Some(divider) = divider.filter(|_| !at_end) {
             self.list.update(cx, |list, cx| {
