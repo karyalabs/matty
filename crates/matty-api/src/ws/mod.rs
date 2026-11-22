@@ -548,10 +548,7 @@ fn upgrade_request(
         .into_client_request()
         .map_err(|e| ApiError::InvalidUrl(e.to_string()))?;
     let headers = request.headers_mut();
-    headers.insert(
-        "User-Agent",
-        HeaderValue::from_static(concat!("Matty/", env!("CARGO_PKG_VERSION"))),
-    );
+    headers.insert("User-Agent", HeaderValue::from_static(crate::USER_AGENT));
     let mut bearer = HeaderValue::from_str(&format!("Bearer {token}"))
         .map_err(|_| ApiError::InvalidUrl("the session token is not a valid header".into()))?;
     bearer.set_sensitive(true);

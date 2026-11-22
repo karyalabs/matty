@@ -64,10 +64,7 @@ async fn sends_the_token_and_user_agent() {
     Mock::given(method("GET"))
         .and(path("/api/v4/users/me"))
         .and(header("authorization", "Bearer tok"))
-        .and(header(
-            "user-agent",
-            concat!("Matty/", env!("CARGO_PKG_VERSION")),
-        ))
+        .and(header("user-agent", matty_api::USER_AGENT))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("X-RateLimit-Limit", "10")

@@ -19,7 +19,7 @@ pub mod ws;
 
 pub use capabilities::{ServerCapabilities, UnsupportedVersion, Version};
 pub use client::{
-    Client, ClientBuilder, Fetched, MAX_OUTSIDE_IMAGE, RateLimit, Sleeper, TokioSleeper,
+    Client, ClientBuilder, Fetched, MAX_OUTSIDE_IMAGE, RateLimit, Sleeper, TokioSleeper, USER_AGENT,
 };
 pub use endpoints::apps::USER_AGENT as APPS_USER_AGENT;
 pub use endpoints::browse::{ChannelPatch, NewChannel, ProfilePatch, SearchQuery};

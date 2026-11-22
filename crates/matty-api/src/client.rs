@@ -93,6 +93,45 @@ pub struct ClientBuilder {
     timeout: Duration,
 }
 
+// The platform token of the user agent, as a browser on it writes it.
+#[cfg(target_os = "macos")]
+macro_rules! platform {
+    () => {
+        "Macintosh; Intel Mac OS X 10_15_7"
+    };
+}
+#[cfg(target_os = "windows")]
+macro_rules! platform {
+    () => {
+        "Windows NT 10.0; Win64; x64"
+    };
+}
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+macro_rules! platform {
+    () => {
+        "X11; Linux aarch64"
+    };
+}
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(target_os = "linux", target_arch = "aarch64")
+)))]
+macro_rules! platform {
+    () => {
+        "X11; Linux x86_64"
+    };
+}
+/// The user agent Matty sends: the server reads the platform from the
+/// browser-style token in parentheses, so Security lists a Matty session
+/// as "Linux" or "Mac OS" rather than an unknown device (#979).
+pub const USER_AGENT: &str = concat!(
+    "Mozilla/5.0 (",
+    platform!(),
+    ") Matty/",
+    env!("CARGO_PKG_VERSION")
+);
+
 impl ClientBuilder {
     /// Uses `token` as the session token.
     pub fn token(mut self, token: impl Into<String>) -> Self {
@@ -118,7 +157,7 @@ impl ClientBuilder {
         let base = normalize_base(&self.base)?;
         #[cfg(not(target_family = "wasm"))]
         let http = reqwest::Client::builder()
-            .user_agent(concat!("Matty/", env!("CARGO_PKG_VERSION")))
+            .user_agent(USER_AGENT)
             .timeout(self.timeout)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(same_host_redirects())
