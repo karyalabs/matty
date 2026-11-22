@@ -369,6 +369,14 @@ pub struct Settings {
     /// sidebar: the account's `sidebar_settings/show_unread_section`
     /// (#966).
     pub unread_section: bool,
+    /// A message's hover bar offers recent emoji as one-click reactions:
+    /// the account's `display_settings/one_click_reactions_enabled`.
+    #[serde(default = "yes")]
+    pub quick_reactions: bool,
+    /// Avatars on messages show their author's availability: the
+    /// account's `display_settings/availability_status_on_posts`.
+    #[serde(default = "yes")]
+    pub avatar_status: bool,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -398,6 +406,10 @@ pub struct Settings {
     /// Keys written by another Matty version, kept as they were.
     #[serde(flatten)]
     pub unknown: serde_json::Map<String, serde_json::Value>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -434,6 +446,8 @@ impl Default for Settings {
             collapse_previews: false,
             join_leave: true,
             unread_section: false,
+            quick_reactions: true,
+            avatar_status: true,
             visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,

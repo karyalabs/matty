@@ -1231,6 +1231,11 @@ const QUICK_REACTION_COUNT: usize = 3;
 /// the user picked most, then Mattermost's defaults, as reaction values (a
 /// glyph, or `:name:` for a custom emoji).
 pub(crate) fn quick_reactions(cx: &App) -> Vec<SharedString> {
+    if crate::settings::SettingsStore::try_global(cx)
+        .is_some_and(|store| !store.read(cx).get().quick_reactions)
+    {
+        return Vec::new();
+    }
     let mut quick: Vec<SharedString> = Vec::new();
     let picked = crate::emoji::frequent(cx)
         .into_iter()
@@ -4581,15 +4586,21 @@ impl ChannelView {
         let Some(profile) = profile.cloned() else {
             return avatar.aria_label(post.author.clone()).into_any_element();
         };
-        // The author's presence on the avatar (#135).
+        // The author's presence on the avatar (#135), unless the user
+        // turned it off.
         let theme = UiTheme::read(cx);
+        let shows_status = crate::settings::SettingsStore::try_global(cx)
+            .is_none_or(|store| store.read(cx).get().avatar_status);
         let avatar = avatar
             .aria_label(post.author.clone())
-            .status(crate::style::avatar_status(
-                profile.presence,
-                &crate::style::Palette::read(cx),
-            ))
-            .ring_color(theme.colors.background);
+            .when(shows_status, |avatar| {
+                avatar
+                    .status(crate::style::avatar_status(
+                        profile.presence,
+                        &crate::style::Palette::read(cx),
+                    ))
+                    .ring_color(theme.colors.background)
+            });
         let label = crate::style::presence_name(&post.author, profile.presence);
         Self::profile_popover(&id, "profile", label, avatar, profile, card, cx)
     }

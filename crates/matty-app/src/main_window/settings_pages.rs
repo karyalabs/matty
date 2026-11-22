@@ -533,6 +533,12 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, ADVANCED, "join_leave") {
         settings.join_leave = value != "false";
     }
+    if let Some(value) = find(preferences, DISPLAY, "one_click_reactions_enabled") {
+        settings.quick_reactions = value != "false";
+    }
+    if let Some(value) = find(preferences, DISPLAY, "availability_status_on_posts") {
+        settings.avatar_status = value != "false";
+    }
     if let Some(value) = find(preferences, SIDEBAR, "show_unread_section") {
         settings.unread_section = value == "true";
     }
@@ -593,6 +599,24 @@ pub(crate) fn join_leave_preference(on: bool) -> Vec<Preference> {
     vec![preference(
         ADVANCED,
         "join_leave",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for one-click reactions in the hover bar.
+pub(crate) fn quick_reactions_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "one_click_reactions_enabled",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for availability on message avatars.
+pub(crate) fn avatar_status_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "availability_status_on_posts",
         if on { "true" } else { "false" },
     )]
 }
@@ -1246,6 +1270,38 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let quick_reactions = Switch::new("preferences.quick-reactions.switch")
+            .checked(settings.quick_reactions)
+            .aria_label(t!("prefs-quick-reactions"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.quick_reactions = next,
+                            |s| quick_reactions_preference(s.quick_reactions),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
+        let avatar_status = Switch::new("preferences.avatar-status.switch")
+            .checked(settings.avatar_status)
+            .aria_label(t!("prefs-avatar-status"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.avatar_status = next,
+                            |s| avatar_status_preference(s.avatar_status),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let unread_section = Switch::new("preferences.unread-section.switch")
             .checked(settings.unread_section)
             .aria_label(t!("prefs-unread-section"))
@@ -1325,6 +1381,16 @@ impl MainWindow {
                 Row::new("preferences.join-leave", t!("prefs-join-leave"))
                     .description(t!("prefs-join-leave-detail"))
                     .control(join_leave),
+            )
+            .row(
+                Row::new("preferences.quick-reactions", t!("prefs-quick-reactions"))
+                    .description(t!("prefs-quick-reactions-detail"))
+                    .control(quick_reactions),
+            )
+            .row(
+                Row::new("preferences.avatar-status", t!("prefs-avatar-status"))
+                    .description(t!("prefs-avatar-status-detail"))
+                    .control(avatar_status),
             )
             .row(
                 Row::new("preferences.unread-section", t!("prefs-unread-section"))
