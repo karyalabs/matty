@@ -539,6 +539,12 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, ADVANCED, "unread_scroll_position") {
         settings.open_at_newest = value == "start_from_newest";
     }
+    if let Some(value) = find(preferences, DISPLAY, "click_to_reply") {
+        settings.click_to_reply = value != "false";
+    }
+    if let Some(value) = find(preferences, DISPLAY, "channel_display_mode") {
+        settings.centered = value == "centered";
+    }
     if let Some(value) = find(preferences, DISPLAY, "colorize_usernames") {
         settings.colorize_names = value != "false";
     }
@@ -628,6 +634,24 @@ pub(crate) fn open_at_newest_preference(newest: bool) -> Vec<Preference> {
         } else {
             "start_from_left_off"
         },
+    )]
+}
+
+/// The server preference for opening a thread with a click on a message.
+pub(crate) fn click_to_reply_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "click_to_reply",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for full width or centered messages.
+pub(crate) fn centered_preference(centered: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "channel_display_mode",
+        if centered { "centered" } else { "full" },
     )]
 }
 
@@ -1330,6 +1354,22 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let click_to_reply = Switch::new("preferences.click-to-reply.switch")
+            .checked(settings.click_to_reply)
+            .aria_label(t!("prefs-click-to-reply"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.click_to_reply = next,
+                            |s| click_to_reply_preference(s.click_to_reply),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let avatar_status = Switch::new("preferences.avatar-status.switch")
             .checked(settings.avatar_status)
             .aria_label(t!("prefs-avatar-status"))
@@ -1415,6 +1455,28 @@ impl MainWindow {
             window,
             cx,
         );
+        let width = selects.get(
+            "preferences.width",
+            &[
+                ("full", t!("prefs-width-full")),
+                ("centered", t!("prefs-width-centered")),
+            ],
+            if settings.centered {
+                "centered"
+            } else {
+                "full"
+            },
+            |value, this, cx| {
+                let centered = value == "centered";
+                this.set_synced(
+                    |s| s.centered = centered,
+                    |s| centered_preference(s.centered),
+                    cx,
+                )
+            },
+            window,
+            cx,
+        );
         let mut reading = Group::new("preferences.reading", t!("prefs-reading"))
             .synced()
             .row(
@@ -1433,6 +1495,11 @@ impl MainWindow {
             );
         }
         reading = reading
+            .row(
+                Row::new("preferences.width", t!("prefs-width"))
+                    .description(t!("prefs-width-detail"))
+                    .control(select(&width, t!("prefs-width"), &theme)),
+            )
             .row(Row::new("preferences.clock", t!("prefs-clock")).control(clock))
             .row(
                 Row::new("preferences.names", t!("prefs-names-label"))
@@ -1465,6 +1532,11 @@ impl MainWindow {
                 Row::new("preferences.quick-reactions", t!("prefs-quick-reactions"))
                     .description(t!("prefs-quick-reactions-detail"))
                     .control(quick_reactions),
+            )
+            .row(
+                Row::new("preferences.click-to-reply", t!("prefs-click-to-reply"))
+                    .description(t!("prefs-click-to-reply-detail"))
+                    .control(click_to_reply),
             )
             .row(
                 Row::new("preferences.avatar-status", t!("prefs-avatar-status"))

@@ -1014,6 +1014,36 @@ fn name_color(user_id: &str, dark: bool) -> gpui_kit::Hsla {
     gpui_kit::hsla(hue, 0.6, if dark { 0.7 } else { 0.38 }, 1.)
 }
 
+/// The column width for "Centered" channel display, as the web app's
+/// `channel_display_mode`, or `None` for full width.
+fn centered_width(cx: &App) -> Option<Pixels> {
+    let store = SettingsStore::try_global(cx)?;
+    store
+        .read(cx)
+        .get()
+        .centered
+        .then(|| scaled(UiTheme::read(cx), metrics::CENTERED_WIDTH))
+}
+
+/// Holds `element` to the centered column when there is one.
+fn centered_row(width: Option<Pixels>, element: gpui_kit::AnyElement) -> gpui_kit::AnyElement {
+    match width {
+        Some(width) => div()
+            .w_full()
+            .flex()
+            .justify_center()
+            .child(div().w_full().max_w(width).child(element))
+            .into_any_element(),
+        None => element,
+    }
+}
+
+/// Whether a click on a message opens its thread: the web app's
+/// `click_to_reply`.
+fn click_to_reply(cx: &App) -> bool {
+    SettingsStore::try_global(cx).is_none_or(|store| store.read(cx).get().click_to_reply)
+}
+
 /// The row density from Preferences (PLAN §4.2 display).
 pub fn message_density(cx: &App) -> MessageDensity {
     match SettingsStore::global(cx).read(cx).get().display {
@@ -4791,7 +4821,7 @@ impl ChannelView {
         })
         // A click on the message opens its thread, as in Mattermost
         // (#680); links, buttons and a text selection keep their own.
-        .when(sent && editor.is_none(), |row| {
+        .when(sent && editor.is_none() && click_to_reply(cx), |row| {
             let (view, root) = (view.clone(), post.thread_root());
             row.on_click(move |_, _, cx| {
                 view.update(cx, |_, cx| cx.emit(ChannelEvent::OpenThread(root.clone())))
@@ -5133,64 +5163,66 @@ impl ChannelView {
         let channel = channel.clone();
         let profiles = self.profile_index.clone();
         let view = cx.entity();
-        MessageList::new(
-            "channel.transcript",
-            &self.list,
-            move |index, _, cx| match rows.get(index) {
-                Some(Row::History) => view.update(cx, |this, cx| {
-                    this.request_older(cx);
-                    this.history_row(cx).into_any_element()
-                }),
-                Some(Row::Newer) => view.update(cx, |this, cx| {
-                    this.request_newer(cx);
-                    this.newer_row(cx).into_any_element()
-                }),
-                Some(Row::Day(label)) => day_divider(
-                    gpui_kit::ElementId::Name(format!("day.{label}").into()),
-                    label.clone(),
-                    cx,
-                )
-                .into_any_element(),
-                Some(Row::NewMessages) => {
-                    new_messages_divider("new-messages", t!("chan-new-messages"), cx)
-                        .into_any_element()
-                }
-                Some(Row::System(post)) => {
-                    let post = &channel.posts[*post];
-                    view.update(cx, |_, cx| Self::system_row(post, cx).into_any_element())
-                }
-                Some(Row::Post(post)) => {
-                    let post = &channel.posts[*post];
-                    let profile = profiles
-                        .get(&post.author)
-                        .and_then(|&at| channel.profiles.get(at));
-                    view.update(cx, |this, cx| {
-                        let editor = this
-                            .editing
-                            .as_ref()
-                            .filter(|editing| editing.post == post.id)
-                            .map(|editing| (editing.composer.clone(), this.composer_cap));
-                        let highlight = this.row_highlight(index, post);
-                        let away = this.away;
-                        let previews_collapsed = SettingsStore::global(cx)
-                            .read(cx)
-                            .get()
-                            .previews_collapsed(&post.id);
-                        Self::post_row(
-                            post,
-                            profile,
-                            editor.as_ref(),
-                            highlight,
-                            (away, previews_collapsed, this.profile_cards),
-                            &this.action_menus,
-                            cx,
-                        )
-                        .into_any_element()
-                    })
-                }
-                None => div().into_any_element(),
-            },
-        )
+        let centered = centered_width(cx);
+        MessageList::new("channel.transcript", &self.list, move |index, _, cx| {
+            centered_row(
+                centered,
+                match rows.get(index) {
+                    Some(Row::History) => view.update(cx, |this, cx| {
+                        this.request_older(cx);
+                        this.history_row(cx).into_any_element()
+                    }),
+                    Some(Row::Newer) => view.update(cx, |this, cx| {
+                        this.request_newer(cx);
+                        this.newer_row(cx).into_any_element()
+                    }),
+                    Some(Row::Day(label)) => day_divider(
+                        gpui_kit::ElementId::Name(format!("day.{label}").into()),
+                        label.clone(),
+                        cx,
+                    )
+                    .into_any_element(),
+                    Some(Row::NewMessages) => {
+                        new_messages_divider("new-messages", t!("chan-new-messages"), cx)
+                            .into_any_element()
+                    }
+                    Some(Row::System(post)) => {
+                        let post = &channel.posts[*post];
+                        view.update(cx, |_, cx| Self::system_row(post, cx).into_any_element())
+                    }
+                    Some(Row::Post(post)) => {
+                        let post = &channel.posts[*post];
+                        let profile = profiles
+                            .get(&post.author)
+                            .and_then(|&at| channel.profiles.get(at));
+                        view.update(cx, |this, cx| {
+                            let editor = this
+                                .editing
+                                .as_ref()
+                                .filter(|editing| editing.post == post.id)
+                                .map(|editing| (editing.composer.clone(), this.composer_cap));
+                            let highlight = this.row_highlight(index, post);
+                            let away = this.away;
+                            let previews_collapsed = SettingsStore::global(cx)
+                                .read(cx)
+                                .get()
+                                .previews_collapsed(&post.id);
+                            Self::post_row(
+                                post,
+                                profile,
+                                editor.as_ref(),
+                                highlight,
+                                (away, previews_collapsed, this.profile_cards),
+                                &this.action_menus,
+                                cx,
+                            )
+                            .into_any_element()
+                        })
+                    }
+                    None => div().into_any_element(),
+                },
+            )
+        })
         .unseen(self.unseen)
         .when(!self.history.at_end, |list| {
             let view = cx.entity().downgrade();
@@ -5798,7 +5830,10 @@ impl Render for ChannelView {
                 if channel.archived {
                     view.child(Self::archived_note(&channel, cx))
                 } else {
-                    view.child(self.composer(cx))
+                    view.child(centered_row(
+                        centered_width(cx),
+                        self.composer(cx).into_any_element(),
+                    ))
                 }
             })
             .child(Self::typing_line(&channel, cx))

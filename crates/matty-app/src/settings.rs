@@ -386,6 +386,14 @@ pub struct Settings {
     /// `advanced_settings/unread_scroll_position` is `start_from_newest`.
     #[serde(default)]
     pub open_at_newest: bool,
+    /// A click on a message opens its thread: the account's
+    /// `display_settings/click_to_reply`.
+    #[serde(default = "yes")]
+    pub click_to_reply: bool,
+    /// Messages and the composer keep to a centered column: the account's
+    /// `display_settings/channel_display_mode` is `centered`.
+    #[serde(default)]
+    pub centered: bool,
     /// Posts whose previews the user opened or closed against
     /// [`collapse_previews`](Self::collapse_previews), oldest first, at most
     /// [`PREVIEW_CHOICES`].
@@ -459,6 +467,8 @@ impl Default for Settings {
             avatar_status: true,
             colorize_names: true,
             open_at_newest: false,
+            click_to_reply: true,
+            centered: false,
             visible_dms: 20,
             preview_choices: Vec::new(),
             account: None,

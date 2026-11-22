@@ -474,6 +474,8 @@ pub mod metrics {
     pub const ROW_HEIGHT: f32 = 28.;
     /// Horizontal padding inside the channel view.
     pub const GUTTER: f32 = 20.;
+    /// The message column in "Centered" channel display, as the web app's.
+    pub const CENTERED_WIDTH: f32 = 1000.;
     /// The title bar, taller than gpuicn's 34 px so its controls breathe
     /// (#625). [`super::title_bar_window_options`] centres the macOS
     /// traffic lights in it.
