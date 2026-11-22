@@ -1120,6 +1120,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         // `MATTY_PREVIEW=offline` shows the empty channel as not saved here.
         offline: connection() == crate::main_window::ConnectionState::Offline,
         archived: false,
+        deactivated: false,
         id: row.id.clone(),
         name: row.name.clone(),
         kind: row.kind.clone(),
@@ -1590,6 +1591,7 @@ pub fn empty_channel(
     ChannelModel {
         offline: false,
         archived: false,
+        deactivated: false,
         id,
         name,
         kind,

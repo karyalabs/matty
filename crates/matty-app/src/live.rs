@@ -1064,6 +1064,11 @@ impl Live {
             .as_ref()
             .and_then(|id| self.users.get(id.as_ref()))
             .map(|user| Box::new(self.profile(user)));
+        model.deactivated = row
+            .person
+            .as_ref()
+            .and_then(|id| self.users.get(id.as_ref()))
+            .is_some_and(|user| user.delete_at != 0);
         model.header = details.header;
         model.purpose = details.purpose;
         model.members = details.members;

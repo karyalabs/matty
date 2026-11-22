@@ -671,6 +671,9 @@ pub struct ChannelModel {
     pub offline: bool,
     /// Archived (#965): it reads, and the composer gives way to a note.
     pub archived: bool,
+    /// A direct message with a deactivated person (#993): it reads, and
+    /// the composer gives way to a note, as when archived.
+    pub deactivated: bool,
 }
 
 /// When a channel notifies, per surface; `Default` follows the account
@@ -4245,9 +4248,13 @@ impl ChannelView {
             .items_center()
             .gap(theme.space(3.))
             .child(
-                lucide(LucideIcon::Archive)
-                    .size(scaled(&theme, metrics::ICON))
-                    .text_color(theme.colors.muted_foreground),
+                lucide(if channel.archived {
+                    LucideIcon::Archive
+                } else {
+                    LucideIcon::UserX
+                })
+                .size(scaled(&theme, metrics::ICON))
+                .text_color(theme.colors.muted_foreground),
             )
             .child(
                 div()
@@ -4255,9 +4262,13 @@ impl ChannelView {
                     .min_w_0()
                     .type_style(style::UI, &theme)
                     .text_color(theme.colors.foreground)
-                    .child(t!("chan-archived-note")),
+                    .child(if channel.archived {
+                        t!("chan-archived-note")
+                    } else {
+                        t!("chan-deactivated-note")
+                    }),
             )
-            .when(channel.rights.unarchive, |note| {
+            .when(channel.archived && channel.rights.unarchive, |note| {
                 note.child(
                     Button::new("channel.unarchive")
                         .variant(ButtonVariant::Outline)
@@ -5849,7 +5860,7 @@ impl Render for ChannelView {
             })
             .child(div().flex_1().min_h_0().child(body))
             .map(|view| {
-                if channel.archived {
+                if channel.archived || channel.deactivated {
                     view.child(Self::archived_note(&channel, cx))
                 } else {
                     view.child(centered_row(
@@ -6630,6 +6641,7 @@ mod tests {
             person: None,
             offline: false,
             archived: false,
+            deactivated: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![person("grace")],
@@ -6704,6 +6716,7 @@ mod tests {
             person: None,
             offline: true,
             archived: false,
+            deactivated: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![],
@@ -6817,6 +6830,7 @@ mod tests {
             person: None,
             offline: false,
             archived: false,
+            deactivated: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![],
@@ -6901,6 +6915,7 @@ mod tests {
         let channel = ChannelModel {
             offline: false,
             archived: false,
+            deactivated: false,
             purpose: None,
             person: None,
             loading: false,
@@ -6961,6 +6976,7 @@ mod tests {
             person: None,
             offline: false,
             archived: false,
+            deactivated: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             rights: crate::channel::ChannelRights {
@@ -7070,6 +7086,7 @@ mod tests {
             person: None,
             offline: false,
             archived: false,
+            deactivated: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![],
@@ -7130,6 +7147,7 @@ mod tests {
         let mut channel = ChannelModel {
             offline: false,
             archived: false,
+            deactivated: false,
             purpose: None,
             person: None,
             loading: false,
