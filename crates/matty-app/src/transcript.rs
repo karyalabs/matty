@@ -181,6 +181,7 @@ pub fn channel_model(
     }
     ChannelModel {
         offline: false,
+        archived: false,
         id: row.id.clone(),
         name: row.name.clone(),
         kind: row.kind.clone(),

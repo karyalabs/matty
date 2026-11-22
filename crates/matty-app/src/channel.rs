@@ -592,6 +592,8 @@ pub struct ChannelRights {
     pub archive: bool,
     /// Make a public channel private: `convert_public_channel_to_private`.
     pub convert: bool,
+    /// Unarchive it: `manage_team`, as the server asks (#965).
+    pub unarchive: bool,
 }
 
 impl ChannelRights {
@@ -602,6 +604,7 @@ impl ChannelRights {
         edit: false,
         archive: false,
         convert: false,
+        unarchive: false,
     };
 }
 
@@ -613,6 +616,7 @@ impl Default for ChannelRights {
             edit: true,
             archive: true,
             convert: true,
+            unarchive: true,
         }
     }
 }
@@ -665,6 +669,8 @@ pub struct ChannelModel {
     /// Matty is offline, so no posts may only mean none were saved here
     /// yet (#163).
     pub offline: bool,
+    /// Archived (#965): it reads, and the composer gives way to a note.
+    pub archived: bool,
 }
 
 /// When a channel notifies, per surface; `Default` follows the account
@@ -1171,6 +1177,8 @@ pub enum ChannelEvent {
     Leave,
     /// "Archive channel" was confirmed (#208).
     Archive,
+    /// "Unarchive" on an archived channel's note (#965).
+    Unarchive,
     /// "Convert to private channel" was confirmed (#208).
     ConvertToPrivate,
     /// The user saved the channel's notification preferences; `muted`
@@ -4169,6 +4177,46 @@ impl ChannelView {
         })
     }
 
+    /// What an archived channel shows in place of the composer (#965):
+    /// that it is archived, and Unarchive for those who may.
+    fn archived_note(channel: &ChannelModel, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        div()
+            .mx(theme.space(4.))
+            .mb(theme.space(4.))
+            .px(theme.space(4.))
+            .py(theme.space(3.))
+            .rounded(theme.radius.lg)
+            .border_1()
+            .border_color(theme.colors.border)
+            .bg(theme.colors.muted)
+            .flex()
+            .items_center()
+            .gap(theme.space(3.))
+            .child(
+                lucide(LucideIcon::Archive)
+                    .size(scaled(&theme, metrics::ICON))
+                    .text_color(theme.colors.muted_foreground),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .type_style(style::UI, &theme)
+                    .text_color(theme.colors.foreground)
+                    .child(t!("chan-archived-note")),
+            )
+            .when(channel.rights.unarchive, |note| {
+                note.child(
+                    Button::new("channel.unarchive")
+                        .variant(ButtonVariant::Outline)
+                        .size(ButtonSize::Sm)
+                        .label(t!("chan-unarchive"))
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ChannelEvent::Unarchive))),
+                )
+            })
+    }
+
     fn archive_dialog(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let name = self.channel_label();
         self.confirm_dialog(
@@ -5719,7 +5767,13 @@ impl Render for ChannelView {
                 view.child(self.bookmarks.clone())
             })
             .child(div().flex_1().min_h_0().child(body))
-            .child(self.composer(cx))
+            .map(|view| {
+                if channel.archived {
+                    view.child(Self::archived_note(&channel, cx))
+                } else {
+                    view.child(self.composer(cx))
+                }
+            })
             .child(Self::typing_line(&channel, cx))
             .children(overlay)
             .children(self.post_picker(window, cx))
@@ -6489,6 +6543,7 @@ mod tests {
             purpose: None,
             person: None,
             offline: false,
+            archived: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![person("grace")],
@@ -6562,6 +6617,7 @@ mod tests {
             purpose: None,
             person: None,
             offline: true,
+            archived: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![],
@@ -6674,6 +6730,7 @@ mod tests {
             purpose: None,
             person: None,
             offline: false,
+            archived: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![],
@@ -6757,6 +6814,7 @@ mod tests {
     fn rows_interleave_day_and_new_message_dividers() {
         let channel = ChannelModel {
             offline: false,
+            archived: false,
             purpose: None,
             person: None,
             loading: false,
@@ -6816,6 +6874,7 @@ mod tests {
             purpose: None,
             person: None,
             offline: false,
+            archived: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             rights: crate::channel::ChannelRights {
@@ -6924,6 +6983,7 @@ mod tests {
             purpose: None,
             person: None,
             offline: false,
+            archived: false,
             loading: false,
             max_post_size: DEFAULT_MAX_POST_SIZE,
             profiles: vec![],
@@ -6983,6 +7043,7 @@ mod tests {
     fn prepending_history_keeps_the_unread_marker_and_skips_known_posts() {
         let mut channel = ChannelModel {
             offline: false,
+            archived: false,
             purpose: None,
             person: None,
             loading: false,

@@ -565,6 +565,20 @@ pub(crate) async fn open_channel(
         .await
     {
         Ok(posts) => Loaded::Posts { channel_id, posts },
+        // The unread window needs a membership; a channel the user only
+        // reads, such as an archived one from Browse (#965), has none, so
+        // its latest page comes instead.
+        Err(error) if error.is_not_found() || error.is_forbidden() => {
+            let mut query = matty_api::PostsQuery::latest(OPEN_LIMIT * 2);
+            query.collapsed_threads = collapsed_threads;
+            match client.channel_posts(&channel_id, &query).await {
+                Ok(posts) => Loaded::Posts { channel_id, posts },
+                Err(error) => Loaded::PostsFailed {
+                    channel_id,
+                    error: error.to_string(),
+                },
+            }
+        }
         Err(error) => Loaded::PostsFailed {
             channel_id,
             error: error.to_string(),

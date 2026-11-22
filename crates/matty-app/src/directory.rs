@@ -33,6 +33,10 @@ pub struct DirectoryChannel {
     pub members: usize,
     /// Already in the user's sidebar: the row opens it instead of joining.
     pub joined: bool,
+    /// Archived (#965): it opens to read, and nobody joins it.
+    pub archived: bool,
+    /// Private: only archived ones the user was in are listed.
+    pub private: bool,
 }
 
 /// What the browse dialog asks the window to do.
@@ -61,6 +65,8 @@ pub struct BrowseView {
     channels: Vec<DirectoryChannel>,
     team_name: SharedString,
     search: Entity<InputState>,
+    /// Lists the archived channels instead (#965).
+    archived: bool,
     handle: DialogHandle,
     focus_search: bool,
     _subscription: gpui_kit::Subscription,
@@ -81,6 +87,7 @@ impl BrowseView {
             channels: Vec::new(),
             team_name: team_name.into(),
             search,
+            archived: false,
             handle: DialogHandle::new(false),
             focus_search: false,
             _subscription: subscription,
@@ -105,6 +112,7 @@ impl BrowseView {
     pub fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
+        self.archived = false;
         self.handle.open(window, cx);
         self.focus_search = true;
         cx.notify();
@@ -134,8 +142,14 @@ impl BrowseView {
         let muted = theme.colors.muted_foreground;
         let id = channel.id.clone();
         let (row_id, button_id) = (id.clone(), id.clone());
-        let joined = channel.joined;
+        // An archived channel opens to read, as a joined one does.
+        let joined = channel.joined || channel.archived;
         let members = t!("browse-members", count = channel.members);
+        let icon = match (channel.archived, channel.private) {
+            (true, _) => LucideIcon::Archive,
+            (false, true) => LucideIcon::Lock,
+            (false, false) => LucideIcon::Hash,
+        };
         let button = if joined {
             Button::new(gpui_kit::ElementId::Name(
                 format!("browse.{id}.view").into(),
@@ -197,7 +211,7 @@ impl BrowseView {
                             .gap(theme.space(1.5))
                             .min_w_0()
                             .child(
-                                lucide(LucideIcon::Hash)
+                                lucide(icon)
                                     .size(scaled(&theme, metrics::ICON_SMALL))
                                     .text_color(muted),
                             )
@@ -237,9 +251,11 @@ impl Render for BrowseView {
             window.on_next_frame(move |window, cx| window.focus(&focus, cx));
         }
         let query = self.search.read(cx).value().trim().to_lowercase();
+        let archived = self.archived;
         let matching: Vec<&DirectoryChannel> = self
             .channels
             .iter()
+            .filter(|channel| channel.archived == archived)
             .filter(|channel| {
                 query.is_empty()
                     || channel.name.to_lowercase().contains(&query)
@@ -253,7 +269,37 @@ impl Render for BrowseView {
             .iter()
             .map(|channel| self.row(channel, cx).into_any_element())
             .collect();
-        let public = self.channels.len();
+        let listed = self
+            .channels
+            .iter()
+            .filter(|channel| channel.archived == archived)
+            .count();
+        let any_archived = self.channels.iter().any(|c| c.archived);
+        let view = cx.entity().downgrade();
+        let filter = crate::ui::toggle_group::ToggleGroup::new("browse.filter")
+            .aria_label(t!("browse-filter"))
+            .segmented(true)
+            .value([SharedString::from(if archived {
+                "archived"
+            } else {
+                "public"
+            })])
+            .item(
+                crate::ui::toggle_group::ToggleGroupItem::new("browse.filter.public", "public")
+                    .child(t!("browse-filter-public")),
+            )
+            .item(
+                crate::ui::toggle_group::ToggleGroupItem::new("browse.filter.archived", "archived")
+                    .child(t!("browse-filter-archived")),
+            )
+            .on_change(move |next, _, cx| {
+                let archived = next.first().is_some_and(|value| value == "archived");
+                view.update(cx, |this, cx| {
+                    this.archived = archived;
+                    cx.notify();
+                })
+                .ok();
+            });
         div()
             .flex()
             .flex_col()
@@ -264,13 +310,32 @@ impl Render for BrowseView {
                     .flex_col()
                     .gap(theme.space(1.))
                     .child(dialog_title("browse.title", cx).child(t!("browse-title")))
-                    .child(dialog_description("browse.description", cx).child(t!(
-                        "browse-description",
-                        count = public,
-                        team = self.team_name.to_string()
-                    ))),
+                    .child(
+                        dialog_description("browse.description", cx).child(if archived {
+                            t!(
+                                "browse-description-archived",
+                                count = listed,
+                                team = self.team_name.to_string()
+                            )
+                        } else {
+                            t!(
+                                "browse-description",
+                                count = listed,
+                                team = self.team_name.to_string()
+                            )
+                        }),
+                    ),
             )
-            .child(Input::new(&self.search).aria_label(t!("directory-search-channels")))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(theme.space(2.))
+                    .child(div().flex_1().min_w_0().child(
+                        Input::new(&self.search).aria_label(t!("directory-search-channels")),
+                    ))
+                    .when(any_archived, |row| row.child(filter)),
+            )
             .child(
                 div()
                     .id("browse.list")

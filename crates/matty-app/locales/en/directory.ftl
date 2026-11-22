@@ -10,6 +10,10 @@ browse-description = { $count ->
         [one] { $count } public channel in { $team }
        *[other] { $count } public channels in { $team }
     }
+browse-description-archived = { $count ->
+        [one] { $count } archived channel in { $team }
+       *[other] { $count } archived channels in { $team }
+    }
 browse-members = { $count ->
         [one] { $count } member
        *[other] { $count } members
@@ -68,3 +72,6 @@ add-members-add = { $count ->
         [one] Add { $count } person
        *[other] Add { $count } people
     }
+browse-filter = Show
+browse-filter-public = Public
+browse-filter-archived = Archived

@@ -415,6 +415,12 @@ pub enum Command {
         /// The channel.
         channel_id: String,
     },
+    /// Unarchives a channel (#965); it comes back as the server's
+    /// `channel_restored` event says.
+    UnarchiveChannel {
+        /// The channel.
+        channel_id: String,
+    },
     /// Makes a public channel private (#208); the channel comes back in
     /// [`ChangeSet::Channel`](crate::ChangeSet::Channel).
     ConvertToPrivate {
@@ -1094,6 +1100,10 @@ impl std::fmt::Debug for Command {
                 .debug_struct("ArchiveChannel")
                 .field("channel_id", channel_id)
                 .finish(),
+            Self::UnarchiveChannel { channel_id } => f
+                .debug_struct("UnarchiveChannel")
+                .field("channel_id", channel_id)
+                .finish(),
             Self::ConvertToPrivate { channel_id } => f
                 .debug_struct("ConvertToPrivate")
                 .field("channel_id", channel_id)
@@ -1347,9 +1357,10 @@ pub(crate) enum Message {
     Subscribe(async_channel::Sender<ChangeSet>),
 }
 
-/// What a subscriber has of an open channel: its `update_at` and the
-/// user's notification properties for it.
-type SentChannel = (i64, Option<std::collections::HashMap<String, String>>);
+/// What a subscriber has of an open channel: its `update_at`, its
+/// `delete_at` (archiving and restoring need not move `update_at`, #965)
+/// and the user's notification properties for it.
+type SentChannel = (i64, i64, Option<std::collections::HashMap<String, String>>);
 
 /// Search results asked for at once.
 const SEARCH_PAGE: u32 = 60;
@@ -1743,6 +1754,12 @@ impl Engine {
                     let bookmarks = self.capabilities.as_ref().map(|c| c.channel_bookmarks);
                     crate::bookmarks::opened(&tx, &channel_id, bookmarks, dirty)?;
                     to_fetch.push(channel_id.clone());
+                    // One the sidebar never had, such as an archived
+                    // channel opened from Browse (#965): its header and
+                    // the user's rights come from the server.
+                    if sidebar::channel(&tx, &channel_id)?.is_none() {
+                        fetches.push(Fetch::Channel(channel_id.clone()));
+                    }
                     // Which of its rows failed to send, even from an
                     // earlier run.
                     if !queue::for_channel(&tx, &channel_id)?.is_empty() {
@@ -2150,6 +2167,9 @@ impl Engine {
                 }
                 Message::Command(Command::ArchiveChannel { channel_id }) => {
                     writes.push(Write::Archive { channel_id });
+                }
+                Message::Command(Command::UnarchiveChannel { channel_id }) => {
+                    writes.push(Write::Unarchive { channel_id });
                 }
                 Message::Command(Command::ConvertToPrivate { channel_id }) => {
                     writes.push(Write::Privacy {
@@ -4575,6 +4595,7 @@ impl Engine {
                 Ok(Some(channel)) => {
                     let sent = (
                         channel.update_at,
+                        channel.delete_at,
                         member.as_ref().map(|m| m.notify_props.clone()),
                     );
                     if self.sent_channels.get(&channel_id) != Some(&sent) {

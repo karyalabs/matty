@@ -946,6 +946,13 @@ impl MainWindow {
                         this.archive_channel(id, window, cx);
                     }
                 }
+                ChannelEvent::Unarchive => {
+                    if let (Some(live), Some(id)) = (&this.live, &this.selected_channel) {
+                        live.send(matty_sync::Command::UnarchiveChannel {
+                            channel_id: id.to_string(),
+                        });
+                    }
+                }
                 ChannelEvent::ConvertToPrivate => {
                     if let (Some(live), Some(id)) = (&this.live, &this.selected_channel) {
                         live.send(matty_sync::Command::ConvertToPrivate {
@@ -2730,7 +2737,7 @@ impl MainWindow {
             self.channel
                 .update(cx, |view, cx| view.set_model(model, window, cx));
         } else if let Some(live) = self.live.as_mut()
-            && let Some(row) = live.row(&id)
+            && let Some(row) = live.row_to_open(&id)
         {
             let model = live.open(row);
             let hidden = !self

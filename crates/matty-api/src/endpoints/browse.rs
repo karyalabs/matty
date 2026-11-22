@@ -244,6 +244,33 @@ impl Client {
             .map(|_| ())
     }
 
+    /// `GET teams/{team_id}/channels/deleted`: the team's archived public
+    /// channels, and the private ones the user is in.
+    pub async fn archived_channels(
+        &self,
+        team_id: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<Channel>, ApiError> {
+        self.get_query(
+            &format!("teams/{team_id}/channels/deleted"),
+            &[
+                ("page", page.to_string()),
+                ("per_page", per_page.to_string()),
+            ],
+        )
+        .await
+    }
+
+    /// `POST channels/{channel_id}/restore`: unarchives the channel.
+    pub async fn restore_channel(&self, channel_id: &str) -> Result<Channel, ApiError> {
+        self.post(
+            &format!("channels/{channel_id}/restore"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
     /// `PUT channels/{channel_id}/privacy`: makes a public channel private
     /// (`private`) or a private one public.
     pub async fn set_channel_privacy(

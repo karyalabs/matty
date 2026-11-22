@@ -111,6 +111,9 @@ pub(crate) enum Write {
     Archive {
         channel_id: String,
     },
+    Unarchive {
+        channel_id: String,
+    },
     RemoveMember {
         channel_id: String,
         user_id: String,
@@ -297,6 +300,7 @@ impl Write {
             Self::Join { .. } => "join channel",
             Self::Leave { .. } => "leave channel",
             Self::Archive { .. } => "archive channel",
+            Self::Unarchive { .. } => "unarchive channel",
             Self::RemoveMember { .. } => "remove member",
             Self::Privacy { .. } => "change channel privacy",
             Self::Browse { .. } => "browse channels",
@@ -388,6 +392,7 @@ impl Write {
             Self::Join { channel_id }
             | Self::Leave { channel_id }
             | Self::Archive { channel_id }
+            | Self::Unarchive { channel_id }
             | Self::RemoveMember { channel_id, .. }
             | Self::ChannelAdmin { channel_id, .. }
             | Self::ChannelMembers { channel_id }
@@ -780,6 +785,14 @@ pub(crate) async fn run(
                 client.archive_channel(&channel_id).await?;
                 Some(Loaded::Left { channel_id })
             }
+            Write::Unarchive { channel_id } => {
+                let channel = client.restore_channel(&channel_id).await?;
+                let member = client.my_channel_member(&channel_id).await.ok();
+                Some(Loaded::Channel {
+                    channel: Box::new(channel),
+                    member: member.map(Box::new),
+                })
+            }
             Write::Privacy {
                 channel_id,
                 private,
@@ -794,6 +807,23 @@ pub(crate) async fn run(
                 let mut channels = Vec::new();
                 for page in 0..BROWSE_PAGES {
                     let batch = client.public_channels(&team_id, page, PAGE).await?;
+                    let last = batch.len() < PAGE as usize;
+                    channels.extend(batch);
+                    if last {
+                        break;
+                    }
+                }
+                // Archived channels follow, marked by `delete_at`. A server
+                // that hides them from users refuses the call, which leaves
+                // the rest of the list.
+                for page in 0..BROWSE_PAGES {
+                    let batch = match client.archived_channels(&team_id, page, PAGE).await {
+                        Ok(batch) => batch,
+                        Err(error) => {
+                            tracing::info!("no archived channels to browse: {error}");
+                            break;
+                        }
+                    };
                     let last = batch.len() < PAGE as usize;
                     channels.extend(batch);
                     if last {

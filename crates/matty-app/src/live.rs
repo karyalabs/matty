@@ -84,6 +84,8 @@ pub struct Live {
     /// How many direct and group messages the sidebar shows (#619), from
     /// the user's `sidebar_settings/limit_visible_dms_gms`.
     dm_limit: usize,
+    /// The archived channels Browse listed, to open by (#965).
+    archived: HashMap<String, ChannelRow>,
     /// Whether unread channels gather in an Unreads section (#966), from
     /// the user's `sidebar_settings/show_unread_section`.
     unread_section: bool,
@@ -770,6 +772,7 @@ impl Live {
                 dm_limit: DM_LIMIT,
                 unread_section: false,
                 kept_unread: None,
+                archived: HashMap::new(),
                 join_leave: true,
                 names: crate::settings::NameFormat::default(),
                 offline: crate::offline(),
@@ -1058,6 +1061,10 @@ impl Live {
         model.profiles = self.profiles();
         model.admins = self.admins();
         model.offline = self.offline;
+        model.archived = self.channel.as_ref().map_or_else(
+            || self.archived.contains_key(row.id.as_ref()),
+            |channel| channel.delete_at != 0,
+        );
         for post in &mut model.posts {
             if self.failed.contains(post.id.as_ref()) {
                 post.status = crate::channel::PostStatus::Failed;
@@ -1336,6 +1343,7 @@ impl Live {
             ),
             archive: either("delete_public_channel", "delete_private_channel"),
             convert: public && may("convert_public_channel_to_private"),
+            unarchive: may("manage_team"),
         }
     }
 
@@ -2266,6 +2274,13 @@ impl Live {
             .find(|row| row.id.as_ref() == channel_id)
     }
 
+    /// The row to open `channel_id` by: its sidebar row, or an archived
+    /// channel's from Browse (#965).
+    pub fn row_to_open(&self, channel_id: &str) -> Option<ChannelRow> {
+        self.row(channel_id)
+            .or_else(|| self.archived.get(channel_id).cloned())
+    }
+
     /// Folds in one change set.
     pub fn apply(&mut self, change: &ChangeSet) -> Update {
         let mut update = Update::default();
@@ -2330,9 +2345,25 @@ impl Live {
                 channels,
                 members,
             } if self.team.as_ref() == Some(team_id) => {
+                // Archived ones open to read from Browse (#965): their rows
+                // are kept for that, as the sidebar has none.
+                self.archived = channels
+                    .iter()
+                    .filter(|channel| channel.delete_at != 0)
+                    .map(|channel| {
+                        let kind = if channel.kind == "P" {
+                            ChannelKind::Private
+                        } else {
+                            ChannelKind::Public
+                        };
+                        let row =
+                            ChannelRow::new(channel.id.clone(), channel.display_name.clone(), kind)
+                                .handle(channel.name.clone());
+                        (channel.id.clone(), row)
+                    })
+                    .collect();
                 let mut rows: Vec<_> = channels
                     .iter()
-                    .filter(|channel| channel.delete_at == 0)
                     .map(|channel| crate::directory::DirectoryChannel {
                         id: channel.id.clone().into(),
                         name: channel.display_name.clone().into(),
@@ -2342,7 +2373,9 @@ impl Live {
                             .get(&channel.id)
                             .and_then(|count| usize::try_from(*count).ok())
                             .unwrap_or(0),
-                        joined: self.row(&channel.id).is_some(),
+                        joined: channel.delete_at == 0 && self.row(&channel.id).is_some(),
+                        archived: channel.delete_at != 0,
+                        private: channel.kind == "P",
                     })
                     .collect();
                 rows.sort_by_key(|row| row.name.to_lowercase());
@@ -2731,6 +2764,16 @@ impl Live {
                 update.password_changed = Some(Err(said.to_owned().into()));
             }
             ChangeSet::Failed(matty_sync::CommandError::Server {
+                action: "unarchive channel",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.refused = Some(crate::t!("chan-unarchive-failed", error = said));
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
                 action: "save your profile",
                 error,
                 ..
@@ -2743,7 +2786,16 @@ impl Live {
                 update.refused = Some(crate::t!("profile-save-failed", error = said));
             }
             ChangeSet::Channel { channel, member } if self.is_open(&channel.id) => {
+                let was_archived = self.channel.as_ref().map(|old| old.delete_at != 0);
                 self.channel = Some(channel.clone());
+                // Archived or restored while open (#965): the composer
+                // and its note swap.
+                if was_archived.is_some_and(|was| was != (channel.delete_at != 0)) {
+                    self.archived.remove(channel.id.as_str());
+                    // A posts patch would leave the composer as it was.
+                    self.shown = None;
+                    update.channel = self.channel_update();
+                }
                 if let Some(member) = member {
                     self.member = Some(member.clone());
                     if self.shown.is_some() {
@@ -5061,7 +5113,11 @@ mod tests {
             role("team_user", &[]),
             role(
                 "team_admin",
-                &["manage_channel_roles", "convert_public_channel_to_private"],
+                &[
+                    "manage_channel_roles",
+                    "convert_public_channel_to_private",
+                    "manage_team",
+                ],
             ),
         ]));
         // The team roles are not in yet.
@@ -5073,6 +5129,7 @@ mod tests {
             edit: true,
             archive: false,
             convert: false,
+            unarchive: false,
         };
         assert_eq!(live.details(0).rights, member_rights);
         live.apply(&member("channel_user", true));
@@ -5095,6 +5152,7 @@ mod tests {
                 edit: false,
                 archive: true,
                 convert: true,
+                unarchive: true,
             }
         );
         live.apply(&ChangeSet::Users(Arc::from(vec![User {

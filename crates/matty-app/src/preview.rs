@@ -1119,6 +1119,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
     Some(ChannelModel {
         // `MATTY_PREVIEW=offline` shows the empty channel as not saved here.
         offline: connection() == crate::main_window::ConnectionState::Offline,
+        archived: false,
         id: row.id.clone(),
         name: row.name.clone(),
         kind: row.kind.clone(),
@@ -1504,6 +1505,8 @@ pub fn directory() -> Vec<DirectoryChannel> {
         purpose: purpose.map(Into::into),
         members,
         joined: joined.iter().any(|j| j.as_ref() == id),
+        archived: false,
+        private: false,
     };
     vec![
         entry(
@@ -1586,6 +1589,7 @@ pub fn empty_channel(
     };
     ChannelModel {
         offline: false,
+        archived: false,
         id,
         name,
         kind,

@@ -29,6 +29,7 @@ offline-leave-channel = Couldn't leave the channel.
 offline-join-team = Couldn't join the team.
 offline-leave-team = Couldn't leave the team.
 offline-archive-channel = Couldn't archive the channel.
+offline-unarchive-channel = Couldn't unarchive the channel.
 offline-create-channel = Couldn't create the channel.
 offline-change-channel = Couldn't change the channel.
 offline-change-channel-privacy = Couldn't make the channel private.
