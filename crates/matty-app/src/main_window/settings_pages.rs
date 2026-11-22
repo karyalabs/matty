@@ -754,6 +754,55 @@ impl MainWindow {
         self.write_notify_props(next, cx);
     }
 
+    /// Turns the automatic reply on or off, with the message typed (#969).
+    /// The server sets the user's status to Out of office while it is on.
+    fn set_auto_reply(&mut self, on: bool, cx: &mut Context<Self>) {
+        let Some(props) = &self.notify_props else {
+            return;
+        };
+        let mut next = props.clone();
+        next.insert("auto_responder_active".into(), on.to_string());
+        next.insert("auto_responder_message".into(), self.auto_reply_message(cx));
+        self.write_notify_props(next, cx);
+    }
+
+    /// Saves the automatic reply's message when the field loses focus or
+    /// takes Enter.
+    pub(super) fn save_auto_reply(&mut self, cx: &mut Context<Self>) {
+        let message = self.auto_reply_message(cx);
+        self.set_notify_prop("auto_responder_message", &message, cx);
+    }
+
+    /// The message typed, or the default the field shows when it is empty.
+    fn auto_reply_message(&self, cx: &App) -> String {
+        let typed = self.auto_reply.read(cx).value().trim().to_owned();
+        if typed.is_empty() {
+            t!("prefs-auto-reply-default").to_string()
+        } else {
+            typed
+        }
+    }
+
+    /// Shows the server's automatic reply message in its field, unless the
+    /// user is typing there.
+    pub(super) fn show_auto_reply(
+        &mut self,
+        props: &std::collections::HashMap<String, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let message = props
+            .get("auto_responder_message")
+            .map_or("", String::as_str);
+        let input = self.auto_reply.clone();
+        if gpui_kit::Focusable::focus_handle(input.read(cx), cx).is_focused(window)
+            || input.read(cx).value().as_ref() == message
+        {
+            return;
+        }
+        input.update(cx, |input, cx| input.set_value(message.to_owned(), window, cx));
+    }
+
     /// Sends `next` as the user's `notify_props` when it changes them.
     fn write_notify_props(
         &mut self,
@@ -1507,7 +1556,96 @@ impl MainWindow {
                     )),
             )
             .row(self.keyword_row(matty_notify::KeywordList::Mention, &props, cx));
+        let features = cx
+            .try_global::<crate::priority::Features>()
+            .copied()
+            .unwrap_or_default();
         let mut groups = vec![status, desktop_group, mentions];
+        if features.push {
+            let push = selects.get(
+                "preferences.push",
+                &[
+                    ("all", t!("prefs-desktop-all")),
+                    ("mention", t!("prefs-desktop-mention")),
+                    ("none", t!("prefs-desktop-none")),
+                ],
+                props.get("push").map_or("mention", String::as_str),
+                |value, this, cx| this.set_notify_prop("push", value, cx),
+                window,
+                cx,
+            );
+            let push_status = selects.get(
+                "preferences.push-status",
+                &[
+                    ("online", t!("prefs-push-online")),
+                    ("away", t!("prefs-push-away")),
+                    ("offline", t!("prefs-push-offline")),
+                ],
+                props.get("push_status").map_or("away", String::as_str),
+                |value, this, cx| this.set_notify_prop("push_status", value, cx),
+                window,
+                cx,
+            );
+            groups.push(
+                Group::new("preferences.push", t!("prefs-push"))
+                    .synced()
+                    .row(
+                        Row::new("preferences.push", t!("prefs-desktop-label"))
+                            .control(select(&push, t!("prefs-push"), &theme)),
+                    )
+                    .row(
+                        Row::new("preferences.push-status", t!("prefs-push-status"))
+                            .description(t!("prefs-push-status-detail"))
+                            .control(select(&push_status, t!("prefs-push-status"), &theme)),
+                    ),
+            );
+        }
+        if features.email {
+            groups.push(
+                Group::new("preferences.email", t!("prefs-email"))
+                    .synced()
+                    .row(
+                        Row::new("preferences.email", t!("prefs-email-label"))
+                            .description(t!("prefs-email-detail"))
+                            .control(switch(
+                                "preferences.email.switch",
+                                t!("prefs-email-label"),
+                                on("email", true),
+                                "email",
+                                ("true", "false"),
+                            )),
+                    ),
+            );
+        }
+        if features.automatic_replies {
+            let active = on("auto_responder_active", false);
+            let view = view.clone();
+            groups.push(
+                Group::new("preferences.auto-reply", t!("prefs-auto-reply"))
+                    .synced()
+                    .row(
+                        Row::new("preferences.auto-reply", t!("prefs-auto-reply-label"))
+                            .description(t!("prefs-auto-reply-detail"))
+                            .control(
+                                Switch::new("preferences.auto-reply.switch")
+                                    .checked(active)
+                                    .aria_label(t!("prefs-auto-reply-label"))
+                                    .on_change(move |&next, _, cx| {
+                                        view.update(cx, |this, cx| this.set_auto_reply(next, cx))
+                                            .ok();
+                                    }),
+                            ),
+                    )
+                    .row(
+                        Row::new("preferences.auto-reply-message", t!("prefs-auto-reply-message"))
+                            .stacked()
+                            .control(
+                                Input::new(&self.auto_reply)
+                                    .aria_label(t!("prefs-auto-reply-message")),
+                            ),
+                    ),
+            );
+        }
         if self.highlight_keys {
             groups.push(
                 Group::new("preferences.highlights", t!("prefs-highlights"))

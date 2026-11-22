@@ -223,6 +223,8 @@ pub struct MainWindow {
     keywords: Entity<InputState>,
     /// Preferences' field for a new highlight-only keyword (#192).
     highlight_keywords: Entity<InputState>,
+    /// The automatic reply's message (#969).
+    auto_reply: Entity<InputState>,
     /// The server takes `highlight_keys`: it is licensed (#192).
     highlight_keys: bool,
     /// Preferences' interface and code font menus (#706).
@@ -1210,6 +1212,19 @@ impl MainWindow {
             };
         let keywords = keyword_input(matty_notify::KeywordList::Mention, window, cx);
         let highlight_keywords = keyword_input(matty_notify::KeywordList::Highlight, window, cx);
+        let auto_reply = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::t!("prefs-auto-reply-default"))
+        });
+        cx.subscribe_in(
+            &auto_reply,
+            window,
+            |this, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.save_auto_reply(cx);
+                }
+            },
+        )
+        .detach();
         let (ui_font, code_font) = font_menus::menus(window, cx);
         let history: Vec<SharedString> = selected_channel.iter().cloned().collect();
         // A click on a notification opens its channel at its post (#139).
@@ -1241,6 +1256,7 @@ impl MainWindow {
             cache_limit_sent: None,
             keywords,
             highlight_keywords,
+            auto_reply,
             highlight_keys: crate::preview::enabled(),
             ui_font,
             code_font,
@@ -2233,6 +2249,7 @@ impl MainWindow {
             self.renamed(display_name, username, cx);
         }
         if let Some(props) = update.notify_props {
+            self.show_auto_reply(&props, window, cx);
             self.notify_props = Some(props);
             cx.notify();
         }

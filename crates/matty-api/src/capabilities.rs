@@ -160,6 +160,13 @@ pub struct ServerCapabilities {
     /// Ask before @all, @channel or @here notifies a big channel
     /// (`EnableConfirmNotificationsToChannel`).
     pub confirm_notifications_to_channel: bool,
+    /// The server sends notification emails (`SendEmailNotifications`).
+    pub email_notifications: bool,
+    /// The server sends mobile push notifications (`SendPushNotifications`).
+    pub push_notifications: bool,
+    /// Users may set an out-of-office reply
+    /// (`ExperimentalEnableAutomaticReplies`).
+    pub automatic_replies: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -251,6 +258,9 @@ impl ServerCapabilities {
             custom_emoji: flag(config, "EnableCustomEmoji"),
             link_previews: flag(config, "EnableLinkPreviews"),
             confirm_notifications_to_channel: flag(config, "EnableConfirmNotificationsToChannel"),
+            email_notifications: flag(config, "SendEmailNotifications"),
+            push_notifications: flag(config, "SendPushNotifications"),
+            automatic_replies: flag(config, "ExperimentalEnableAutomaticReplies"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,
             post_acknowledgements,

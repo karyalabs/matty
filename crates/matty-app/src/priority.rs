@@ -46,6 +46,12 @@ pub struct Features {
     /// Ask before @all, @channel or @here notifies a big channel
     /// (`EnableConfirmNotificationsToChannel`, #960).
     pub confirm_channel_wide: bool,
+    /// Email notification settings (`SendEmailNotifications`, #970).
+    pub email: bool,
+    /// Mobile push settings (`SendPushNotifications`, #970).
+    pub push: bool,
+    /// Automatic replies (`ExperimentalEnableAutomaticReplies`, #969).
+    pub automatic_replies: bool,
 }
 
 impl Global for Features {}
@@ -61,6 +67,9 @@ impl Features {
             interval_minutes: capabilities.persistent_notification_interval_minutes,
             max_count: capabilities.persistent_notification_max_count,
             confirm_channel_wide: capabilities.confirm_notifications_to_channel,
+            email: capabilities.email_notifications,
+            push: capabilities.push_notifications,
+            automatic_replies: capabilities.automatic_replies,
         }
     }
 
@@ -74,6 +83,9 @@ impl Features {
             interval_minutes: 5,
             max_count: 6,
             confirm_channel_wide: true,
+            email: true,
+            push: true,
+            automatic_replies: true,
         }
     }
 
