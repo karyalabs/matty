@@ -380,7 +380,11 @@ fn plain_source(body: &str) -> String {
         let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
         let (lead, line) = line.split_at(indent);
         for c in lead.chars() {
-            out.push_str(if c == '\t' { "\u{a0}\u{a0}\u{a0}\u{a0}" } else { "\u{a0}" });
+            out.push_str(if c == '\t' {
+                "\u{a0}\u{a0}\u{a0}\u{a0}"
+            } else {
+                "\u{a0}"
+            });
         }
         for (at, word) in line.split(' ').enumerate() {
             if at > 0 {
@@ -650,14 +654,16 @@ mod tests {
 
     #[test]
     fn plain_bodies_read_as_typed() {
-        let parsed = |body: &str| {
-            matty_markdown::to_plain(&matty_markdown::parse(&plain_source(body)))
-        };
+        let parsed =
+            |body: &str| matty_markdown::to_plain(&matty_markdown::parse(&plain_source(body)));
         assert_eq!(
             parsed("**bold** and `code`\n- not a list"),
             "**bold** and `code`\n- not a list"
         );
-        assert_eq!(plain_source("see https://a.com/x_y"), "see https://a.com/x_y");
+        assert_eq!(
+            plain_source("see https://a.com/x_y"),
+            "see https://a.com/x_y"
+        );
         assert!(!plain_source("    indented").starts_with(' '));
     }
 
