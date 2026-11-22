@@ -92,6 +92,17 @@ async fn channel_settings_reach_the_server_and_come_back() {
         })))
         .mount(&server)
         .await;
+    // Opening a channel the cache doesn't have fetches it (#965): as it
+    // was before the patch, then as the patch left it.
+    Mock::given(method("GET"))
+        .and(path("/api/v4/channels/c1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "c1", "team_id": "t1", "type": "O", "name": "c1", "display_name": "C1",
+            "header": "", "update_at": 1
+        })))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
     Mock::given(method("GET"))
         .and(path("/api/v4/channels/c1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
