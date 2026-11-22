@@ -178,7 +178,7 @@ fn add_members_on_a_group_starts_a_bigger_one(cx: &mut gpui_kit::TestAppContext)
     click(&mut cx, "Message 2 people");
     assert!(shows_conversation_with(&mut cx, "Lena Fischer, Sam Okafor"));
     click(&mut cx, "Channel menu");
-    click(&mut cx, "Add members");
+    click(&mut cx, "Add members…");
     assert!(drew(&mut cx, "Search people"), "New message opened");
     assert!(
         drew(&mut cx, "Remove Lena Fischer"),
