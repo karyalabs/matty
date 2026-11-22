@@ -243,7 +243,10 @@ fn a_team_tabs_menu_answers_the_keyboard(cx: &mut gpui_kit::TestAppContext) {
     cx.run_until_parked();
     cx.simulate_keystrokes("down enter");
     cx.run_until_parked();
-    assert!(drew(&mut cx, "Leave team"), "Down and Enter pick Leave team");
+    assert!(
+        drew(&mut cx, "Leave team"),
+        "Down and Enter pick Leave team"
+    );
 }
 
 /// Leaving the team on screen moves the window to the team sync shows
