@@ -29,6 +29,8 @@ channel-notifications-ignore-everyone = Ignore @channel, @here and @all
 channel-notifications-ignore-everyone-detail = Mentions of everyone do not count as mentions here.
 channel-notifications-mentions-only = Mark unread for mentions only
 channel-notifications-mentions-only-detail = New messages do not bold the channel unless they mention you.
+channel-notifications-auto-follow = Follow all new threads
+channel-notifications-auto-follow-detail = New threads here show in Threads.
 # A channel's notification level.
 notify-level-default = Use my default
 notify-level-all = All new messages

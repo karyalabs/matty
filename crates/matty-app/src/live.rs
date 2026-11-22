@@ -537,6 +537,7 @@ pub fn notifications(member: &ChannelMember) -> (bool, crate::channel::ChannelNo
             mobile: level("push"),
             ignore_channel_mentions: prop("ignore_channel_mentions") == "on",
             mark_unread_mentions_only: muted,
+            auto_follow_threads: prop("channel_auto_follow_threads") == "on",
         },
     )
 }
@@ -568,6 +569,15 @@ pub fn notify_props(
         (
             "ignore_channel_mentions".to_string(),
             if notifications.ignore_channel_mentions {
+                "on"
+            } else {
+                "off"
+            }
+            .to_string(),
+        ),
+        (
+            "channel_auto_follow_threads".to_string(),
+            if notifications.auto_follow_threads {
                 "on"
             } else {
                 "off"
@@ -5779,6 +5789,7 @@ mod tests {
                 ("push".to_string(), "none".to_string()),
                 ("mark_unread".to_string(), "mention".to_string()),
                 ("ignore_channel_mentions".to_string(), "on".to_string()),
+                ("channel_auto_follow_threads".to_string(), "on".to_string()),
             ]),
             ..ChannelMember::default()
         };
@@ -5791,6 +5802,7 @@ mod tests {
                 mobile: NotifyLevel::None,
                 ignore_channel_mentions: true,
                 mark_unread_mentions_only: true,
+                auto_follow_threads: true,
             }
         );
         let props = notify_props(muted, &prefs);

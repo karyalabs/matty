@@ -723,6 +723,8 @@ pub struct ChannelNotifications {
     pub ignore_channel_mentions: bool,
     /// Only mentions make the channel bold in the sidebar.
     pub mark_unread_mentions_only: bool,
+    /// Follow every new thread in the channel (#995).
+    pub auto_follow_threads: bool,
 }
 
 /// A row in the transcript: posts interleaved with dividers.

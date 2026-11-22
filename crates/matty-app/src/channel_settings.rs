@@ -448,6 +448,14 @@ impl Render for NotificationsView {
                 |this, next| this.prefs.mark_unread_mentions_only = next,
                 cx,
             ))
+            .child(self.switch_row(
+                "channel.notifications.auto-follow",
+                t!("channel-notifications-auto-follow"),
+                t!("channel-notifications-auto-follow-detail"),
+                prefs.auto_follow_threads,
+                |this, next| this.prefs.auto_follow_threads = next,
+                cx,
+            ))
             .child(
                 div()
                     .flex()
