@@ -21,8 +21,20 @@ browse-join-channel = Join { $channel }
 browse-no-match = No channels match “{ $query }”
 
 new-message-title = New message
-new-message-description = Pick someone to message. Existing conversations open in place.
+new-message-description = Pick someone to message, or tick up to 7 people for a group message.
 new-message-person = Message { $name }
+new-message-add-to-group = Add { $name } to the group
+new-message-group-hint = Tick people to start a group message.
+new-message-group-room = { $count ->
+        [one] You can add { $count } more person.
+       *[other] You can add { $count } more people.
+    }
+new-message-group-full = A group message holds you and { $count } others.
+new-message-go = { $count ->
+        [0] Go
+        [one] Message 1 person
+       *[other] Message { $count } people
+    }
 
 create-channel-title = Create channel
 create-channel-description = Channels are where the team talks about one thing.

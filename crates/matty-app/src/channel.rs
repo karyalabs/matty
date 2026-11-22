@@ -1180,6 +1180,10 @@ pub enum ChannelEvent {
     /// The user added these people from the Add members dialog; the view
     /// already counts them.
     AddMembers(Vec<UserProfile>),
+    /// "Add members" on a group message, whose members are fixed: the
+    /// window opens New message with these, the other members, ticked, so
+    /// the user starts a bigger group, as the web app does.
+    ExtendGroup(Vec<UserProfile>),
     /// Add members opened: the window asks the server who is not in the
     /// channel yet, and answers with [`ChannelView::set_addable`] (#208).
     FindNonMembers,
@@ -3900,6 +3904,18 @@ impl ChannelView {
                 ChannelField::Header,
             ));
         }
+        if model.is_some_and(|m| matches!(m.kind, ChannelKind::Group { .. })) {
+            let members_view = view.clone();
+            items.push(
+                MenuItem::new("channel.menu.add-members", t!("chan-menu-add-members")).on_click(
+                    move |_, window, cx| {
+                        members_view
+                            .update(cx, |this, cx| this.open_add_members(window, cx))
+                            .ok();
+                    },
+                ),
+            );
+        }
         if is_channel {
             if rights.edit {
                 items.push(edit(
@@ -3978,6 +3994,16 @@ impl ChannelView {
             return;
         };
         let me = self.me.clone();
+        if matches!(model.kind, ChannelKind::Group { .. }) {
+            let others = model
+                .profiles
+                .iter()
+                .filter(|profile| profile.display_name != me)
+                .cloned()
+                .collect();
+            cx.emit(ChannelEvent::ExtendGroup(others));
+            return;
+        }
         let people = crate::preview::enabled().then(|| {
             model
                 .profiles

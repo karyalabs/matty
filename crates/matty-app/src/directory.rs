@@ -20,6 +20,7 @@ use crate::ui::{
     field::Field,
     input::{Input, InputEvent, InputState},
     radio_group::{RadioGroup, RadioItem},
+    tag::Tag,
     theme::UiTheme,
 };
 
@@ -43,6 +44,9 @@ pub enum DirectoryEvent {
     Open(SharedString),
     /// Start or open a direct message with this person.
     Message(UserProfile),
+    /// Start or open the group message with these people (2 to
+    /// [`GROUP_MAX_OTHERS`], the user left out).
+    MessageGroup(Vec<UserProfile>),
     /// Create a channel; sync owns the server side and the window adds
     /// the row meanwhile.
     Create {
@@ -292,9 +296,16 @@ impl Render for BrowseView {
     }
 }
 
-/// The "New message" dialog: pick a person to message.
+/// The most people a group message holds besides the user: Mattermost
+/// groups have 3 to 8 members.
+pub const GROUP_MAX_OTHERS: usize = 7;
+
+/// The "New message" dialog: pick a person to message, or tick several
+/// for a group message.
 pub struct NewMessageView {
     profiles: Vec<UserProfile>,
+    /// The people ticked for a group message, in the order picked.
+    selected: Vec<UserProfile>,
     search: Entity<InputState>,
     handle: DialogHandle,
     focus_search: bool,
@@ -312,9 +323,7 @@ impl NewMessageView {
             window,
             |this: &mut Self, _, event: &InputEvent, window, cx| {
                 if matches!(event, InputEvent::PressEnter { .. }) {
-                    if let Some(first) = this.matches(cx).first().cloned() {
-                        this.message(first, window, cx);
-                    }
+                    this.enter(window, cx);
                 } else {
                     cx.notify();
                 }
@@ -322,6 +331,7 @@ impl NewMessageView {
         );
         Self {
             profiles: Vec::new(),
+            selected: Vec::new(),
             search,
             handle: DialogHandle::new(false),
             focus_search: false,
@@ -339,6 +349,19 @@ impl NewMessageView {
     }
 
     pub fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_with(Vec::new(), window, cx);
+    }
+
+    /// Opens the dialog with `people` already ticked: "Add members" on a
+    /// group message, whose members are fixed, starts a bigger group.
+    pub fn open_with(
+        &mut self,
+        people: Vec<UserProfile>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected = people;
+        self.selected.truncate(GROUP_MAX_OTHERS);
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
         self.handle.open(window, cx);
@@ -360,9 +383,84 @@ impl NewMessageView {
             .collect()
     }
 
+    fn is_selected(&self, user_id: &str) -> bool {
+        self.selected
+            .iter()
+            .any(|person| person.user_id.as_ref() == user_id)
+    }
+
+    fn is_full(&self) -> bool {
+        self.selected.len() >= GROUP_MAX_OTHERS
+    }
+
+    /// Enter in the search: with nobody ticked it messages the first match,
+    /// as before groups; while picking a group it ticks the first match, and
+    /// on an empty search it starts the conversation.
+    fn enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let query_empty = self.search.read(cx).value().trim().is_empty();
+        if self.selected.is_empty() {
+            if let Some(first) = self.matches(cx).first().cloned() {
+                self.message(first, window, cx);
+            }
+        } else if query_empty {
+            self.go(window, cx);
+        } else if let Some(first) = self
+            .matches(cx)
+            .into_iter()
+            .find(|profile| !self.is_selected(&profile.user_id))
+        {
+            self.toggle(first, cx);
+            self.search
+                .update(cx, |search, cx| search.set_value("", window, cx));
+        }
+    }
+
+    fn toggle(&mut self, profile: UserProfile, cx: &mut Context<Self>) {
+        match self
+            .selected
+            .iter()
+            .position(|person| person.user_id == profile.user_id)
+        {
+            Some(index) => {
+                self.selected.remove(index);
+            }
+            None if !self.is_full() => self.selected.push(profile),
+            None => {}
+        }
+        cx.notify();
+    }
+
+    /// A click on a person: messages them straight away, unless a group is
+    /// being picked, when it ticks them.
+    fn pick(&mut self, profile: UserProfile, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected.is_empty() {
+            self.message(profile, window, cx);
+        } else {
+            self.toggle(profile, cx);
+        }
+    }
+
     fn message(&mut self, profile: UserProfile, window: &mut Window, cx: &mut Context<Self>) {
         self.handle.close(window, cx);
         cx.emit(DirectoryEvent::Message(profile));
+    }
+
+    /// Opens the conversation with everyone ticked: one person is a direct
+    /// message, more a group message.
+    fn go(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut people = std::mem::take(&mut self.selected);
+        match people.len() {
+            0 => {}
+            1 => {
+                if let Some(person) = people.pop() {
+                    self.message(person, window, cx);
+                }
+            }
+            _ => {
+                self.handle.close(window, cx);
+                cx.emit(DirectoryEvent::MessageGroup(people));
+            }
+        }
     }
 
     fn row(&self, profile: &UserProfile, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -377,6 +475,9 @@ impl NewMessageView {
         let initial: String = profile.display_name.chars().take(1).collect();
         let username = profile.username.clone();
         let chosen = profile.clone();
+        let ticked = profile.clone();
+        let checked = self.is_selected(&profile.user_id);
+        let box_view = cx.weak_entity();
         div()
             .id(gpui_kit::ElementId::Name(
                 format!("new-message.{username}").into(),
@@ -395,8 +496,30 @@ impl NewMessageView {
             .gap(theme.space(3.))
             .cursor_pointer()
             .hover(|style| style.bg(theme.colors.accent))
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.message(chosen.clone(), window, cx)),
+            .on_click(cx.listener(move |this, _, window, cx| this.pick(chosen.clone(), window, cx)))
+            // Ticking someone never also messages them from the row.
+            .child(
+                div()
+                    .id(gpui_kit::ElementId::Name(
+                        format!("new-message.{username}.tick").into(),
+                    ))
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(
+                        Checkbox::new(gpui_kit::ElementId::Name(
+                            format!("new-message.{username}.checkbox").into(),
+                        ))
+                        .checked(checked)
+                        .disabled(!checked && self.is_full())
+                        .aria_label(t!(
+                            "new-message-add-to-group",
+                            name = profile.display_name.to_string()
+                        ))
+                        .on_change(move |_, _, cx| {
+                            box_view
+                                .update(cx, |this, cx| this.toggle(ticked.clone(), cx))
+                                .ok();
+                        }),
+                    ),
             )
             .child(
                 div()
@@ -449,6 +572,30 @@ impl NewMessageView {
                     .child(position)
             }))
     }
+
+    /// The ticked people as removable tags above the list.
+    fn picked(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let view = cx.weak_entity();
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(theme.space(1.5))
+            .children(self.selected.iter().map(|person| {
+                let view = view.clone();
+                let removed = person.clone();
+                Tag::new(
+                    gpui_kit::ElementId::Name(
+                        format!("new-message.picked.{}", person.username).into(),
+                    ),
+                    person.display_name.clone(),
+                )
+                .on_remove(move |_, _, cx| {
+                    view.update(cx, |this, cx| this.toggle(removed.clone(), cx))
+                        .ok();
+                })
+            }))
+    }
 }
 
 impl Render for NewMessageView {
@@ -465,6 +612,14 @@ impl Render for NewMessageView {
             .iter()
             .map(|profile| self.row(profile, cx).into_any_element())
             .collect();
+        let count = self.selected.len();
+        let note = if self.is_full() {
+            t!("new-message-group-full", count = GROUP_MAX_OTHERS)
+        } else if count == 0 {
+            t!("new-message-group-hint")
+        } else {
+            t!("new-message-group-room", count = GROUP_MAX_OTHERS - count)
+        };
         div()
             .flex()
             .flex_col()
@@ -480,6 +635,7 @@ impl Render for NewMessageView {
                             .child(t!("new-message-description")),
                     ),
             )
+            .when(count > 0, |this| this.child(self.picked(cx)))
             .child(Input::new(&self.search).aria_label(t!("directory-search-people")))
             .child(
                 div()
@@ -501,6 +657,35 @@ impl Render for NewMessageView {
                         )
                     })
                     .children(rows),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(theme.space(2.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .type_style(style::META, &theme)
+                            .text_color(theme.colors.muted_foreground)
+                            .child(note),
+                    )
+                    .child(
+                        Button::new("new-message.cancel")
+                            .variant(ButtonVariant::Outline)
+                            .label(t!("directory-cancel"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.handle.close(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("new-message.go")
+                            .variant(ButtonVariant::Default)
+                            .disabled(count == 0)
+                            .label(t!("new-message-go", count = count))
+                            .on_click(cx.listener(|this, _, window, cx| this.go(window, cx))),
+                    ),
             )
     }
 }

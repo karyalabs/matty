@@ -836,6 +836,12 @@ impl MainWindow {
                     }
                     this.refresh_channel_info(cx);
                 }
+                ChannelEvent::ExtendGroup(people) => {
+                    this.new_message(window, cx);
+                    let people = people.clone();
+                    this.new_message
+                        .update(cx, |view, cx| view.open_with(people, window, cx));
+                }
                 ChannelEvent::FindNonMembers => {
                     if let Some(live) = &this.live {
                         live.find_non_members();
@@ -2690,6 +2696,7 @@ impl MainWindow {
             DirectoryEvent::Join(id) => self.join_channel(id.clone(), window, cx),
             DirectoryEvent::Open(id) => self.open_channel(id.clone(), window, cx),
             DirectoryEvent::Message(profile) => self.message(profile, window, cx),
+            DirectoryEvent::MessageGroup(people) => self.message_group(people, window, cx),
             DirectoryEvent::Create {
                 name,
                 purpose,
@@ -2734,6 +2741,65 @@ impl MainWindow {
                 None,
             ));
             self.open_channel(profile.user_id.clone(), window, cx);
+        }
+    }
+
+    /// Opens the group message with `people`, the user left out, which
+    /// the server finds or creates (`POST channels/group` answers the
+    /// existing one); it opens once it is in the sidebar. In preview the
+    /// row appears under Direct messages with an empty transcript.
+    fn message_group(
+        &mut self,
+        people: &[crate::profile::UserProfile],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let me = self
+            .live
+            .as_ref()
+            .and_then(|live| live.me_user())
+            .map(|user| user.id.clone());
+        let others: Vec<&crate::profile::UserProfile> = people
+            .iter()
+            .filter(|person| me.as_deref() != Some(person.user_id.as_ref()))
+            .collect();
+        match others.as_slice() {
+            [] => return,
+            [only] => return self.message(only, window, cx),
+            _ => {}
+        }
+        if let Some(live) = &self.live {
+            return live.send(matty_sync::Command::OpenDirect {
+                user_ids: others
+                    .iter()
+                    .map(|person| person.user_id.to_string())
+                    .collect(),
+            });
+        }
+        if crate::preview::enabled() {
+            let mut ids: Vec<&str> = others
+                .iter()
+                .map(|person| person.user_id.as_ref())
+                .collect();
+            ids.sort_unstable();
+            let id: SharedString = format!("gm-{}", ids.join("-")).into();
+            if !self.joined.iter().any(|channel| channel.id == id) {
+                let name: SharedString = others
+                    .iter()
+                    .map(|person| person.display_name.as_ref())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .into();
+                let kind = crate::sidebar::ChannelKind::Group {
+                    members: others.len() + 1,
+                };
+                let row = crate::sidebar::ChannelRow::new(id.clone(), name.clone(), kind.clone());
+                self.add_row("direct", row, cx);
+                let mut channel = crate::preview::empty_channel(id.clone(), name, kind, None);
+                channel.profiles = others.iter().map(|person| (*person).clone()).collect();
+                self.joined.push(channel);
+            }
+            self.open_channel(id, window, cx);
         }
     }
 
