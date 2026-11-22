@@ -4,6 +4,7 @@ presence-online = Online
 presence-away = Away
 presence-dnd = Do not disturb
 presence-offline = Offline
+presence-out-of-office = Out of office
 # The account button's accessible name: the user and their presence.
 account-trigger = { $name }, { $presence }
 account-trigger-until = { $name }, { $presence }, { $until }

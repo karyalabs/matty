@@ -469,7 +469,7 @@ impl NewMessageView {
             Presence::Online => palette.online,
             Presence::Away => palette.away,
             Presence::Dnd => palette.dnd,
-            Presence::Offline => theme.colors.muted_foreground,
+            Presence::Offline | Presence::OutOfOffice => theme.colors.muted_foreground,
         };
         let initial: String = profile.display_name.chars().take(1).collect();
         let username = profile.username.clone();

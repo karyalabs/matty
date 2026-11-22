@@ -3333,6 +3333,7 @@ pub fn presence(status: &str) -> Presence {
         "online" => Presence::Online,
         "away" => Presence::Away,
         "dnd" => Presence::Dnd,
+        "ooo" => Presence::OutOfOffice,
         _ => Presence::Offline,
     }
 }
@@ -3344,6 +3345,7 @@ pub fn status(presence: Presence) -> &'static str {
         Presence::Away => "away",
         Presence::Dnd => "dnd",
         Presence::Offline => "offline",
+        Presence::OutOfOffice => "ooo",
     }
 }
 

@@ -68,6 +68,9 @@ pub enum Presence {
     Away,
     Dnd,
     Offline,
+    /// The server's `ooo`: an automatic reply is on (#979). Only the
+    /// server sets it.
+    OutOfOffice,
 }
 
 /// What a sidebar row points at, which decides its icon.

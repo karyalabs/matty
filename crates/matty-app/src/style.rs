@@ -656,7 +656,7 @@ fn presence_status(
         Presence::Online => online,
         Presence::Away => away,
         Presence::Dnd => dnd,
-        Presence::Offline => return AvatarStatus::Offline,
+        Presence::Offline | Presence::OutOfOffice => return AvatarStatus::Offline,
     };
     AvatarStatus::Custom {
         color,

@@ -105,7 +105,7 @@ fn presence_color(profile: &UserProfile, theme: &UiTheme, palette: &Palette) -> 
         Presence::Online => palette.online,
         Presence::Away => palette.away,
         Presence::Dnd => palette.dnd,
-        Presence::Offline => theme.colors.muted_foreground,
+        Presence::Offline | Presence::OutOfOffice => theme.colors.muted_foreground,
     }
 }
 
