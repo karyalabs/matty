@@ -34,6 +34,52 @@ pub struct UserProfile {
     /// The user's IANA time zone, such as `Europe/Berlin`, when they
     /// share one; the card shows the time there.
     pub time_zone: Option<SharedString>,
+    /// BOT or GUEST beside the name, as in Mattermost (#992).
+    pub tag: Option<AuthorTag>,
+}
+
+/// The kind of account a name belongs to, when it is not a member's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorTag {
+    Bot,
+    Guest,
+}
+
+impl AuthorTag {
+    pub fn of(user: &matty_api::models::User) -> Option<Self> {
+        if user.is_bot {
+            Some(Self::Bot)
+        } else if user
+            .roles
+            .split_whitespace()
+            .any(|role| role == "system_guest")
+        {
+            Some(Self::Guest)
+        } else {
+            None
+        }
+    }
+
+    pub fn label(self) -> SharedString {
+        match self {
+            Self::Bot => t!("author-tag-bot"),
+            Self::Guest => t!("author-tag-guest"),
+        }
+    }
+}
+
+/// The small BOT or GUEST tag after a name.
+pub fn author_tag(tag: AuthorTag, cx: &App) -> impl IntoElement + use<> {
+    let theme = UiTheme::read(cx);
+    div()
+        .flex_shrink_0()
+        .px(theme.space(1.))
+        .rounded(theme.radius.sm)
+        .bg(theme.colors.muted)
+        .text_color(theme.colors.muted_foreground)
+        .text_size(theme.text(10.))
+        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+        .child(tag.label())
 }
 
 /// The time now in `zone`, the way the user's clock setting prints times;
@@ -167,9 +213,13 @@ fn identity(
                 )
                 .child(
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(theme.space(1.5))
                         .type_style(style::META, &theme)
                         .text_color(theme.colors.muted_foreground)
-                        .child(format!("@{}", profile.username)),
+                        .child(format!("@{}", profile.username))
+                        .children(profile.tag.map(|tag| author_tag(tag, cx))),
                 )
                 .children(
                     profile
@@ -454,6 +504,27 @@ pub fn profile_pane(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn bots_and_guests_are_tagged() {
+        let user = |is_bot: bool, roles: &str| matty_api::models::User {
+            is_bot,
+            roles: roles.into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            AuthorTag::of(&user(true, "system_user")),
+            Some(AuthorTag::Bot)
+        );
+        assert_eq!(
+            AuthorTag::of(&user(false, "system_guest")),
+            Some(AuthorTag::Guest)
+        );
+        assert_eq!(
+            AuthorTag::of(&user(false, "system_user system_admin")),
+            None
+        );
+    }
 
     #[test]
     fn the_zone_is_the_one_the_user_chose() {

@@ -1799,6 +1799,7 @@ pub fn profiles() -> Vec<UserProfile> {
             duration: Default::default(),
         }),
         time_zone: time_zone.map(Into::into),
+        tag: None,
     };
     vec![
         profile(

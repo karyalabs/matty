@@ -4660,9 +4660,21 @@ impl ChannelView {
         cx: &mut Context<Self>,
     ) -> Option<gpui_kit::AnyElement> {
         if post.webhook.is_some() {
-            return None;
+            return Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(UiTheme::read(cx).space(1.5))
+                    .child(post.author.clone())
+                    .child(crate::profile::author_tag(
+                        crate::profile::AuthorTag::Bot,
+                        cx,
+                    ))
+                    .into_any_element(),
+            );
         }
         let profile = profile.cloned()?;
+        let tag = profile.tag;
         let name = post.author.clone();
         let colorize = message_density(cx) == MessageDensity::Compact
             && SettingsStore::global(cx).read(cx).get().colorize_names;
@@ -4672,9 +4684,17 @@ impl ChannelView {
                 trigger.text_color(name_color(&post.author_id, dark))
             })
             .child(name.clone());
-        Some(Self::profile_popover(
-            id, "author", name, trigger, profile, card, cx,
-        ))
+        let popover = Self::profile_popover(id, "author", name, trigger, profile, card, cx);
+        Some(match tag {
+            Some(tag) => div()
+                .flex()
+                .items_center()
+                .gap(UiTheme::read(cx).space(1.5))
+                .child(popover)
+                .child(crate::profile::author_tag(tag, cx))
+                .into_any_element(),
+            None => popover,
+        })
     }
 
     /// `trigger` wrapped in the author's profile card: resting on it opens
@@ -6445,6 +6465,7 @@ mod tests {
             presence: crate::sidebar::Presence::Offline,
             status: None,
             time_zone: None,
+            tag: None,
         };
         let shown = |format, query: &str| {
             people_suggestions(std::iter::once(&profile(format)), query, 8)
@@ -6600,6 +6621,7 @@ mod tests {
             presence: crate::sidebar::Presence::Offline,
             status: None,
             time_zone: None,
+            tag: None,
         };
         let model = ChannelModel {
             purpose: None,

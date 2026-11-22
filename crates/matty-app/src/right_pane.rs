@@ -4682,6 +4682,7 @@ mod tests {
                         presence: Presence::Online,
                         status: None,
                         time_zone: None,
+                        tag: None,
                     }],
                     cx,
                 );

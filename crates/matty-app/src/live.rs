@@ -2273,6 +2273,7 @@ impl Live {
                 .unwrap_or(Presence::Offline),
             status: crate::custom_status::StatusLine::of(user),
             time_zone: crate::profile::time_zone(&user.timezone),
+            tag: crate::profile::AuthorTag::of(user),
         }
     }
 
