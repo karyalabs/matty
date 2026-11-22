@@ -55,6 +55,8 @@ pub enum AccountEvent {
     SetStatus(Option<matty_api::models::CustomStatus>),
     /// "Edit profile…" (#212).
     EditProfile,
+    /// "Security…" (#964).
+    Security,
     /// "Custom emoji…" (#209).
     CustomEmoji,
     SignOut,
@@ -407,6 +409,14 @@ impl AccountView {
                         .ok();
                 },
             ),
+        );
+        let security_view = view.clone();
+        items.push(
+            MenuItem::new("account.security", t!("account-security")).on_click(move |_, _, cx| {
+                security_view
+                    .update(cx, |_, cx| cx.emit(AccountEvent::Security))
+                    .ok();
+            }),
         );
         let emoji_view = view.clone();
         items.push(

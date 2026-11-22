@@ -628,6 +628,24 @@ pub enum Command {
         /// The team.
         team_id: String,
     },
+    /// The user's signed-in sessions (#964);
+    /// [`ChangeSet::Sessions`](crate::ChangeSet::Sessions) answers.
+    Sessions,
+    /// Signs one of the user's sessions out (#964); the sessions come back
+    /// in [`ChangeSet::Sessions`](crate::ChangeSet::Sessions).
+    RevokeSession {
+        /// The session.
+        session_id: String,
+    },
+    /// Changes the user's password (#964);
+    /// [`ChangeSet::PasswordChanged`](crate::ChangeSet::PasswordChanged)
+    /// answers, or a failure.
+    ChangePassword {
+        /// The password now.
+        current: String,
+        /// The password to use from now on.
+        new: String,
+    },
     /// Adds people already on the server to a team (#962).
     AddTeamMembers {
         /// The team.
@@ -1165,6 +1183,12 @@ impl std::fmt::Debug for Command {
                 .debug_struct("TeamNonMembers")
                 .field("team_id", team_id)
                 .finish(),
+            Self::Sessions => f.write_str("Sessions"),
+            Self::RevokeSession { session_id } => f
+                .debug_struct("RevokeSession")
+                .field("session_id", session_id)
+                .finish(),
+            Self::ChangePassword { .. } => f.write_str("ChangePassword"),
             Self::AddTeamMembers { team_id, user_ids } => f
                 .debug_struct("AddTeamMembers")
                 .field("team_id", team_id)
@@ -2305,6 +2329,13 @@ impl Engine {
                 }
                 Message::Command(Command::TeamNonMembers { team_id }) => {
                     writes.push(Write::TeamNonMembers { team_id });
+                }
+                Message::Command(Command::Sessions) => writes.push(Write::Sessions),
+                Message::Command(Command::RevokeSession { session_id }) => {
+                    writes.push(Write::RevokeSession { session_id });
+                }
+                Message::Command(Command::ChangePassword { current, new }) => {
+                    writes.push(Write::Password(commands::PasswordChange { current, new }));
                 }
                 Message::Command(Command::AddTeamMembers { team_id, user_ids }) => {
                     writes.push(Write::AddTeamMembers { team_id, user_ids });
@@ -3952,6 +3983,10 @@ impl Engine {
                     users: Arc::from(users),
                 });
             }
+            Loaded::Sessions(sessions) => {
+                dirty.direct.push(ChangeSet::Sessions(Arc::from(sessions)));
+            }
+            Loaded::PasswordChanged => dirty.direct.push(ChangeSet::PasswordChanged),
             Loaded::NonMembers { channel_id, users } => {
                 sidebar::upsert_users(self.store.conn(), &users)?;
                 dirty.direct.push(ChangeSet::NonMembers {

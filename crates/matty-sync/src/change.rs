@@ -340,6 +340,11 @@ pub enum ChangeSet {
         /// The people.
         users: Arc<[User]>,
     },
+    /// The user's signed-in sessions, most recently active first: the
+    /// answer to [`Command::Sessions`](crate::Command::Sessions).
+    Sessions(Arc<[matty_api::models::Session]>),
+    /// [`Command::ChangePassword`](crate::Command::ChangePassword) worked.
+    PasswordChanged,
     /// The team's people who are not in a channel, for Add members: the
     /// answer to [`Command::NonMembers`](crate::Command::NonMembers).
     NonMembers {

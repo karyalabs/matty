@@ -800,7 +800,9 @@ impl MainWindow {
         {
             return;
         }
-        input.update(cx, |input, cx| input.set_value(message.to_owned(), window, cx));
+        input.update(cx, |input, cx| {
+            input.set_value(message.to_owned(), window, cx)
+        });
     }
 
     /// Sends `next` as the user's `notify_props` when it changes them.
@@ -1590,8 +1592,11 @@ impl MainWindow {
                 Group::new("preferences.push", t!("prefs-push"))
                     .synced()
                     .row(
-                        Row::new("preferences.push", t!("prefs-desktop-label"))
-                            .control(select(&push, t!("prefs-push"), &theme)),
+                        Row::new("preferences.push", t!("prefs-desktop-label")).control(select(
+                            &push,
+                            t!("prefs-push"),
+                            &theme,
+                        )),
                     )
                     .row(
                         Row::new("preferences.push-status", t!("prefs-push-status"))
@@ -1637,12 +1642,14 @@ impl MainWindow {
                             ),
                     )
                     .row(
-                        Row::new("preferences.auto-reply-message", t!("prefs-auto-reply-message"))
-                            .stacked()
-                            .control(
-                                Input::new(&self.auto_reply)
-                                    .aria_label(t!("prefs-auto-reply-message")),
-                            ),
+                        Row::new(
+                            "preferences.auto-reply-message",
+                            t!("prefs-auto-reply-message"),
+                        )
+                        .stacked()
+                        .control(
+                            Input::new(&self.auto_reply).aria_label(t!("prefs-auto-reply-message")),
+                        ),
                     ),
             );
         }

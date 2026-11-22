@@ -24,6 +24,18 @@ const LISTING_PAGE: u32 = 60;
 const DIGEST_CHANNELS: usize = 30;
 const DIGEST_POSTS: u32 = 5;
 
+/// A password change; its `Debug` leaves the passwords out.
+pub(crate) struct PasswordChange {
+    pub current: String,
+    pub new: String,
+}
+
+impl std::fmt::Debug for PasswordChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PasswordChange")
+    }
+}
+
 /// A server write a command asked for.
 #[derive(Debug)]
 pub(crate) enum Write {
@@ -180,6 +192,11 @@ pub(crate) enum Write {
     TeamNonMembers {
         team_id: String,
     },
+    Sessions,
+    RevokeSession {
+        session_id: String,
+    },
+    Password(PasswordChange),
     AddTeamMembers {
         team_id: String,
         user_ids: Vec<String>,
@@ -305,6 +322,9 @@ impl Write {
             Self::Notify { .. } => "change notifications",
             Self::AddMembers { .. } => "add members",
             Self::TeamNonMembers { .. } => "find people to invite",
+            Self::Sessions => "list your sessions",
+            Self::RevokeSession { .. } => "sign out a session",
+            Self::Password(_) => "change your password",
             Self::AddTeamMembers { .. } => "add people to the team",
             Self::InviteByEmail { .. } => "send email invites",
             Self::Preferences(_) => "save preferences",
@@ -343,7 +363,10 @@ impl Write {
             | Self::NotifyProps(_)
             | Self::CustomStatus(_)
             | Self::Profile(_)
-            | Self::Picture(_) => user_id.to_owned(),
+            | Self::Picture(_)
+            | Self::Sessions
+            | Self::Password(_) => user_id.to_owned(),
+            Self::RevokeSession { session_id } => session_id.clone(),
             Self::AddEmoji { name, .. } => name.clone(),
             Self::DeleteEmoji { emoji_id } => emoji_id.clone(),
             Self::OpenDirect { user_ids } => user_ids.join(","),
@@ -1071,6 +1094,17 @@ pub(crate) async fn run(
                     users,
                 })
             }
+            Write::Sessions => Some(Loaded::Sessions(sessions(&client, &user_id).await?)),
+            Write::RevokeSession { session_id } => {
+                client.revoke_session(&user_id, &session_id).await?;
+                Some(Loaded::Sessions(sessions(&client, &user_id).await?))
+            }
+            Write::Password(change) => {
+                client
+                    .change_password(&user_id, &change.current, &change.new)
+                    .await?;
+                Some(Loaded::PasswordChanged)
+            }
             Write::AddTeamMembers { team_id, user_ids } => {
                 for id in &user_ids {
                     client.add_team_member(&team_id, id).await?;
@@ -1291,6 +1325,16 @@ async fn resolve(client: &Client, query: &crate::LinkQuery) -> Result<crate::Lin
             LinkAnswer::User(Arc::new(user))
         }
     })
+}
+
+/// The user's sessions, most recently active first.
+async fn sessions(
+    client: &matty_api::Client,
+    user_id: &str,
+) -> Result<Vec<matty_api::models::Session>, matty_api::ApiError> {
+    let mut sessions = client.sessions(user_id).await?;
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity_at));
+    Ok(sessions)
 }
 
 #[cfg(test)]

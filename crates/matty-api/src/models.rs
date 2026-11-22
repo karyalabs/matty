@@ -95,6 +95,10 @@ pub struct Session {
     pub expires_at: i64,
     /// Milliseconds since the epoch.
     pub last_activity_at: i64,
+    /// What the server read from the device: `os`, `browser`, `platform`
+    /// and `isMobile`, among others.
+    #[serde(deserialize_with = "null_as_default")]
+    pub props: std::collections::HashMap<String, String>,
 }
 
 /// A team: one the user belongs to, or one open to join.

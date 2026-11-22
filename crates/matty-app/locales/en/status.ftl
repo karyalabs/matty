@@ -10,6 +10,7 @@ account-trigger-until = { $name }, { $presence }, { $until }
 account-status-item = Status: { $status }
 account-set-status-item = Set a status…
 account-edit-profile = Edit profile…
+account-security = Security…
 account-custom-emoji = Custom emoji…
 account-preferences = Settings…
 account-add-server = Add a server…
@@ -63,3 +64,24 @@ status-lunch = Out for lunch
 status-sick = Out sick
 status-home = Working from home
 status-vacation = On a vacation
+
+## Security (#964)
+
+security-title = Security
+security-hint = Your password and the devices signed in to this account.
+security-password = Password
+security-current = Current password
+security-new = New password
+security-confirm = Confirm new password
+security-change = Change password
+security-changed = Password changed.
+security-mismatch = The new passwords don't match.
+security-same = The new password is the same as the current one.
+security-devices = Signed-in devices
+security-devices-hint = Sign out a device you don't recognize or no longer use. Signing out this one signs you out here too.
+security-loading = Loading…
+security-last-active = Last active { $when }
+security-sign-out = Sign out
+security-mobile = Mobile app
+security-unknown-device = Unknown device
+security-done = Done

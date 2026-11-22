@@ -60,6 +60,7 @@ pub mod remote_images;
 pub mod right_pane;
 pub mod scheduled;
 pub mod secrets;
+pub mod security;
 pub mod server_links;
 pub mod servers;
 pub mod settings;

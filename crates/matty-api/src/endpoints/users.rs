@@ -163,6 +163,21 @@ impl Client {
         self.get(&format!("users/{user_id}/sessions")).await
     }
 
+    /// `PUT users/{user_id}/password`.
+    pub async fn change_password(
+        &self,
+        user_id: &str,
+        current: &str,
+        new: &str,
+    ) -> Result<(), ApiError> {
+        self.put::<_, Value>(
+            &format!("users/{user_id}/password"),
+            &serde_json::json!({ "current_password": current, "new_password": new }),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// `POST users/{user_id}/sessions/revoke`.
     pub async fn revoke_session(&self, user_id: &str, session_id: &str) -> Result<(), ApiError> {
         self.post::<_, Value>(

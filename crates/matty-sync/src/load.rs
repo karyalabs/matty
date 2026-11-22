@@ -196,6 +196,10 @@ pub(crate) enum Loaded {
         invite_id: String,
         users: Vec<User>,
     },
+    /// The user's signed-in sessions.
+    Sessions(Vec<matty_api::models::Session>),
+    /// The user's password changed.
+    PasswordChanged,
     /// A team's people who are not in a channel.
     NonMembers {
         channel_id: String,

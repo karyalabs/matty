@@ -259,6 +259,8 @@ pub struct MainWindow {
     categories: Entity<crate::categories::CategoryDialogs>,
     /// "Edit profile…" from the account menu (#212).
     profile_editor: Entity<crate::profile_editor::ProfileEditor>,
+    /// "Security…" (#964).
+    security: Entity<crate::security::SecurityView>,
     emoji_manager: Entity<crate::emoji_manager::EmojiManager>,
     /// Channels joined from Browse while in preview, so they open with an
     /// empty transcript until sync owns joining.
@@ -535,6 +537,29 @@ impl MainWindow {
         )
         .detach();
         let profile_editor = cx.new(|cx| crate::profile_editor::ProfileEditor::new(window, cx));
+        let security = cx.new(|cx| crate::security::SecurityView::new(window, cx));
+        cx.subscribe(
+            &security,
+            |this, _, event: &crate::security::SecurityEvent, _| {
+                let Some(live) = &this.live else {
+                    return;
+                };
+                live.send(match event {
+                    crate::security::SecurityEvent::ChangePassword { current, new } => {
+                        matty_sync::Command::ChangePassword {
+                            current: current.clone(),
+                            new: new.clone(),
+                        }
+                    }
+                    crate::security::SecurityEvent::SignOut { session_id } => {
+                        matty_sync::Command::RevokeSession {
+                            session_id: session_id.clone(),
+                        }
+                    }
+                });
+            },
+        )
+        .detach();
         cx.subscribe(
             &profile_editor,
             |this, _, chosen: &crate::profile_editor::PictureChosen, _| {
@@ -601,6 +626,7 @@ impl MainWindow {
                     }
                 }
                 AccountEvent::EditProfile => this.edit_profile(window, cx),
+                AccountEvent::Security => this.open_security(window, cx),
                 AccountEvent::CustomEmoji => this.manage_emoji(window, cx),
                 AccountEvent::SignOut => this.sign_out(window, cx),
             },
@@ -1215,15 +1241,11 @@ impl MainWindow {
         let auto_reply = cx.new(|cx| {
             InputState::new(window, cx).placeholder(crate::t!("prefs-auto-reply-default"))
         });
-        cx.subscribe_in(
-            &auto_reply,
-            window,
-            |this, _, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                    this.save_auto_reply(cx);
-                }
-            },
-        )
+        cx.subscribe_in(&auto_reply, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                this.save_auto_reply(cx);
+            }
+        })
         .detach();
         let (ui_font, code_font) = font_menus::menus(window, cx);
         let history: Vec<SharedString> = selected_channel.iter().cloned().collect();
@@ -1282,6 +1304,7 @@ impl MainWindow {
             create_channel,
             categories,
             profile_editor,
+            security,
             emoji_manager,
             joined: Vec::new(),
             teams_model,
@@ -2020,6 +2043,14 @@ impl MainWindow {
                 view.set_profiles(people, cx);
                 view.set_invite_link(invite_link, cx);
             });
+        }
+        if let Some(sessions) = update.sessions.take() {
+            self.security
+                .update(cx, |view, cx| view.set_sessions(sessions, cx));
+        }
+        if let Some(result) = update.password_changed.take() {
+            self.security
+                .update(cx, |view, cx| view.password_changed(result, window, cx));
         }
         if let Some(team) = update.team_joined.take() {
             self.joining = Some(team);
@@ -4547,6 +4578,21 @@ impl MainWindow {
             .update(cx, |editor, cx| editor.open(fields, window, cx));
     }
 
+    /// Opens "Security" (#964) and asks for the signed-in devices. The
+    /// password part shows only for accounts that sign in with one.
+    fn open_security(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let password = self
+            .live
+            .as_ref()
+            .and_then(|live| live.me_user())
+            .is_none_or(|user| user.auth_service.is_empty());
+        self.security
+            .update(cx, |view, cx| view.open(password, window, cx));
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::Sessions);
+        }
+    }
+
     /// Opens "Custom emoji" (#209) for the signed-in user.
     fn manage_emoji(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (me, admin) = match self.live.as_ref().and_then(|live| live.me_user()) {
@@ -4956,6 +5002,7 @@ impl MainWindow {
         div()
             .child(self.categories.clone())
             .child(self.profile_editor.clone())
+            .child(self.security.clone())
             .child(self.emoji_manager.clone())
             .child(dialog(
                 "new-message",
