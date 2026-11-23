@@ -129,6 +129,14 @@ pub fn when_label(at_ms: i64, now: &Zoned, clock: ClockFormat) -> SharedString {
         .unwrap_or_default()
 }
 
+/// The notice after "Remind me → Custom…": "Reminder set for tomorrow
+/// at 09:00".
+pub fn reminder_label(at_ms: i64, now: &Zoned, clock: ClockFormat) -> SharedString {
+    when(at_ms, now, clock)
+        .map(|(day, date, time)| t!("notice-reminder-at", day = day, date = date, time = time))
+        .unwrap_or_default()
+}
+
 /// A scheduled card's tag: "Send tomorrow at 09:00".
 fn send_label(at_ms: i64, now: &Zoned, clock: ClockFormat) -> SharedString {
     when(at_ms, now, clock)
@@ -257,6 +265,8 @@ pub struct ScheduleDialog {
     when: Entity<crate::ui::date_time_picker::DateTimeState>,
     /// The message, when editing a scheduled one.
     message: Option<Entity<TextareaState>>,
+    /// Picks a reminder's time instead (#1021).
+    reminder: bool,
     _subscriptions: Vec<gpui_kit::Subscription>,
 }
 
@@ -273,7 +283,14 @@ impl ScheduleDialog {
             )],
             when,
             message: None,
+            reminder: false,
         }
+    }
+
+    /// Words the dialog for "Remind me → Custom…".
+    pub fn for_reminder(mut self) -> Self {
+        self.reminder = true;
+        self
     }
 
     pub fn is_open(&self) -> bool {
@@ -332,14 +349,22 @@ impl Render for ScheduleDialog {
         let theme = UiTheme::read(cx).clone();
         let picked = self.picked(cx);
         let editing = self.message.is_some();
-        let title = if editing {
+        let title = if self.reminder {
+            t!("remind-title")
+        } else if editing {
             t!("schedule-edit-title")
         } else {
             t!("schedule-message")
         };
         let popup = dialog_popup("schedule.popup", title.clone(), cx)
             .child(dialog_title("schedule.title", cx).child(title))
-            .child(dialog_description("schedule.description", cx).child(t!("schedule-description")))
+            .child(
+                dialog_description("schedule.description", cx).child(if self.reminder {
+                    t!("remind-description")
+                } else {
+                    t!("schedule-description")
+                }),
+            )
             .children(self.message.as_ref().map(|state| {
                 div().pt(theme.space(2.)).child(
                     Textarea::new(state).bg(theme.colors.popover.blend(theme.control().background)),
@@ -348,7 +373,11 @@ impl Render for ScheduleDialog {
             .child(
                 div().pt(theme.space(2.)).child(
                     crate::ui::date_time_picker::DateTimePicker::new("schedule.when", &self.when)
-                        .aria_label(t!("schedule-posts-at")),
+                        .aria_label(if self.reminder {
+                            t!("remind-at")
+                        } else {
+                            t!("schedule-posts-at")
+                        }),
                 ),
             )
             .when(picked.is_none(), |popup| {
@@ -376,7 +405,9 @@ impl Render for ScheduleDialog {
                     .child(
                         Button::new("schedule.save")
                             .variant(ButtonVariant::Default)
-                            .label(if editing {
+                            .label(if self.reminder {
+                                t!("remind-confirm")
+                            } else if editing {
                                 t!("schedule-save")
                             } else {
                                 t!("schedule-confirm")

@@ -1933,7 +1933,7 @@ impl MainWindow {
         self.toasts.update(cx, |toasts, cx| {
             toasts.push(
                 "reminder",
-                Notice::new(crate::popout::reminder_notice(at))
+                Notice::new(crate::popout::reminder_notice(at, cx))
                     .timeout(std::time::Duration::from_secs(4)),
                 cx,
             );

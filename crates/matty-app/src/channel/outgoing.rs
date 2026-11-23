@@ -25,6 +25,42 @@ pub(super) fn schedule_dialog(
     (dialog, subscription)
 }
 
+/// The dialog behind "Remind me → Custom…" (#1021): its pick sets the
+/// reminder for the post it was opened on.
+pub(super) fn remind_dialog(
+    window: &mut Window,
+    cx: &mut Context<ChannelView>,
+) -> (Entity<ScheduleDialog>, gpui_kit::Subscription) {
+    let dialog = cx.new(|cx| ScheduleDialog::new(window, cx).for_reminder());
+    let subscription = cx.subscribe(
+        &dialog,
+        |this: &mut ChannelView, _, event: &ScheduleDialogEvent, cx| {
+            let ScheduleDialogEvent::Confirm { at, .. } = event;
+            if let Some(post) = this.remind_post.take() {
+                cx.emit(ChannelEvent::Remind {
+                    post,
+                    at: crate::channel::RemindAt::At(at / 1000),
+                });
+            }
+        },
+    );
+    (dialog, subscription)
+}
+
+impl ChannelView {
+    /// Opens the reminder dialog for `post`.
+    pub(super) fn pick_reminder(
+        &mut self,
+        post: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remind_post = Some(post);
+        self.remind_dialog
+            .update(cx, |dialog, cx| dialog.open(None, None, window, cx));
+    }
+}
+
 /// Mattermost asks before a channel-wide mention in a channel with more
 /// members than this (`Constants.NOTIFY_ALL_MEMBERS`).
 const CHANNEL_WIDE_ASK_ABOVE: usize = 5;

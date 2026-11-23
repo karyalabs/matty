@@ -12,3 +12,8 @@ notice-reminder-30-minutes = Reminder set for 30 minutes from now
 notice-reminder-1-hour = Reminder set for 1 hour from now
 notice-reminder-2-hours = Reminder set for 2 hours from now
 notice-reminder-tomorrow = Reminder set for tomorrow at 9:00
+notice-reminder-at = { $day ->
+    [today] Reminder set for today at { $time }
+    [tomorrow] Reminder set for tomorrow at { $time }
+   *[other] Reminder set for { $date } at { $time }
+}

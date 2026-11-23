@@ -25,6 +25,27 @@ pub(super) fn schedule_dialog(
     (dialog, subscription)
 }
 
+/// The dialog behind "Remind me → Custom…" (#1021) in a thread.
+pub(super) fn remind_dialog(
+    window: &mut Window,
+    cx: &mut Context<RightPaneView>,
+) -> (Entity<ScheduleDialog>, gpui_kit::Subscription) {
+    let dialog = cx.new(|cx| ScheduleDialog::new(window, cx).for_reminder());
+    let subscription = cx.subscribe(
+        &dialog,
+        |this: &mut RightPaneView, _, event: &ScheduleDialogEvent, cx| {
+            let ScheduleDialogEvent::Confirm { at, .. } = event;
+            if let Some(post) = this.remind_post.take() {
+                cx.emit(RightPaneEvent::Remind {
+                    post,
+                    at: crate::channel::RemindAt::At(at / 1000),
+                });
+            }
+        },
+    );
+    (dialog, subscription)
+}
+
 impl RightPaneView {
     /// "Schedule message" beside Reply: the presets and "Custom time…".
     /// `None` while the server does not allow scheduling.

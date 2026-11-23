@@ -630,6 +630,10 @@ pub struct RightPaneView {
     slash: crate::slash::Slash,
     /// Picks a custom time for "Schedule message" (#220).
     schedule_dialog: Entity<crate::scheduled::ScheduleDialog>,
+    /// Picks the time for "Remind me → Custom…" (#1021).
+    remind_dialog: Entity<crate::scheduled::ScheduleDialog>,
+    /// The reply the reminder dialog is for.
+    remind_post: Option<SharedString>,
     /// The full emoji picker, on the reply composer's emoji button, for the
     /// reply or for a reaction, as in the channel (#679).
     picker: Entity<EmojiPickerState>,
@@ -904,6 +908,7 @@ impl RightPaneView {
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("pane-search-placeholder")));
         let (schedule_dialog, scheduling) = schedule::schedule_dialog(window, cx);
+        let (remind_dialog, reminding) = schedule::remind_dialog(window, cx);
         let composer_input = composer.read(cx).input().clone();
         let picker = cx.new(|cx| EmojiPickerState::new(crate::emoji::categories(), window, cx));
         let file_kind = cx.new(|cx| {
@@ -937,6 +942,7 @@ impl RightPaneView {
                 this.slash_line(&text, cx);
             }),
             scheduling,
+            reminding,
             cx.subscribe_in(
                 &composer,
                 window,
@@ -1045,6 +1051,8 @@ impl RightPaneView {
             action_menus: Default::default(),
             slash: Default::default(),
             schedule_dialog,
+            remind_dialog,
+            remind_post: None,
             picker,
             picker_open: false,
             picker_at: None,
@@ -2554,16 +2562,32 @@ impl RightPaneView {
                 MenuItem::submenu(
                     "thread.context.remind",
                     t!("pane-remind"),
-                    crate::channel::RemindAt::ALL.map(|at| {
-                        emit(
-                            &format!("remind.{at:?}"),
-                            at.label(),
-                            RightPaneEvent::Remind {
-                                post: id.clone(),
-                                at,
-                            },
-                        )
-                    }),
+                    crate::channel::RemindAt::ALL
+                        .map(|at| {
+                            emit(
+                                &format!("remind.{at:?}"),
+                                at.label(),
+                                RightPaneEvent::Remind {
+                                    post: id.clone(),
+                                    at,
+                                },
+                            )
+                        })
+                        .into_iter()
+                        .chain([{
+                            let id = id.clone();
+                            let view = view.clone();
+                            MenuItem::new("thread.context.remind.custom", t!("chan-remind-custom"))
+                                .on_click(move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.remind_post = Some(id.clone());
+                                        this.remind_dialog.update(cx, |dialog, cx| {
+                                            dialog.open(None, None, window, cx)
+                                        });
+                                    })
+                                    .ok();
+                                })
+                        }]),
                 ),
                 emit(
                     "save",
@@ -4459,6 +4483,7 @@ impl Render for RightPaneView {
             .child(self.leave_dialog(window, cx))
             .child(self.discard_dialog(window, cx))
             .child(self.schedule_dialog.clone())
+            .child(self.remind_dialog.clone())
             .children(self.post_picker(window, cx))
             .child(
                 Menu::new(&self.menu, t!("pane-message-actions"))

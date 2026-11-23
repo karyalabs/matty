@@ -36,3 +36,9 @@ scheduled-edit = Edit
 scheduled-send-now = Send now
 scheduled-empty-title = No scheduled messages
 scheduled-empty-body = Schedule a message from the arrow beside Send, and it waits here until it posts.
+
+# "Remind me → Custom…" on a message reuses the schedule dialog.
+remind-title = Set a reminder
+remind-description = Matty brings this message back at the time you pick, in your time zone.
+remind-at = Remind at
+remind-confirm = Set reminder

@@ -1116,7 +1116,7 @@ impl PopOutView {
             return;
         };
         live.remind(post_id, at);
-        self.toast("reminder", reminder_notice(at), cx);
+        self.toast("reminder", reminder_notice(at, cx), cx);
     }
 
     fn mark_unread(&mut self, post_id: &str, cx: &mut Context<Self>) {
@@ -1752,9 +1752,14 @@ impl Render for PopOutView {
 
 /// What the toast says once a reminder is set, in the main window or a
 /// pop-out.
-pub(crate) fn reminder_notice(at: crate::channel::RemindAt) -> SharedString {
+pub(crate) fn reminder_notice(at: crate::channel::RemindAt, cx: &App) -> SharedString {
     use crate::channel::RemindAt;
     match at {
+        RemindAt::At(at) => crate::scheduled::reminder_label(
+            at * 1000,
+            &crate::clock::now(),
+            crate::settings::ClockFormat::current(cx),
+        ),
         RemindAt::In30Minutes => t!("notice-reminder-30-minutes"),
         RemindAt::In1Hour => t!("notice-reminder-1-hour"),
         RemindAt::In2Hours => t!("notice-reminder-2-hours"),

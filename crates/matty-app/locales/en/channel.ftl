@@ -58,6 +58,7 @@ chan-remind-30-minutes = In 30 minutes
 chan-remind-1-hour = In 1 hour
 chan-remind-2-hours = In 2 hours
 chan-remind-tomorrow = Tomorrow at 9:00
+chan-remind-custom = Custom…
 
 ## A message's menus and hover toolbar
 
