@@ -135,6 +135,9 @@ pub struct ServerCapabilities {
     /// turned the link off, `Some("")` for the server's own page, or the
     /// admin's own address.
     pub forgot_password: Option<String>,
+    /// Anyone may create an account here without an invite, so the sign-in
+    /// form offers "Create an account".
+    pub open_sign_up: bool,
     /// Enabled SSO providers.
     pub sso: SsoProviders,
     /// Collapsed Reply Threads mode.
@@ -262,6 +265,22 @@ impl ServerCapabilities {
                     .unwrap_or_default()
                     .to_string()
             }),
+            // As the webapp: an open server with account creation on and
+            // some way to sign up.
+            open_sign_up: flag(config, "EnableOpenServer")
+                && (!config.contains_key("EnableUserCreation")
+                    || flag(config, "EnableUserCreation"))
+                && [
+                    "EnableSignUpWithEmail",
+                    "EnableSignUpWithGitLab",
+                    "EnableSignUpWithGoogle",
+                    "EnableSignUpWithOffice365",
+                    "EnableSignUpWithOpenId",
+                    "EnableLdap",
+                    "EnableSaml",
+                ]
+                .iter()
+                .any(|key| flag(config, key)),
             sso: SsoProviders {
                 gitlab: flag(config, "EnableSignUpWithGitLab"),
                 google: flag(config, "EnableSignUpWithGoogle"),
@@ -381,6 +400,28 @@ mod tests {
             ]),
             Some("https://help.example.com/reset".into())
         );
+    }
+
+    #[test]
+    fn sign_up_needs_an_open_server_and_a_way_in() {
+        let with = |pairs: &[(&str, &str)]| {
+            let mut config = OldFormat::new();
+            config.insert("Version".into(), serde_json::json!("10.5.0"));
+            for (key, value) in pairs {
+                config.insert((*key).into(), serde_json::json!(value));
+            }
+            ServerCapabilities::from_old_format(&config, &OldFormat::new())
+                .unwrap()
+                .open_sign_up
+        };
+        let open = [
+            ("EnableOpenServer", "true"),
+            ("EnableSignUpWithEmail", "true"),
+        ];
+        assert!(with(&open));
+        assert!(!with(&[("EnableSignUpWithEmail", "true")]));
+        assert!(!with(&[("EnableOpenServer", "true")]));
+        assert!(!with(&[open[0], open[1], ("EnableUserCreation", "false")]));
     }
 
     #[test]

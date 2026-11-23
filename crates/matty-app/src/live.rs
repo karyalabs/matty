@@ -3797,9 +3797,13 @@ pub fn methods(capabilities: &ServerCapabilities, server: &str) -> SignInMethods
                 link.clone().into()
             }
         });
+    let sign_up = capabilities
+        .open_sign_up
+        .then(|| format!("{}/signup_user_complete", server.trim_end_matches('/')).into());
     SignInMethods {
         password,
         forgot_password,
+        sign_up,
         ldap: capabilities.ldap,
         sso: providers
             .into_iter()

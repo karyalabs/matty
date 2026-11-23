@@ -60,6 +60,8 @@ pub struct SignInMethods {
     pub sso: Vec<SsoProvider>,
     /// Where "Forgot your password?" goes, when the server offers it.
     pub forgot_password: Option<SharedString>,
+    /// Where "Create an account" goes, when the server lets anyone sign up.
+    pub sign_up: Option<SharedString>,
 }
 
 impl SignInMethods {
@@ -836,6 +838,25 @@ impl LoginView {
                     .children(buttons),
             );
         }
+        if let Some(url) = methods.sign_up.clone() {
+            card = card.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(theme.space(1.))
+                    .text_size(theme.text(13.))
+                    .text_color(muted)
+                    .child(t!("login-no-account"))
+                    .child(
+                        Button::new("login.sign-up")
+                            .variant(ButtonVariant::Link)
+                            .size(ButtonSize::Xs)
+                            .on_click(move |_, _, cx| cx.open_url(&url))
+                            .child(t!("login-sign-up")),
+                    ),
+            );
+        }
         let token_toggle = Button::new("login.token-toggle")
             .variant(ButtonVariant::Ghost)
             .size(ButtonSize::Sm)
@@ -1335,6 +1356,7 @@ mod tests {
             ldap,
             sso: Vec::new(),
             forgot_password: None,
+            sign_up: None,
         }
     }
 
@@ -1444,6 +1466,7 @@ mod tests {
                 ldap: false,
                 sso: vec![SsoProvider::GitLab, SsoProvider::Saml],
                 forgot_password: None,
+                sign_up: None,
             },
         };
         let waiting = methods.to_browser(SsoProvider::Saml);
@@ -1594,6 +1617,7 @@ mod tests {
                     ldap: false,
                     sso: vec![SsoProvider::GitLab],
                     forgot_password: None,
+                    sign_up: None,
                 },
                 provider: SsoProvider::GitLab,
             },

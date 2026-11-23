@@ -2703,6 +2703,7 @@ impl MainWindow {
                         ldap: false,
                         sso: vec![SsoProvider::GitLab],
                         forgot_password: Some("https://chat.example.com/reset_password".into()),
+                        sign_up: None,
                     },
                 };
                 model.error = None;
