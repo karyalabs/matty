@@ -469,7 +469,8 @@ reserved shortcuts.
 
 - Follow the server preferences exactly: desktop notifications for all, mentions
   or nothing; per-channel overrides; keywords; thread reply notifications for
-  followed threads; DND and its schedule.
+  followed threads, or with collapsed reply threads off, reply notifications
+  for threads the user starts or takes part in; DND and its schedule.
 - Do not notify for the channel that is visible in a focused window.
 - Group by channel on platforms that support it. Notification text respects
   the "show message preview" preference.
