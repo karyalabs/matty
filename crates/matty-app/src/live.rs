@@ -3724,8 +3724,8 @@ type ThreadList = (
 
 const STOPPED: &str = "Matty could not start its network thread. Quit and open it again.";
 
-/// What the sign-in card offers for a server.
-pub fn methods(capabilities: &ServerCapabilities) -> SignInMethods {
+/// What the sign-in card offers for the server at `server`.
+pub fn methods(capabilities: &ServerCapabilities, server: &str) -> SignInMethods {
     let sso = &capabilities.sso;
     let providers = [
         (sso.gitlab, SsoProvider::GitLab),
@@ -3734,8 +3734,21 @@ pub fn methods(capabilities: &ServerCapabilities) -> SignInMethods {
         (sso.openid, SsoProvider::OpenId),
         (sso.saml, SsoProvider::Saml),
     ];
+    let password = capabilities.email_login || capabilities.username_login;
+    let forgot_password = capabilities
+        .forgot_password
+        .as_ref()
+        .filter(|_| password)
+        .map(|link| {
+            if link.is_empty() {
+                format!("{}/reset_password", server.trim_end_matches('/')).into()
+            } else {
+                link.clone().into()
+            }
+        });
     SignInMethods {
-        password: capabilities.email_login || capabilities.username_login,
+        password,
+        forgot_password,
         ldap: capabilities.ldap,
         sso: providers
             .into_iter()

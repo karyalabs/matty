@@ -58,6 +58,8 @@ pub struct SignInMethods {
     /// LDAP/AD, which shares the password form and changes its wording.
     pub ldap: bool,
     pub sso: Vec<SsoProvider>,
+    /// Where "Forgot your password?" goes, when the server offers it.
+    pub forgot_password: Option<SharedString>,
 }
 
 impl SignInMethods {
@@ -782,6 +784,21 @@ impl LoginView {
                         .child(
                             Field::new("login.password", &self.password)
                                 .label(t!("login-password")),
+                        )
+                        .children(
+                            methods
+                                .forgot_password
+                                .clone()
+                                .filter(|_| !methods.ldap_only(self.picked_ldap))
+                                .map(|url| {
+                                    div().flex().justify_end().child(
+                                        Button::new("login.forgot-password")
+                                            .variant(ButtonVariant::Link)
+                                            .size(ButtonSize::Xs)
+                                            .on_click(move |_, _, cx| cx.open_url(&url))
+                                            .child(t!("login-forgot-password")),
+                                    )
+                                }),
                         ),
                 )
                 .children(self.error_line(cx))
@@ -1317,6 +1334,7 @@ mod tests {
             password,
             ldap,
             sso: Vec::new(),
+            forgot_password: None,
         }
     }
 
@@ -1425,6 +1443,7 @@ mod tests {
                 password: true,
                 ldap: false,
                 sso: vec![SsoProvider::GitLab, SsoProvider::Saml],
+                forgot_password: None,
             },
         };
         let waiting = methods.to_browser(SsoProvider::Saml);
@@ -1574,6 +1593,7 @@ mod tests {
                     password: true,
                     ldap: false,
                     sso: vec![SsoProvider::GitLab],
+                    forgot_password: None,
                 },
                 provider: SsoProvider::GitLab,
             },

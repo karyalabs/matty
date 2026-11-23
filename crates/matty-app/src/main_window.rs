@@ -2573,7 +2573,7 @@ impl MainWindow {
                                         .clone()
                                         .unwrap_or_else(|| host(&url))
                                         .into(),
-                                    methods: crate::live::methods(&capabilities),
+                                    methods: crate::live::methods(&capabilities, &url),
                                 };
                                 model.error = None;
                             }
@@ -2702,6 +2702,7 @@ impl MainWindow {
                         password: true,
                         ldap: false,
                         sso: vec![SsoProvider::GitLab],
+                        forgot_password: Some("https://chat.example.com/reset_password".into()),
                     },
                 };
                 model.error = None;

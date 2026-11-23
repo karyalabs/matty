@@ -23,6 +23,7 @@ login-sign-in-title = Sign in
 login-sign-in-hero = Sign in to your account
 login-server-card-title = Your server
 login-sign-in-hint = Use the account you have on this server.
+login-forgot-password = Forgot your password?
 login-password = Password
 login-sign-in = Sign in
 login-continue-with = Continue with { $provider }

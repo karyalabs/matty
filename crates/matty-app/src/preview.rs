@@ -114,6 +114,7 @@ pub fn login() -> Option<LoginModel> {
         password: true,
         ldap: value == "login-ldap",
         sso: vec![SsoProvider::GitLab, SsoProvider::Google],
+        forgot_password: Some("https://chat.example.com/reset_password".into()),
     };
     let server_name: gpui_kit::SharedString = "chat.example.com".into();
     let wrong_code = "That code is not right. Enter the current code from your authenticator app.";

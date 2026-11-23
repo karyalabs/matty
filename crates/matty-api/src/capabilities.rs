@@ -131,6 +131,10 @@ pub struct ServerCapabilities {
     pub email_login: bool,
     /// Sign-in with a username is allowed.
     pub username_login: bool,
+    /// The sign-in form links to a password reset: `None` when the admin
+    /// turned the link off, `Some("")` for the server's own page, or the
+    /// admin's own address.
+    pub forgot_password: Option<String>,
     /// Enabled SSO providers.
     pub sso: SsoProviders,
     /// Collapsed Reply Threads mode.
@@ -250,6 +254,14 @@ impl ServerCapabilities {
             ldap_login_label: text(config, "LdapLoginFieldName").map(str::to_string),
             email_login: flag(config, "EnableSignInWithEmail"),
             username_login: flag(config, "EnableSignInWithUsername"),
+            // On unless the admin turned it off, as in the webapp.
+            forgot_password: (!config.contains_key("PasswordEnableForgotLink")
+                || flag(config, "PasswordEnableForgotLink"))
+            .then(|| {
+                text(config, "ForgotPasswordLink")
+                    .unwrap_or_default()
+                    .to_string()
+            }),
             sso: SsoProviders {
                 gitlab: flag(config, "EnableSignUpWithGitLab"),
                 google: flag(config, "EnableSignUpWithGoogle"),
@@ -346,6 +358,29 @@ mod tests {
             &load("license_client_enterprise.json"),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn the_forgot_password_link_follows_the_admin() {
+        let with = |pairs: &[(&str, &str)]| {
+            let mut config = OldFormat::new();
+            config.insert("Version".into(), serde_json::json!("10.5.0"));
+            for (key, value) in pairs {
+                config.insert((*key).into(), serde_json::json!(value));
+            }
+            ServerCapabilities::from_old_format(&config, &OldFormat::new())
+                .unwrap()
+                .forgot_password
+        };
+        assert_eq!(with(&[]), Some(String::new()));
+        assert_eq!(with(&[("PasswordEnableForgotLink", "false")]), None);
+        assert_eq!(
+            with(&[
+                ("PasswordEnableForgotLink", "true"),
+                ("ForgotPasswordLink", "https://help.example.com/reset"),
+            ]),
+            Some("https://help.example.com/reset".into())
+        );
     }
 
     #[test]
