@@ -640,6 +640,7 @@ impl MainWindow {
                 AccountEvent::EditProfile => this.edit_profile(window, cx),
                 AccountEvent::Security => this.open_security(window, cx),
                 AccountEvent::CustomEmoji => this.manage_emoji(window, cx),
+                AccountEvent::TurnOffAutoReply => this.set_auto_reply(false, cx),
                 AccountEvent::SignOut => this.sign_out(window, cx),
             },
         )

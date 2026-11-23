@@ -892,7 +892,7 @@ impl MainWindow {
 
     /// Turns the automatic reply on or off, with the message typed (#969).
     /// The server sets the user's status to Out of office while it is on.
-    fn set_auto_reply(&mut self, on: bool, cx: &mut Context<Self>) {
+    pub(super) fn set_auto_reply(&mut self, on: bool, cx: &mut Context<Self>) {
         let Some(props) = &self.notify_props else {
             return;
         };

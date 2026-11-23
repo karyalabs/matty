@@ -59,6 +59,8 @@ pub enum AccountEvent {
     Security,
     /// "Custom emoji…" (#209).
     CustomEmoji,
+    /// "Turn off automatic replies", shown while Out of office.
+    TurnOffAutoReply,
     SignOut,
 }
 
@@ -367,6 +369,20 @@ impl AccountView {
             "account.who",
             format!("{} · @{}", account.display_name, account.username),
         )];
+        // Only the server sets Out of office, from the automatic reply, so
+        // the way back is to turn the reply off, as in Mattermost.
+        if account.presence == Presence::OutOfOffice {
+            let view = view.clone();
+            items.push(
+                MenuItem::new("account.auto-reply-off", t!("account-auto-reply-off")).on_click(
+                    move |_, _, cx| {
+                        view.update(cx, |_, cx| cx.emit(AccountEvent::TurnOffAutoReply))
+                            .ok();
+                    },
+                ),
+            );
+            items.push(MenuItem::separator());
+        }
         for (presence, name) in PRESENCES {
             let label = presence_label(presence);
             let id = gpui_kit::ElementId::Name(format!("account.presence.{name}").into());
