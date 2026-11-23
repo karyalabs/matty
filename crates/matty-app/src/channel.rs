@@ -4635,6 +4635,21 @@ impl ChannelView {
             ChannelKind::Private => Some(LucideIcon::Lock),
             ChannelKind::Direct { .. } | ChannelKind::Group { .. } => None,
         };
+        // A direct message's title leads with the person's picture and
+        // presence, as in Mattermost.
+        let person_avatar = match (&channel.kind, &channel.person) {
+            (ChannelKind::Direct { presence }, Some(person)) => Some(crate::avatars::with_picture(
+                Avatar::new(gpui_kit::ElementId::Name("channel.header.avatar".into()))
+                    .size(AvatarSize::Sm)
+                    .fallback(person.display_name.chars().take(1).collect::<String>())
+                    .status(style::avatar_status(*presence, &Palette::read(cx)))
+                    .status_size(scaled(&theme, 6.))
+                    .ring_color(theme.colors.background),
+                &person.user_id,
+                cx,
+            )),
+            _ => None,
+        };
         let count = |id: &'static str, label: String, glyph: LucideIcon, n: usize| {
             Button::new(id)
                 .variant(ButtonVariant::Ghost)
@@ -4671,6 +4686,7 @@ impl ChannelView {
                                     .gap(theme.space(1.5))
                                     .type_style(style::TITLE, &theme)
                                     .text_color(theme.colors.foreground)
+                                    .children(person_avatar)
                                     .children(kind_icon.map(|glyph| {
                                         lucide(glyph)
                                             .size(scaled(&theme, metrics::ICON))
