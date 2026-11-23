@@ -760,6 +760,16 @@ impl MainWindow {
                 ChannelEvent::OpenPinned => this.show_pinned(cx),
                 ChannelEvent::OpenEditHistory(post) => this.show_edit_history(post, cx),
                 ChannelEvent::OpenInfo => this.show_channel_info(cx),
+                ChannelEvent::SetMuted(muted) => {
+                    if let Some(id) = this.selected_channel.clone() {
+                        this.set_muted(id, *muted, cx);
+                    }
+                }
+                ChannelEvent::CopyChannelLink => {
+                    if let Some(id) = this.selected_channel.clone() {
+                        this.copy_channel_link(&id, cx);
+                    }
+                }
                 ChannelEvent::SwapPanes => this.swap_panes(window, cx),
                 ChannelEvent::ClosePane => this.close_main_pane(window, cx),
                 ChannelEvent::OpenDirect { user_id, .. } => {

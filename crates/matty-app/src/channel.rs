@@ -1157,6 +1157,10 @@ pub enum ChannelEvent {
     OpenInfo,
     /// The user starred or unstarred the channel; the header shows it.
     ToggleFavorite(bool),
+    /// Mute or unmute the channel from its name's menu (#1020).
+    SetMuted(bool),
+    /// Copy the channel's link from its name's menu (#1020).
+    CopyChannelLink,
     /// The user chose View profile on someone's profile card (#212).
     ViewProfile(UserProfile),
     /// "Add to channel" on someone's profile card (#212).
@@ -1816,6 +1820,7 @@ impl ChannelView {
                     model.muted = muted;
                     model.notifications = notifications;
                 }
+                this.rebuild_header_menu(cx);
                 cx.notify();
                 cx.emit(ChannelEvent::SetNotifications {
                     muted,
@@ -2610,8 +2615,15 @@ impl ChannelView {
     pub fn set_favorite(&mut self, favorite: bool, cx: &mut Context<Self>) {
         if let Some(model) = self.model.as_mut().map(Rc::make_mut) {
             model.favorite = favorite;
+            self.rebuild_header_menu(cx);
             cx.notify();
         }
+    }
+
+    /// The name's menu labels favorite and mute by the current state.
+    fn rebuild_header_menu(&mut self, cx: &mut Context<Self>) {
+        let model = self.model.clone();
+        self.refresh_header_menu(model.as_deref(), cx);
     }
 
     /// Sync loaded the channel's header, purpose and counts; the scroll
@@ -2657,6 +2669,7 @@ impl ChannelView {
         {
             model.muted = muted;
             model.notifications = notifications;
+            self.rebuild_header_menu(cx);
             cx.notify();
         }
     }
@@ -2724,6 +2737,7 @@ impl ChannelView {
     pub fn set_muted(&mut self, muted: bool, cx: &mut Context<Self>) {
         if let Some(model) = self.model.as_mut().map(Rc::make_mut) {
             model.muted = muted;
+            self.rebuild_header_menu(cx);
             cx.notify();
         }
     }
@@ -4094,7 +4108,42 @@ impl ChannelView {
             model.is_some_and(|m| matches!(m.kind, ChannelKind::Public | ChannelKind::Private));
         let rights = model.map(|m| m.rights).unwrap_or_default();
         let notify_view = view.clone();
+        let emit = |id: &'static str, label: SharedString, event: ChannelEvent| {
+            let view = view.clone();
+            MenuItem::new(id, label).on_click(move |_, _, cx| {
+                view.update(cx, |_, cx| cx.emit(event.clone())).ok();
+            })
+        };
+        let favorite = model.is_some_and(|m| m.favorite);
+        let muted = model.is_some_and(|m| m.muted);
+        // The official client's first block: info, favorite, mute, link.
         let mut items = vec![
+            emit("channel.menu.info", t!("chan-info"), ChannelEvent::OpenInfo),
+            emit(
+                "channel.menu.favorite",
+                if favorite {
+                    t!("chan-remove-favorite")
+                } else {
+                    t!("chan-add-favorite")
+                },
+                ChannelEvent::ToggleFavorite(!favorite),
+            ),
+            emit(
+                "channel.menu.mute",
+                match (muted, is_channel) {
+                    (true, true) => t!("chan-menu-unmute-channel"),
+                    (true, false) => t!("chan-menu-unmute-conversation"),
+                    (false, true) => t!("chan-menu-mute-channel"),
+                    (false, false) => t!("chan-menu-mute-conversation"),
+                },
+                ChannelEvent::SetMuted(!muted),
+            ),
+            emit(
+                "channel.menu.copy-link",
+                t!("chan-copy-link"),
+                ChannelEvent::CopyChannelLink,
+            ),
+            MenuItem::separator(),
             MenuItem::new("channel.menu.notifications", t!("chan-menu-notifications")).on_click(
                 move |_, window, cx| {
                     notify_view
