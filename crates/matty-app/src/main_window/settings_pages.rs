@@ -1959,6 +1959,17 @@ impl MainWindow {
                         )),
                     )
                     .row(
+                        Row::new("preferences.push-threads", t!("prefs-desktop-threads"))
+                            .description(t!("prefs-desktop-threads-detail"))
+                            .control(switch(
+                                "preferences.push-threads.switch",
+                                t!("prefs-push-threads"),
+                                props.get("push_threads").is_none_or(|v| v == "all"),
+                                "push_threads",
+                                ("all", "mention"),
+                            )),
+                    )
+                    .row(
                         Row::new("preferences.push-status", t!("prefs-push-status"))
                             .description(t!("prefs-push-status-detail"))
                             .control(select(&push_status, t!("prefs-push-status"), &theme)),
@@ -1979,6 +1990,19 @@ impl MainWindow {
                             ("true", "false"),
                         )),
                 );
+            if on("email", true) {
+                email = email.row(
+                    Row::new("preferences.email-threads", t!("prefs-desktop-threads"))
+                        .description(t!("prefs-desktop-threads-detail"))
+                        .control(switch(
+                            "preferences.email-threads.switch",
+                            t!("prefs-email-threads"),
+                            props.get("email_threads").is_none_or(|v| v == "all"),
+                            "email_threads",
+                            ("all", "mention"),
+                        )),
+                );
+            }
             if features.email_batching && on("email", true) {
                 let interval = self.settings.read(cx).get().email_interval;
                 let how_often = selects.get(
