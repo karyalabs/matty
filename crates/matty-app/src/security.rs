@@ -1,5 +1,6 @@
-//! "Security" (#964): change the password, and see and sign out the
-//! devices signed in to the account, as the web app's Profile > Security.
+//! "Security" (#964): change the password, multi-factor authentication,
+//! personal access tokens, and the devices signed in to the account, as the
+//! web app's Profile > Security.
 
 use std::sync::Arc;
 
@@ -9,7 +10,7 @@ use gpui_kit::{
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
     Styled as _, Subscription, Window, div, prelude::FluentBuilder as _,
 };
-use matty_api::{MfaSecret, models::Session};
+use matty_api::{AccessToken, MfaSecret, models::Session};
 
 use crate::t;
 use crate::ui::{
@@ -36,6 +37,32 @@ pub enum SecurityEvent {
         activate: bool,
         code: String,
     },
+    CreateToken {
+        description: String,
+    },
+    SetTokenActive {
+        token_id: String,
+        active: bool,
+    },
+    DeleteToken {
+        token_id: String,
+    },
+}
+
+/// Personal access tokens, as the Security dialog shows them.
+#[derive(Default)]
+struct Tokens {
+    /// `None` until the server answers.
+    list: Option<Arc<[AccessToken]>>,
+    /// The description field for a new token is up.
+    creating: bool,
+    /// The token just made: its secret shows this once.
+    created: Option<Arc<AccessToken>>,
+    /// The token whose Delete waits for a second click.
+    confirm_delete: Option<String>,
+    /// Why the server refused the last change.
+    error: Option<SharedString>,
+    busy: bool,
 }
 
 /// Where multi-factor authentication stands, as the Security dialog shows
@@ -76,6 +103,9 @@ pub struct SecurityView {
     mfa_error: Option<SharedString>,
     /// A multi-factor step is with the server.
     mfa_busy: bool,
+    /// `None` when the server or the account's roles allow no tokens.
+    tokens: Option<Tokens>,
+    token_description: Entity<InputState>,
     focus_first: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -98,6 +128,7 @@ impl SecurityView {
         let mut masked = || cx.new(|cx| InputState::new(window, cx).masked(true));
         let (current, new, confirm) = (masked(), masked(), masked());
         let mfa_code = cx.new(|cx| InputState::new(window, cx));
+        let token_description = cx.new(|cx| InputState::new(window, cx));
         let mut subscriptions: Vec<Subscription> =
             [&current, &new, &confirm]
                 .into_iter()
@@ -124,6 +155,14 @@ impl SecurityView {
                 }
             },
         ));
+        subscriptions.push(cx.subscribe_in(
+            &token_description,
+            window,
+            |this, _, event: &InputEvent, _, cx| match event {
+                InputEvent::PressEnter { .. } => this.create_token(cx),
+                _ => cx.notify(),
+            },
+        ));
         Self {
             dialog: DialogHandle::new(false),
             current,
@@ -137,6 +176,8 @@ impl SecurityView {
             mfa_code,
             mfa_error: None,
             mfa_busy: false,
+            tokens: None,
+            token_description,
             focus_first: false,
             _subscriptions: subscriptions,
         }
@@ -145,11 +186,13 @@ impl SecurityView {
     /// Opens the dialog; `password` says whether the account has a
     /// Mattermost password to change rather than single sign-on, and `mfa`
     /// whether multi-factor authentication is on and whether the server
-    /// requires it, when the server offers it.
+    /// requires it, when the server offers it. `tokens` says whether the
+    /// account may make personal access tokens.
     pub fn open(
         &mut self,
         password: bool,
         mfa: Option<(bool, bool)>,
+        tokens: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -163,6 +206,9 @@ impl SecurityView {
         self.mfa_error = None;
         self.mfa_busy = false;
         self.mfa_code
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.tokens = tokens.then(Tokens::default);
+        self.token_description
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.clear(window, cx);
         self.dialog.open(window, cx);
@@ -236,6 +282,352 @@ impl SecurityView {
             }
         }
         cx.notify();
+    }
+
+    /// The tokens after a change, with the one just made; or why the
+    /// server refused.
+    pub fn set_tokens(
+        &mut self,
+        result: Result<crate::live::AccessTokens, SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tokens) = self.tokens.as_mut() else {
+            return;
+        };
+        tokens.busy = false;
+        match result {
+            Ok(answer) => {
+                tokens.list = Some(answer.tokens);
+                tokens.confirm_delete = None;
+                tokens.error = None;
+                if let Some(created) = answer.created {
+                    tokens.created = Some(created);
+                    tokens.creating = false;
+                    self.token_description
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                }
+            }
+            Err(error) => tokens.error = Some(error),
+        }
+        cx.notify();
+    }
+
+    fn start_token(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tokens) = self.tokens.as_mut() else {
+            return;
+        };
+        tokens.creating = true;
+        tokens.created = None;
+        tokens.error = None;
+        let focus = self.token_description.read(cx).focus_handle(cx);
+        window.on_next_frame(move |window, cx| window.focus(&focus, cx));
+        cx.notify();
+    }
+
+    fn create_token(&mut self, cx: &mut Context<Self>) {
+        let description = self.token_description.read(cx).value().trim().to_string();
+        let Some(tokens) = self.tokens.as_mut() else {
+            return;
+        };
+        if tokens.busy || !tokens.creating || description.is_empty() {
+            return;
+        }
+        tokens.busy = true;
+        tokens.error = None;
+        cx.emit(SecurityEvent::CreateToken { description });
+        cx.notify();
+    }
+
+    fn cancel_token(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(tokens) = self.tokens.as_mut() {
+            tokens.creating = false;
+            tokens.error = None;
+        }
+        self.token_description
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        cx.notify();
+    }
+
+    fn token_action(&mut self, event: SecurityEvent, cx: &mut Context<Self>) {
+        let Some(tokens) = self.tokens.as_mut() else {
+            return;
+        };
+        if tokens.busy {
+            return;
+        }
+        tokens.busy = true;
+        tokens.error = None;
+        cx.emit(event);
+        cx.notify();
+    }
+
+    fn tokens_section(&self, tokens: &Tokens, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let muted = theme.colors.muted_foreground;
+        let note = |text: SharedString, color| {
+            div()
+                .text_size(theme.text(13.))
+                .text_color(color)
+                .child(text)
+        };
+        let created = tokens.created.clone().map(|created| {
+            let secret = created.token.clone();
+            div()
+                .flex()
+                .flex_col()
+                .gap(theme.space(2.))
+                .p(theme.space(3.))
+                .rounded(theme.radius.md)
+                .border_1()
+                .border_color(theme.colors.border)
+                .bg(theme.colors.muted)
+                .child(note(t!("security-token-copy-now"), theme.colors.foreground))
+                .child(
+                    div()
+                        .id("security.token.secret")
+                        .text_size(theme.text(13.))
+                        .font_family(theme.fonts.mono.clone())
+                        .child(secret.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(theme.space(2.))
+                        .child(
+                            Button::new("security.token.copy")
+                                .variant(ButtonVariant::Outline)
+                                .size(ButtonSize::Sm)
+                                .label(t!("security-token-copy"))
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+                                        secret.clone(),
+                                    ));
+                                }),
+                        )
+                        .child(
+                            Button::new("security.token.dismiss")
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Sm)
+                                .label(t!("security-token-copied"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if let Some(tokens) = this.tokens.as_mut() {
+                                        tokens.created = None;
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                )
+        });
+        let rows: Vec<_> = match &tokens.list {
+            None => vec![note(t!("security-loading"), muted).into_any_element()],
+            Some(list) if list.is_empty() => {
+                vec![note(t!("security-tokens-none"), muted).into_any_element()]
+            }
+            Some(list) => list
+                .iter()
+                .enumerate()
+                .map(|(index, token)| {
+                    let id = token.id.clone();
+                    let confirming = tokens.confirm_delete.as_deref() == Some(id.as_str());
+                    let element = |name: &str| {
+                        gpui_kit::ElementId::Name(format!("security.token.{name}.{id}").into())
+                    };
+                    let actions = if confirming {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(theme.space(2.))
+                            .child(
+                                Button::new(element("keep"))
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .label(t!("security-mfa-cancel"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(tokens) = this.tokens.as_mut() {
+                                            tokens.confirm_delete = None;
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new(element("confirm"))
+                                    .variant(ButtonVariant::Destructive)
+                                    .size(ButtonSize::Sm)
+                                    .label(t!("security-token-delete"))
+                                    .disabled(tokens.busy)
+                                    .on_click(cx.listener({
+                                        let id = id.clone();
+                                        move |this, _, _, cx| {
+                                            this.token_action(
+                                                SecurityEvent::DeleteToken {
+                                                    token_id: id.clone(),
+                                                },
+                                                cx,
+                                            )
+                                        }
+                                    })),
+                            )
+                    } else {
+                        let active = token.is_active;
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(theme.space(2.))
+                            .child(
+                                Button::new(element("toggle"))
+                                    .variant(ButtonVariant::Outline)
+                                    .size(ButtonSize::Sm)
+                                    .label(if active {
+                                        t!("security-mfa-turn-off")
+                                    } else {
+                                        t!("security-mfa-turn-on")
+                                    })
+                                    .disabled(tokens.busy)
+                                    .on_click(cx.listener({
+                                        let id = id.clone();
+                                        move |this, _, _, cx| {
+                                            this.token_action(
+                                                SecurityEvent::SetTokenActive {
+                                                    token_id: id.clone(),
+                                                    active: !active,
+                                                },
+                                                cx,
+                                            )
+                                        }
+                                    })),
+                            )
+                            .child(
+                                Button::new(element("delete"))
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .label(t!("security-token-delete"))
+                                    .disabled(tokens.busy)
+                                    .on_click(cx.listener({
+                                        let id = id.clone();
+                                        move |this, _, _, cx| {
+                                            if let Some(tokens) = this.tokens.as_mut() {
+                                                tokens.confirm_delete = Some(id.clone());
+                                            }
+                                            cx.notify();
+                                        }
+                                    })),
+                            )
+                    };
+                    let description: SharedString = if token.description.is_empty() {
+                        t!("security-token-untitled")
+                    } else {
+                        token.description.clone().into()
+                    };
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(theme.space(3.))
+                        .py(theme.space(2.))
+                        .when(index > 0, |row| {
+                            row.border_t_1().border_color(theme.colors.border)
+                        })
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(theme.space(2.))
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .text_size(theme.text(14.))
+                                                .truncate()
+                                                .child(description),
+                                        )
+                                        .when(!token.is_active, |line| {
+                                            line.child(
+                                                div()
+                                                    .flex_none()
+                                                    .px(theme.space(1.5))
+                                                    .rounded(theme.radius.sm)
+                                                    .border_1()
+                                                    .border_color(theme.colors.border)
+                                                    .text_size(theme.text(11.))
+                                                    .text_color(muted)
+                                                    .child(t!("security-token-off")),
+                                            )
+                                        }),
+                                )
+                                .child(div().text_size(theme.text(12.)).truncate().map(|line| {
+                                    if confirming {
+                                        line.text_color(theme.colors.destructive)
+                                            .child(t!("security-token-delete-ask"))
+                                    } else {
+                                        line.text_color(muted)
+                                            .child(t!("security-token-id", id = token.id.clone()))
+                                    }
+                                })),
+                        )
+                        .child(div().flex_none().child(actions))
+                        .into_any_element()
+                })
+                .collect(),
+        };
+        let description_typed = !self.token_description.read(cx).value().trim().is_empty();
+        let create = if tokens.creating {
+            div()
+                .flex()
+                .items_end()
+                .gap(theme.space(2.))
+                .child(
+                    div().flex_1().child(
+                        Field::new("security.token.description", &self.token_description)
+                            .label(t!("security-token-description")),
+                    ),
+                )
+                .child(
+                    Button::new("security.token.cancel")
+                        .variant(ButtonVariant::Ghost)
+                        .label(t!("security-mfa-cancel"))
+                        .on_click(cx.listener(|this, _, window, cx| this.cancel_token(window, cx))),
+                )
+                .child(
+                    Button::new("security.token.create")
+                        .variant(ButtonVariant::Default)
+                        .label(t!("security-token-create"))
+                        .disabled(tokens.busy || !description_typed)
+                        .on_click(cx.listener(|this, _, _, cx| this.create_token(cx))),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .pt(theme.space(1.))
+                .child(
+                    Button::new("security.token.new")
+                        .variant(ButtonVariant::Outline)
+                        .label(t!("security-token-new"))
+                        .on_click(cx.listener(|this, _, window, cx| this.start_token(window, cx))),
+                )
+                .into_any_element()
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(theme.space(1.))
+            .child(section_heading(t!("security-tokens"), &theme))
+            .child(note(t!("security-tokens-hint"), muted))
+            .children(created)
+            .child(div().flex().flex_col().children(rows))
+            .child(create)
+            .children(
+                tokens
+                    .error
+                    .clone()
+                    .map(|error| note(error, theme.colors.destructive)),
+            )
     }
 
     fn start_mfa(&mut self, cx: &mut Context<Self>) {
@@ -627,6 +1019,10 @@ impl Render for SecurityView {
         let theme = UiTheme::read(cx).clone();
         let password = self.password.then(|| self.password_section(cx));
         let mfa = self.mfa.clone().map(|mfa| self.mfa_section(&mfa, cx));
+        let tokens = self
+            .tokens
+            .as_ref()
+            .map(|tokens| self.tokens_section(tokens, cx));
         let sessions = self.sessions_section(cx);
         let popup = dialog_popup("security.popup", t!("security-title"), cx)
             .child(dialog_title("security.title", cx).child(t!("security-title")))
@@ -639,6 +1035,7 @@ impl Render for SecurityView {
                     .gap(theme.space(5.))
                     .children(password)
                     .children(mfa)
+                    .children(tokens)
                     .child(sessions),
             )
             .child(
@@ -688,7 +1085,7 @@ mod tests {
         let mut cx = gpui_kit::VisualTestContext::from_window(window.into(), cx);
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
-                view.open(true, Some((false, false)), window, cx);
+                view.open(true, Some((false, false)), false, window, cx);
                 view.start_mfa(cx);
                 view.set_mfa_secret(
                     Arc::new(MfaSecret {
@@ -712,9 +1109,9 @@ mod tests {
                 view.mfa_changed(Ok(false), window, cx);
                 assert!(matches!(view.mfa, Some(Mfa::Off)));
 
-                view.open(true, Some((true, true)), window, cx);
+                view.open(true, Some((true, true)), false, window, cx);
                 view.turn_off_mfa(cx);
-                view.open(false, Some((false, false)), window, cx);
+                view.open(false, Some((false, false)), false, window, cx);
                 assert!(view.mfa.is_none(), "single sign-on has no MFA here");
             })
         });
@@ -722,6 +1119,96 @@ mod tests {
             *events.borrow(),
             ["secret", "true 123456", "false "],
             "no code sends nothing, and a required MFA stays on"
+        );
+    }
+
+    /// Personal access tokens: Create sends the description, the new
+    /// secret shows once, and Delete asks before it sends.
+    #[gpui_kit::test]
+    fn access_tokens_create_once_and_delete_on_confirm(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            crate::ui::theme::init(cx);
+            crate::settings::SettingsStore::init(None, cx);
+        });
+        let window = cx.add_window(SecurityView::new);
+        let view = window.root(cx).unwrap();
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|cx| {
+            let events = events.clone();
+            cx.subscribe(&view, move |_, event: &SecurityEvent, _| {
+                events.borrow_mut().push(match event {
+                    SecurityEvent::CreateToken { description } => format!("create {description}"),
+                    SecurityEvent::SetTokenActive { token_id, active } => {
+                        format!("active {token_id} {active}")
+                    }
+                    SecurityEvent::DeleteToken { token_id } => format!("delete {token_id}"),
+                    _ => "other".to_owned(),
+                });
+            })
+            .detach();
+        });
+        let token = |id: &str, token: &str| AccessToken {
+            id: id.into(),
+            token: token.into(),
+            description: "deploy bot".into(),
+            is_active: true,
+            ..AccessToken::default()
+        };
+        let mut cx = gpui_kit::VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.open(true, None, true, window, cx);
+                view.set_tokens(
+                    Ok(crate::live::AccessTokens {
+                        created: None,
+                        tokens: Arc::from([]),
+                    }),
+                    window,
+                    cx,
+                );
+                view.start_token(window, cx);
+                view.create_token(cx);
+                view.token_description
+                    .update(cx, |input, cx| input.set_value(" deploy bot ", window, cx));
+                view.create_token(cx);
+                view.set_tokens(
+                    Ok(crate::live::AccessTokens {
+                        created: Some(Arc::new(token("t1", "secret"))),
+                        tokens: Arc::from([token("t1", "")]),
+                    }),
+                    window,
+                    cx,
+                );
+                let tokens = view.tokens.as_ref().unwrap();
+                assert_eq!(tokens.created.as_ref().unwrap().token, "secret");
+                assert!(!tokens.creating);
+                view.token_action(
+                    SecurityEvent::SetTokenActive {
+                        token_id: "t1".into(),
+                        active: false,
+                    },
+                    cx,
+                );
+                view.set_tokens(Err("No permission.".into()), window, cx);
+                assert_eq!(
+                    view.tokens.as_ref().unwrap().error.as_deref(),
+                    Some("No permission.")
+                );
+                view.token_action(
+                    SecurityEvent::DeleteToken {
+                        token_id: "t1".into(),
+                    },
+                    cx,
+                );
+
+                view.open(true, None, false, window, cx);
+                assert!(view.tokens.is_none(), "no tokens without the role");
+            })
+        });
+        assert_eq!(
+            *events.borrow(),
+            ["create deploy bot", "active t1 false", "delete t1"],
+            "an empty description sends nothing"
         );
     }
 

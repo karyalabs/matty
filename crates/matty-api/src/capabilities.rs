@@ -182,6 +182,9 @@ pub struct ServerCapabilities {
     pub mfa: bool,
     /// Every user must keep it on (`EnforceMultifactorAuthentication`).
     pub mfa_required: bool,
+    /// Users with the permission may make personal access tokens
+    /// (`EnableUserAccessTokens`).
+    pub access_tokens: bool,
     /// Profiles show when someone was last online, unless they turned
     /// sharing it off (`EnableLastActiveTime`).
     pub last_active_time: bool,
@@ -306,6 +309,7 @@ impl ServerCapabilities {
             automatic_replies: flag(config, "ExperimentalEnableAutomaticReplies"),
             mfa: flag(config, "EnableMultifactorAuthentication"),
             mfa_required: flag(config, "EnforceMultifactorAuthentication"),
+            access_tokens: flag(config, "EnableUserAccessTokens"),
             last_active_time: flag(config, "EnableLastActiveTime"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,

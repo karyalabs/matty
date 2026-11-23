@@ -367,6 +367,16 @@ pub enum ChangeSet {
     /// [`Command::SetMfa`](crate::Command::SetMfa) worked: whether
     /// multi-factor authentication is now on.
     Mfa(bool),
+    /// The user's personal access tokens, the answer to
+    /// [`Command::AccessTokens`](crate::Command::AccessTokens) and the
+    /// changes to them. `created` carries the new token's secret, which
+    /// the server shows only once.
+    AccessTokens {
+        /// The token just made, with its secret.
+        created: Option<Arc<matty_api::AccessToken>>,
+        /// All of the user's tokens, without secrets.
+        tokens: Arc<[matty_api::AccessToken]>,
+    },
     /// The team's people who are not in a channel, for Add members: the
     /// answer to [`Command::NonMembers`](crate::Command::NonMembers).
     NonMembers {

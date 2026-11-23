@@ -241,6 +241,17 @@ pub(crate) enum Write {
         activate: bool,
         code: String,
     },
+    AccessTokens,
+    CreateAccessToken {
+        description: String,
+    },
+    SetAccessTokenActive {
+        token_id: String,
+        active: bool,
+    },
+    RevokeAccessToken {
+        token_id: String,
+    },
     AddTeamMembers {
         team_id: String,
         user_ids: Vec<String>,
@@ -384,6 +395,11 @@ impl Write {
             Self::Mfa {
                 activate: false, ..
             } => "turn off multi-factor authentication",
+            Self::AccessTokens => "list your access tokens",
+            Self::CreateAccessToken { .. } => "create an access token",
+            Self::SetAccessTokenActive { active: true, .. } => "turn on an access token",
+            Self::SetAccessTokenActive { active: false, .. } => "turn off an access token",
+            Self::RevokeAccessToken { .. } => "delete an access token",
             Self::AddTeamMembers { .. } => "add people to the team",
             Self::InviteByEmail { .. } => "send email invites",
             Self::Preferences(_) => "save preferences",
@@ -427,7 +443,12 @@ impl Write {
             | Self::Sessions
             | Self::Password(_)
             | Self::MfaSecret
-            | Self::Mfa { .. } => user_id.to_owned(),
+            | Self::Mfa { .. }
+            | Self::AccessTokens
+            | Self::CreateAccessToken { .. } => user_id.to_owned(),
+            Self::SetAccessTokenActive { token_id, .. } | Self::RevokeAccessToken { token_id } => {
+                token_id.clone()
+            }
             Self::RevokeSession { session_id } => session_id.clone(),
             Self::AddEmoji { name, .. } => name.clone(),
             Self::DeleteEmoji { emoji_id } => emoji_id.clone(),
@@ -1275,6 +1296,31 @@ pub(crate) async fn run(
             Write::Mfa { activate, code } => {
                 client.set_mfa(&user_id, activate, &code).await?;
                 Some(Loaded::Mfa(client.me().await?))
+            }
+            Write::AccessTokens => Some(Loaded::AccessTokens {
+                created: None,
+                tokens: client.access_tokens(&user_id).await?,
+            }),
+            Write::CreateAccessToken { description } => {
+                let created = client.create_access_token(&user_id, &description).await?;
+                Some(Loaded::AccessTokens {
+                    created: Some(created),
+                    tokens: client.access_tokens(&user_id).await?,
+                })
+            }
+            Write::SetAccessTokenActive { token_id, active } => {
+                client.set_access_token_active(&token_id, active).await?;
+                Some(Loaded::AccessTokens {
+                    created: None,
+                    tokens: client.access_tokens(&user_id).await?,
+                })
+            }
+            Write::RevokeAccessToken { token_id } => {
+                client.revoke_access_token(&token_id).await?;
+                Some(Loaded::AccessTokens {
+                    created: None,
+                    tokens: client.access_tokens(&user_id).await?,
+                })
             }
             Write::AddTeamMembers { team_id, user_ids } => {
                 for id in &user_ids {

@@ -242,6 +242,14 @@ pub struct Details {
     pub apps: crate::apps::ChannelApps,
 }
 
+/// The user's personal access tokens, for Security.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccessTokens {
+    /// The token just made, with the secret the server shows only once.
+    pub created: Option<std::sync::Arc<matty_api::AccessToken>>,
+    pub tokens: std::sync::Arc<[matty_api::AccessToken]>,
+}
+
 /// What a change set means for the window.
 #[derive(Debug, Default, PartialEq)]
 pub struct Update {
@@ -279,6 +287,9 @@ pub struct Update {
     /// How a multi-factor step went: whether it is on now, or the
     /// server's reason.
     pub mfa: Option<Result<bool, SharedString>>,
+    /// The user's personal access tokens with the one just created, or
+    /// why the server refused a change to them.
+    pub access_tokens: Option<Result<AccessTokens, SharedString>>,
     /// Something the server or an App refused, for a toast (#226).
     pub refused: Option<SharedString>,
     /// A link an App answered with, for Matty's link routing (#226).
@@ -2969,6 +2980,27 @@ impl Live {
             ChangeSet::PasswordChanged => update.password_changed = Some(Ok(())),
             ChangeSet::MfaSecret(secret) => update.mfa_secret = Some(secret.clone()),
             ChangeSet::Mfa(on) => update.mfa = Some(Ok(*on)),
+            ChangeSet::AccessTokens { created, tokens } => {
+                update.access_tokens = Some(Ok(AccessTokens {
+                    created: created.clone(),
+                    tokens: tokens.clone(),
+                }));
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
+                action:
+                    "list your access tokens"
+                    | "create an access token"
+                    | "turn on an access token"
+                    | "turn off an access token"
+                    | "delete an access token",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.access_tokens = Some(Err(said.to_owned().into()));
+            }
             ChangeSet::Failed(matty_sync::CommandError::Server {
                 action:
                     "set up multi-factor authentication"

@@ -569,6 +569,22 @@ impl MainWindow {
                         }
                     }
                     crate::security::SecurityEvent::MfaSecret => matty_sync::Command::MfaSecret,
+                    crate::security::SecurityEvent::CreateToken { description } => {
+                        matty_sync::Command::CreateAccessToken {
+                            description: description.clone(),
+                        }
+                    }
+                    crate::security::SecurityEvent::SetTokenActive { token_id, active } => {
+                        matty_sync::Command::SetAccessTokenActive {
+                            token_id: token_id.clone(),
+                            active: *active,
+                        }
+                    }
+                    crate::security::SecurityEvent::DeleteToken { token_id } => {
+                        matty_sync::Command::RevokeAccessToken {
+                            token_id: token_id.clone(),
+                        }
+                    }
                     crate::security::SecurityEvent::SetMfa { activate, code } => {
                         matty_sync::Command::SetMfa {
                             activate: *activate,
@@ -2183,6 +2199,10 @@ impl MainWindow {
         if let Some(result) = update.mfa.take() {
             self.security
                 .update(cx, |view, cx| view.mfa_changed(result, window, cx));
+        }
+        if let Some(result) = update.access_tokens.take() {
+            self.security
+                .update(cx, |view, cx| view.set_tokens(result, window, cx));
         }
         if let Some(team) = update.team_joined.take() {
             self.joining = Some(team);
@@ -4755,10 +4775,20 @@ impl MainWindow {
                 features.mfa_required,
             )
         });
+        // Mattermost grants making tokens with a role an admin gives.
+        let tokens = features.access_tokens
+            && me.is_some_and(|user| {
+                user.roles
+                    .split_whitespace()
+                    .any(|role| matches!(role, "system_admin" | "system_user_access_token"))
+            });
         self.security
-            .update(cx, |view, cx| view.open(password, mfa, window, cx));
+            .update(cx, |view, cx| view.open(password, mfa, tokens, window, cx));
         if let Some(live) = &self.live {
             live.send(matty_sync::Command::Sessions);
+            if tokens {
+                live.send(matty_sync::Command::AccessTokens);
+            }
         }
     }
 

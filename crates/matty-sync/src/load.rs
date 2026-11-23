@@ -235,6 +235,12 @@ pub(crate) enum Loaded {
     MfaSecret(matty_api::MfaSecret),
     /// The signed-in user after multi-factor authentication changed.
     Mfa(matty_api::models::User),
+    /// The user's personal access tokens, after the one just `created`
+    /// when there is one.
+    AccessTokens {
+        created: Option<matty_api::AccessToken>,
+        tokens: Vec<matty_api::AccessToken>,
+    },
     /// A team's people who are not in a channel.
     NonMembers {
         channel_id: String,

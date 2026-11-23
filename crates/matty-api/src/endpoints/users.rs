@@ -199,6 +199,53 @@ impl Client {
         .map(|_| ())
     }
 
+    /// `GET users/{user_id}/tokens`: the user's personal access tokens,
+    /// without their secrets.
+    pub async fn access_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, ApiError> {
+        self.get(&format!("users/{user_id}/tokens?page=0&per_page=200"))
+            .await
+    }
+
+    /// `POST users/{user_id}/tokens`: a new personal access token. The
+    /// answer is the only time the server shows its secret.
+    pub async fn create_access_token(
+        &self,
+        user_id: &str,
+        description: &str,
+    ) -> Result<AccessToken, ApiError> {
+        self.post(
+            &format!("users/{user_id}/tokens"),
+            &serde_json::json!({ "description": description }),
+        )
+        .await
+    }
+
+    /// `POST users/tokens/enable` or `users/tokens/disable`.
+    pub async fn set_access_token_active(
+        &self,
+        token_id: &str,
+        active: bool,
+    ) -> Result<(), ApiError> {
+        let path = if active {
+            "users/tokens/enable"
+        } else {
+            "users/tokens/disable"
+        };
+        self.post::<_, Value>(path, &serde_json::json!({ "token_id": token_id }))
+            .await
+            .map(|_| ())
+    }
+
+    /// `POST users/tokens/revoke`: deletes a personal access token.
+    pub async fn revoke_access_token(&self, token_id: &str) -> Result<(), ApiError> {
+        self.post::<_, Value>(
+            "users/tokens/revoke",
+            &serde_json::json!({ "token_id": token_id }),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// `POST users/{user_id}/sessions/revoke`.
     pub async fn revoke_session(&self, user_id: &str, session_id: &str) -> Result<(), ApiError> {
         self.post::<_, Value>(
@@ -207,6 +254,32 @@ impl Client {
         )
         .await
         .map(|_| ())
+    }
+}
+
+/// A personal access token, from `users/{user_id}/tokens`.
+#[derive(Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct AccessToken {
+    /// The token's id, which is not a secret.
+    pub id: String,
+    /// The secret itself: only in the answer that created it.
+    pub token: String,
+    /// Whose it is.
+    pub user_id: String,
+    /// What it is for, in the owner's words.
+    pub description: String,
+    /// Off tokens stay listed but sign nothing in.
+    pub is_active: bool,
+}
+
+impl std::fmt::Debug for AccessToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccessToken")
+            .field("id", &self.id)
+            .field("description", &self.description)
+            .field("is_active", &self.is_active)
+            .finish_non_exhaustive()
     }
 }
 

@@ -741,6 +741,27 @@ pub enum Command {
         /// A code from the app; empty to turn it off.
         code: String,
     },
+    /// The user's personal access tokens;
+    /// [`ChangeSet::AccessTokens`](crate::ChangeSet::AccessTokens) answers.
+    AccessTokens,
+    /// Makes a personal access token; its secret comes back once in
+    /// [`ChangeSet::AccessTokens`](crate::ChangeSet::AccessTokens).
+    CreateAccessToken {
+        /// What it is for.
+        description: String,
+    },
+    /// Turns a personal access token on or off.
+    SetAccessTokenActive {
+        /// The token's id, not its secret.
+        token_id: String,
+        /// On or off.
+        active: bool,
+    },
+    /// Deletes a personal access token.
+    RevokeAccessToken {
+        /// The token's id, not its secret.
+        token_id: String,
+    },
     /// Adds people already on the server to a team (#962).
     AddTeamMembers {
         /// The team.
@@ -1333,6 +1354,17 @@ impl std::fmt::Debug for Command {
             Self::ChangePassword { .. } => f.write_str("ChangePassword"),
             Self::MfaSecret => f.write_str("MfaSecret"),
             Self::SetMfa { activate, .. } => write!(f, "SetMfa({activate})"),
+            Self::AccessTokens => f.write_str("AccessTokens"),
+            Self::CreateAccessToken { .. } => f.write_str("CreateAccessToken"),
+            Self::SetAccessTokenActive { token_id, active } => f
+                .debug_struct("SetAccessTokenActive")
+                .field("token_id", token_id)
+                .field("active", active)
+                .finish(),
+            Self::RevokeAccessToken { token_id } => f
+                .debug_struct("RevokeAccessToken")
+                .field("token_id", token_id)
+                .finish(),
             Self::AddTeamMembers { team_id, user_ids } => f
                 .debug_struct("AddTeamMembers")
                 .field("team_id", team_id)
@@ -2542,6 +2574,16 @@ impl Engine {
                 Message::Command(Command::MfaSecret) => writes.push(Write::MfaSecret),
                 Message::Command(Command::SetMfa { activate, code }) => {
                     writes.push(Write::Mfa { activate, code });
+                }
+                Message::Command(Command::AccessTokens) => writes.push(Write::AccessTokens),
+                Message::Command(Command::CreateAccessToken { description }) => {
+                    writes.push(Write::CreateAccessToken { description });
+                }
+                Message::Command(Command::SetAccessTokenActive { token_id, active }) => {
+                    writes.push(Write::SetAccessTokenActive { token_id, active });
+                }
+                Message::Command(Command::RevokeAccessToken { token_id }) => {
+                    writes.push(Write::RevokeAccessToken { token_id });
                 }
                 Message::Command(Command::AddTeamMembers { team_id, user_ids }) => {
                     writes.push(Write::AddTeamMembers { team_id, user_ids });
@@ -4233,6 +4275,12 @@ impl Engine {
                 sidebar::upsert_users(self.store.conn(), std::slice::from_ref(&me))?;
                 dirty.direct.push(ChangeSet::Users(Arc::from(vec![me])));
                 dirty.direct.push(ChangeSet::Mfa(active));
+            }
+            Loaded::AccessTokens { created, tokens } => {
+                dirty.direct.push(ChangeSet::AccessTokens {
+                    created: created.map(Arc::new),
+                    tokens: Arc::from(tokens),
+                });
             }
             Loaded::NonMembers { channel_id, users } => {
                 sidebar::upsert_users(self.store.conn(), &users)?;
