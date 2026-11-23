@@ -3946,8 +3946,18 @@ impl Engine {
                 channel_id,
                 posts: list,
             } => {
-                let tx = self.store.write()?;
+                // Posts stored before this page that do not reach it, such
+                // as a thread's root fetched from Threads, would show right
+                // above it as if nothing came between (#1015). The latest
+                // snapshot leaves them out until an older page reaches them.
+                let joins = list.prev_post_id.is_empty()
+                    || posts::post(self.store.conn(), &list.prev_post_id)?.is_some();
                 let fetched: Vec<_> = list.posts.into_values().collect();
+                if !joins && let Some(oldest) = fetched.iter().map(|p| p.create_at).min() {
+                    let floor = self.floors.entry(channel_id.clone()).or_insert(oldest - 1);
+                    *floor = (*floor).max(oldest - 1);
+                }
+                let tx = self.store.write()?;
                 posts::insert_posts(&tx, &fetched)?;
                 tx.commit()?;
                 // A prefetched channel (Command::Prefetch) is not open yet:

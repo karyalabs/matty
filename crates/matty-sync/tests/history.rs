@@ -401,3 +401,30 @@ async fn a_long_read_back_keeps_a_bounded_window() {
     let requests = server.received_requests().await.unwrap();
     assert_eq!(pages_asked(&requests, "before"), asked_older);
 }
+
+/// A thread's root stored from Threads, then its channel opened: the root
+/// does not reach the opened page, so it waits for older pages rather than
+/// show above a gap (#1015).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stored_post_that_does_not_reach_the_opened_page_stays_out() {
+    let server = long_channel().await;
+    let mut store = Store::open_in_memory().unwrap();
+    let root: matty_api::models::Post = serde_json::from_value(post("p3", 30)).unwrap();
+    let tx = store.write().unwrap();
+    matty_store::posts::insert_posts(&tx, &[root]).unwrap();
+    tx.commit().unwrap();
+    let sync = matty_sync::spawn(store).unwrap();
+    let changes = sync.subscribe();
+    sync.send(Command::OpenChannel {
+        channel_id: "c1".into(),
+    });
+    sync.send(Command::Connect {
+        client: Client::new(server.uri()).unwrap().with_token("token"),
+    });
+    let shown = next(
+        &changes,
+        |c| matches!(c, ChangeSet::Posts { posts, .. } if posts.iter().any(|p| p.id == "p9")),
+    )
+    .await;
+    assert_eq!(ids(&shown), ["p8", "p9"]);
+}

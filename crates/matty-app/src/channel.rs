@@ -2163,7 +2163,34 @@ impl ChannelView {
             self.unseen += arrived;
         }
         self.apply_pending_jump(cx);
+        self.keep_permalink(cx);
         cx.notify();
+    }
+
+    /// The post a jump just marked stays where the jump put it while the
+    /// channel's first page lands (#1015): a channel whose store held only
+    /// a thread's root jumps there at once, then its latest page would pull
+    /// the list down to the newest post, or sync leaves the root out as it
+    /// is not next to that page, and the jump asks for the posts around it.
+    fn keep_permalink(&mut self, cx: &mut Context<Self>) {
+        let Some(post) = self.permalink.clone() else {
+            return;
+        };
+        let row = self.rows.iter().position(|row| {
+            matches!(row, Row::Post(index)
+                if self.model.as_ref().is_some_and(|m| m.posts[*index].id == post))
+        });
+        match row {
+            Some(row) => {
+                self.list
+                    .update(cx, |list, cx| list.scroll_to_item(row, cx));
+            }
+            None if self.pending_jump.is_none() => {
+                self.permalink = None;
+                self.jump_to(post, cx);
+            }
+            None => {}
+        }
     }
 
     /// Puts an older page above the loaded posts, keeping the reader's place:
