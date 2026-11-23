@@ -406,6 +406,10 @@ pub struct Settings {
     /// `advanced_settings/formatting`. Off, they show as typed.
     #[serde(default = "yes")]
     pub formatting: bool,
+    /// Emoticons such as `:)` show as emoji: the account's
+    /// `display_settings/render_emoticons_as_emoji`.
+    #[serde(default = "yes")]
+    pub emoticons: bool,
     /// Drafts sync to the server and the user's other devices: the
     /// account's `advanced_settings/sync_drafts`.
     #[serde(default = "yes")]
@@ -492,6 +496,7 @@ impl Default for Settings {
             click_to_reply: true,
             centered: false,
             formatting: true,
+            emoticons: true,
             sync_drafts: true,
             visible_dms: 20,
             preview_choices: Vec::new(),

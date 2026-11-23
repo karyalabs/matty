@@ -19,4 +19,6 @@ pub use flavor::{close_fences_with_trailing_text, hard_line_breaks, mattermost_s
 pub use html::to_html;
 pub use parse::{MAX_DEPTH, parse, parse_with};
 pub use plain::to_plain;
-pub use source::{link_entities_and_emoji_in_source, link_entities_in_source};
+pub use source::{
+    emoticons_as_emoji_codes, link_entities_and_emoji_in_source, link_entities_in_source,
+};

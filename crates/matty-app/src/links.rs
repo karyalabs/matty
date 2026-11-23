@@ -186,6 +186,8 @@ pub fn message_body(
 ) -> ShowMore {
     let id = id.into();
     let source = cached_source(body, cx);
+    let emoticons = crate::settings::SettingsStore::try_global(cx)
+        .is_none_or(|store| store.read(cx).get().emoticons);
     let mut view = markdown_from_source(
         id.clone(),
         source,
@@ -197,7 +199,12 @@ pub fn message_body(
     );
     // As in Mattermost, a message of nothing but emoji shows them large.
     let custom = cx.try_global::<crate::emoji::CustomEmoji>();
-    if only_emoji(body, &|name| {
+    let body = if emoticons {
+        matty_markdown::emoticons_as_emoji_codes(body)
+    } else {
+        body.to_string()
+    };
+    if only_emoji(&body, &|name| {
         crate::emoji::lookup(name).is_some() || custom.is_some_and(|known| known.contains(name))
     }) {
         view = view.text_size(UiTheme::read(cx).text(30.));
@@ -260,6 +267,8 @@ struct SourceCache {
     emoji: (usize, u64),
     /// Whether the sources were made with Markdown on.
     formatting: bool,
+    /// Whether the sources were made with emoticons as emoji.
+    emoticons: bool,
     sources: std::collections::HashMap<SharedString, SharedString>,
 }
 
@@ -274,15 +283,20 @@ thread_local! {
 fn cached_source(body: &SharedString, cx: &App) -> SharedString {
     let custom = cx.try_global::<crate::emoji::CustomEmoji>();
     let emoji = custom.map_or((0, 0), crate::emoji::CustomEmoji::identity);
-    let formatting = crate::settings::SettingsStore::try_global(cx)
-        .is_none_or(|store| store.read(cx).get().formatting);
+    let (formatting, emoticons) =
+        crate::settings::SettingsStore::try_global(cx).map_or((true, true), |store| {
+            let settings = store.read(cx).get();
+            (settings.formatting, settings.emoticons)
+        });
     SOURCES.with_borrow_mut(|cache| {
         if cache.emoji != emoji
             || cache.formatting != formatting
+            || cache.emoticons != emoticons
             || cache.sources.len() >= SOURCE_CACHE_LIMIT
         {
             cache.emoji = emoji;
             cache.formatting = formatting;
+            cache.emoticons = emoticons;
             cache.sources.clear();
         }
         if let Some(source) = cache.sources.get(body) {
@@ -290,7 +304,7 @@ fn cached_source(body: &SharedString, cx: &App) -> SharedString {
         }
         let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
         let source: SharedString = if formatting {
-            body_source(body, &is_custom)
+            body_source(body, emoticons, &is_custom)
         } else {
             plain_source(body)
         }
@@ -317,7 +331,9 @@ pub fn markdown_body(
 ) -> MarkdownView {
     let custom = cx.try_global::<crate::emoji::CustomEmoji>();
     let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
-    let source = body_source(body, &is_custom).into();
+    let emoticons = crate::settings::SettingsStore::try_global(cx)
+        .is_none_or(|store| store.read(cx).get().emoticons);
+    let source = body_source(body, emoticons, &is_custom).into();
     markdown_from_source(
         id,
         source,
@@ -425,9 +441,14 @@ fn with_message_plugins(
 /// `**` with spaces just inside still makes bold. Other
 /// clients send emoji as `:name:` text (#677): system ones become their
 /// glyph, the custom ones `is_custom` knows an image, and unknown names
-/// stay text.
-fn body_source(body: &str, is_custom: &dyn Fn(&str) -> bool) -> String {
+/// stay text. With `emoticons`, `:)` and the like show as emoji too.
+fn body_source(body: &str, emoticons: bool, is_custom: &dyn Fn(&str) -> bool) -> String {
     let body = matty_markdown::close_fences_with_trailing_text(body);
+    let body = if emoticons {
+        matty_markdown::emoticons_as_emoji_codes(&body)
+    } else {
+        body
+    };
     let body = matty_markdown::mattermost_strong(&body);
     let linked = matty_markdown::link_entities_and_emoji_in_source(
         &body,
@@ -780,6 +801,7 @@ mod tests {
         assert_eq!(
             body_source(
                 ":clown_face: :+1_medium_skin_tone: :thumbsup: :partyparrot: :nope:",
+                true,
                 &custom
             ),
             "🤡 👍🏽 👍 ![:partyparrot:](emoji:partyparrot) :nope:"
@@ -787,9 +809,18 @@ mod tests {
     }
 
     #[test]
+    fn emoticons_show_as_emoji_unless_turned_off() {
+        assert_eq!(
+            body_source("nice :) <3 `:)`", true, &|_| false),
+            "nice 🙂 ❤️ `:)`"
+        );
+        assert_eq!(body_source("nice :) <3", false, &|_| false), "nice :) <3");
+    }
+
+    #[test]
     fn bold_closed_on_the_next_line_is_bold() {
         assert_eq!(
-            body_source("**Release notes\n** 1. Faster search", &|_| false),
+            body_source("**Release notes\n** 1. Faster search", true, &|_| false),
             "**Release notes**\\\n 1\\. Faster search"
         );
         assert_eq!(

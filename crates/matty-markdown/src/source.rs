@@ -80,6 +80,93 @@ pub fn link_entities_and_emoji_in_source(
     out
 }
 
+/// Mattermost's emoticons and the emoji each one shows as, longest first
+/// where one starts another. Letters match in either case.
+const EMOTICONS: &[(&str, &str)] = &[
+    (":-)", "slightly_smiling_face"),
+    (":)", "slightly_smiling_face"),
+    (";-)", "wink"),
+    (";)", "wink"),
+    (":-o", "scream"),
+    (":o", "open_mouth"),
+    (":-]", "smirk"),
+    (":]", "smirk"),
+    (":-d", "smile"),
+    (":d", "smile"),
+    ("x-d", "stuck_out_tongue_closed_eyes"),
+    (":-p", "stuck_out_tongue"),
+    (":p", "stuck_out_tongue"),
+    (":-[", "rage"),
+    (":[", "rage"),
+    (":-@", "rage"),
+    (":@", "rage"),
+    (":`-(", "cry"),
+    (":'-(", "cry"),
+    (":\u{2019}-(", "cry"),
+    (":`(", "cry"),
+    (":'(", "cry"),
+    (":\u{2019}(", "cry"),
+    (":-(", "slightly_frowning_face"),
+    (":(", "slightly_frowning_face"),
+    (":-/", "confused"),
+    (":/", "confused"),
+    (":-s", "confounded"),
+    (":s", "confounded"),
+    (":-|", "neutral_face"),
+    (":|", "neutral_face"),
+    (":-$", "flushed"),
+    (":$", "flushed"),
+    (":-x", "mask"),
+    ("</3", "broken_heart"),
+    ("<3", "heart"),
+];
+
+/// `text` with its emoticons, such as `:)` and `<3`, written as the
+/// `:name:` codes of the emoji Mattermost shows for them. As there, one
+/// counts only between non-word characters, and code, links and URLs are
+/// left alone.
+pub fn emoticons_as_emoji_codes(text: &str) -> String {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    for run in text_runs(text) {
+        let run_text = &text[run.clone()];
+        let urls = link_spans(run_text);
+        let mut at = 0;
+        while at < run_text.len() {
+            let rest = &run_text[at..];
+            let after_word = run_text[..at].chars().next_back().is_some_and(word);
+            let found = (!after_word)
+                .then(|| {
+                    EMOTICONS.iter().find(|(emoticon, _)| {
+                        rest.get(..emoticon.len())
+                            .is_some_and(|head| head.eq_ignore_ascii_case(emoticon))
+                            && !rest[emoticon.len()..].chars().next().is_some_and(word)
+                    })
+                })
+                .flatten()
+                .filter(|(emoticon, _)| {
+                    let end = at + emoticon.len();
+                    !urls.iter().any(|url| at < url.end && url.start < end)
+                });
+            match found {
+                Some((emoticon, name)) => {
+                    let start = run.start + at;
+                    out.push_str(&text[copied..start]);
+                    out.push(':');
+                    out.push_str(name);
+                    out.push(':');
+                    at += emoticon.len();
+                    copied = run.start + at;
+                }
+                None => at += rest.chars().next().map_or(1, char::len_utf8),
+            }
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
 /// The source ranges of plain text outside code, links and images, where
 /// the source reads exactly as the text (no escapes or character
 /// references), joining adjacent text events.
@@ -127,6 +214,27 @@ fn text_runs(text: &str) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emoticons_become_emoji_codes_between_words_only() {
+        assert_eq!(
+            emoticons_as_emoji_codes("hi :) ok :-D ;) <3 </3 :'( X-D :P"),
+            "hi :slightly_smiling_face: ok :smile: :wink: :heart: :broken_heart: :cry: \
+             :stuck_out_tongue_closed_eyes: :stuck_out_tongue:"
+        );
+        assert_eq!(
+            emoticons_as_emoji_codes("(nice :))"),
+            "(nice :slightly_smiling_face:)"
+        );
+        for text in [
+            "a:) :pizza: :ok_hand: :Dx",
+            "C:/path and https://example.com/a:)b",
+            "`:)` and\n```\n:(\n```",
+            "[:)](https://example.com)",
+        ] {
+            assert_eq!(emoticons_as_emoji_codes(text), text);
+        }
+    }
 
     fn rewrite(text: &str) -> String {
         link_entities_in_source(text, &|name| name == "tada")

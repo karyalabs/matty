@@ -548,6 +548,9 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, ADVANCED, "formatting") {
         settings.formatting = value != "false";
     }
+    if let Some(value) = find(preferences, DISPLAY, "render_emoticons_as_emoji") {
+        settings.emoticons = value != "false";
+    }
     if let Some(value) = find(preferences, ADVANCED, "sync_drafts") {
         settings.sync_drafts = value != "false";
     }
@@ -672,6 +675,15 @@ pub(crate) fn formatting_preference(on: bool) -> Vec<Preference> {
     vec![preference(
         ADVANCED,
         "formatting",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for showing emoticons as emoji.
+pub(crate) fn emoticons_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "render_emoticons_as_emoji",
         if on { "true" } else { "false" },
     )]
 }
@@ -1434,6 +1446,22 @@ impl MainWindow {
                     .ok();
                 }
             });
+        let emoticons = Switch::new("preferences.emoticons.switch")
+            .checked(settings.emoticons)
+            .aria_label(t!("prefs-emoticons"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.emoticons = next,
+                            |s| emoticons_preference(s.emoticons),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let click_to_reply = Switch::new("preferences.click-to-reply.switch")
             .checked(settings.click_to_reply)
             .aria_label(t!("prefs-click-to-reply"))
@@ -1624,6 +1652,11 @@ impl MainWindow {
                 Row::new("preferences.formatting", t!("prefs-formatting"))
                     .description(t!("prefs-formatting-detail"))
                     .control(formatting),
+            )
+            .row(
+                Row::new("preferences.emoticons", t!("prefs-emoticons"))
+                    .description(t!("prefs-emoticons-detail"))
+                    .control(emoticons),
             )
             .row(
                 Row::new("preferences.click-to-reply", t!("prefs-click-to-reply"))
