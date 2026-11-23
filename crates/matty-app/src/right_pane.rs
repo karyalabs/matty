@@ -1305,6 +1305,26 @@ impl RightPaneView {
         if self.run_slash(&text, window, cx) {
             return;
         }
+        // `+:name:` reacts to the thread's latest message, as in Mattermost.
+        if let Some((add, emoji)) = crate::channel::reaction_shortcut(&text, cx)
+            && let Some(RightPaneContent::Thread(thread)) = &self.content
+            && let Some(post) = crate::channel::latest_reactable(
+                std::iter::once(&thread.root).chain(thread.replies.iter()),
+            )
+        {
+            let id = post.id.clone();
+            if add != crate::channel::has_my_reaction(post, &emoji) {
+                self.toggle_reaction(id, emoji, cx);
+            }
+            self._draft_task = None;
+            if let Some(cleared) = self.draft.sent(cx) {
+                cx.emit(RightPaneEvent::SaveDraft(cleared));
+            }
+            self.composer
+                .update(cx, |composer, cx| composer.set_value("", window, cx));
+            self.draft_len = 0;
+            return;
+        }
         let body: SharedString = text.trim().to_string().into();
         if self.thread_mut().is_none() {
             return;

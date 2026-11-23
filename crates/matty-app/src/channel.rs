@@ -428,6 +428,48 @@ pub enum PostKind {
     Unsupported(SharedString),
 }
 
+/// A `+:name:` or `-:name:` message: as in Mattermost, it adds or takes
+/// off that reaction on the latest message instead of being sent. Gives
+/// whether to add, and the emoji as a reaction holds it; `None` for any
+/// other text or an emoji the server does not know.
+pub(crate) fn reaction_shortcut(text: &str, cx: &App) -> Option<(bool, SharedString)> {
+    let text = text.trim_end();
+    let (add, rest) = match text.split_at_checked(1)? {
+        ("+", rest) => (true, rest),
+        ("-", rest) => (false, rest),
+        _ => return None,
+    };
+    let name = rest.strip_prefix(':')?.strip_suffix(':')?;
+    if name.is_empty() || name.contains([':', ' ', '\t', '\n']) {
+        return None;
+    }
+    let emoji = match crate::emoji::glyph(name) {
+        Some(glyph) => glyph,
+        None => {
+            let custom = cx.try_global::<crate::emoji::CustomEmoji>()?;
+            custom.contains(name).then(|| format!(":{name}:").into())?
+        }
+    };
+    Some((add, emoji))
+}
+
+/// The newest post a reaction shortcut reacts to: sent, and not a
+/// system message.
+pub(crate) fn latest_reactable<'a>(
+    posts: impl DoubleEndedIterator<Item = &'a Post>,
+) -> Option<&'a Post> {
+    posts.rev().find(|post| {
+        post.status == PostStatus::Sent && !matches!(post.kind, PostKind::System { .. })
+    })
+}
+
+/// Whether the user already reacted to `post` with `emoji`.
+pub(crate) fn has_my_reaction(post: &Post, emoji: &str) -> bool {
+    post.reactions
+        .iter()
+        .any(|reaction| reaction.emoji == emoji && reaction.mine)
+}
+
 /// One post, already formatted for display: sync does the time zone and
 /// Markdown rewriting, the view only draws.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3286,6 +3328,22 @@ impl ChannelView {
         crate::composer_history::record(&text, cx);
         self.sent.reset();
         if self.run_slash(&text, window, cx) {
+            return;
+        }
+        if let Some((add, emoji)) = reaction_shortcut(&text, cx)
+            && let Some(post) = latest_reactable(self.model.iter().flat_map(|m| m.posts.iter()))
+        {
+            let id = post.id.clone();
+            if add != has_my_reaction(post, &emoji) {
+                self.toggle_reaction(id, emoji, cx);
+            }
+            self._draft_task = None;
+            if let Some(cleared) = self.draft.sent(cx) {
+                cx.emit(ChannelEvent::SaveDraft(cleared));
+            }
+            self.composer
+                .update(cx, |composer, cx| composer.set_value("", window, cx));
+            self.draft_len = 0;
             return;
         }
         if self.asks_channel_wide(&text, cx) {
@@ -7187,6 +7245,87 @@ mod tests {
                 emoji: "👍".into(),
             }]
         );
+    }
+
+    /// `+:name:` reacts to the latest message and `-:name:` takes the
+    /// reaction off, as in Mattermost; an unknown emoji is sent as text.
+    #[gpui_kit::test]
+    fn a_plus_emoji_message_reacts_to_the_latest_message(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            crate::ui::theme::init(cx);
+            crate::settings::SettingsStore::init(None, cx);
+        });
+        let model = ChannelModel {
+            purpose: None,
+            person: None,
+            offline: false,
+            archived: false,
+            deactivated: false,
+            loading: false,
+            max_post_size: DEFAULT_MAX_POST_SIZE,
+            profiles: vec![],
+            typing: vec![],
+            notifications: ChannelNotifications::default(),
+            id: "c".into(),
+            name: "c".into(),
+            kind: ChannelKind::Public,
+            header: None,
+            members: 1,
+            pinned: 0,
+            favorite: false,
+            muted: false,
+            posts: vec![
+                post("p1", "Today"),
+                Post {
+                    kind: PostKind::System { activity: true },
+                    ..post("p2", "Today")
+                },
+            ],
+            first_unread: None,
+            rights: crate::channel::ChannelRights::default(),
+            delete_others: false,
+            admins: Vec::new(),
+        };
+        let window = cx.add_window(|window, cx| ChannelView::new(Some(model), "me", window, cx));
+        let view = window.root(cx).unwrap();
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|cx| {
+            let events = events.clone();
+            cx.subscribe(&view, move |_, event: &ChannelEvent, _| {
+                if matches!(
+                    event,
+                    ChannelEvent::ToggleReaction { .. } | ChannelEvent::Send { .. }
+                ) {
+                    events.borrow_mut().push(event.clone());
+                }
+            })
+            .detach();
+        });
+        let mut cx = gpui_kit::VisualTestContext::from_window(window.into(), cx);
+        let toggled = ChannelEvent::ToggleReaction {
+            post: "p1".into(),
+            emoji: "👍".into(),
+        };
+
+        for text in ["+:thumbsup:", "+:+1: ", "-:+1:", "-:thumbsup:"] {
+            cx.update(|window, cx| view.update(cx, |view, cx| view.send(text.into(), window, cx)));
+        }
+        assert_eq!(*events.borrow(), [toggled.clone(), toggled]);
+        cx.update(|_, cx| {
+            assert!(view.read(cx).shown_post("p1").unwrap().reactions.is_empty());
+            assert_eq!(view.read(cx).composer.read(cx).value(cx), "");
+        });
+
+        events.borrow_mut().clear();
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.send("+:not_an_emoji:".into(), window, cx)
+            })
+        });
+        assert!(matches!(
+            events.borrow().as_slice(),
+            [ChannelEvent::Send { text, .. }] if text == "+:not_an_emoji:"
+        ));
     }
 
     #[test]
