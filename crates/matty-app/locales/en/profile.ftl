@@ -1,6 +1,7 @@
 ## Profile card and editor (profile.rs, profile_editor.rs)
 
 profile-local-time = { $time } local time
+profile-email-send = Email { $email }
 profile-message = Message
 profile-mention = Mention
 # The profile card's accessible name.

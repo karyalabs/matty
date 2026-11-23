@@ -2289,6 +2289,7 @@ impl Live {
             status: crate::custom_status::StatusLine::of(user),
             time_zone: crate::profile::time_zone(&user.timezone),
             tag: crate::profile::AuthorTag::of(user),
+            email: (!user.email.is_empty()).then(|| user.email.clone().into()),
         }
     }
 

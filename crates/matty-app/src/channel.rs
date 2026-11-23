@@ -6602,6 +6602,7 @@ mod tests {
             status: None,
             time_zone: None,
             tag: None,
+            email: None,
         };
         let shown = |format, query: &str| {
             people_suggestions(std::iter::once(&profile(format)), query, 8)
@@ -6758,6 +6759,7 @@ mod tests {
             status: None,
             time_zone: None,
             tag: None,
+            email: None,
         };
         let model = ChannelModel {
             purpose: None,

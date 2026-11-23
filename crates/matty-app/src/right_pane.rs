@@ -4810,6 +4810,7 @@ mod tests {
                         status: None,
                         time_zone: None,
                         tag: None,
+                        email: None,
                     }],
                     cx,
                 );

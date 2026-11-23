@@ -36,6 +36,8 @@ pub struct UserProfile {
     pub time_zone: Option<SharedString>,
     /// BOT or GUEST beside the name, as in Mattermost (#992).
     pub tag: Option<AuthorTag>,
+    /// The email address, when the server shares it (#1012).
+    pub email: Option<SharedString>,
 }
 
 /// The kind of account a name belongs to, when it is not a member's.
@@ -311,6 +313,22 @@ fn details(profile: &UserProfile, cx: &App) -> gpui_kit::Div {
                                 .child(until)
                         })),
                 )
+        }))
+        .children(profile.email.clone().map(|email| {
+            let address = email.clone();
+            div()
+                .id("profile.email")
+                .role(gpui_kit::Role::Link)
+                .aria_label(t!("profile-email-send", email = email.to_string()))
+                .cursor_pointer()
+                .on_click(move |_, _, cx| cx.open_url(&format!("mailto:{address}")))
+                .child(detail(
+                    lucide(LucideIcon::Mail)
+                        .size(scaled(&theme, metrics::ICON_SMALL))
+                        .text_color(theme.colors.muted_foreground)
+                        .into_any_element(),
+                    email.to_string(),
+                ))
         }))
         .children(
             profile
