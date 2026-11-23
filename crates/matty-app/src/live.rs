@@ -46,6 +46,10 @@ pub struct Live {
     /// (#793).
     switcher_rows: std::cell::RefCell<HashMap<String, TeamRows>>,
     presence: HashMap<String, Presence>,
+    /// When each person was last active, from the statuses sync fetched
+    /// (a live status change leaves it out), in milliseconds since the
+    /// epoch.
+    last_active: HashMap<String, i64>,
     /// The user's own status is Out of office, which holds notifications
     /// back like Do not disturb; the presence dot shows it as offline.
     out_of_office: bool,
@@ -779,6 +783,7 @@ impl Live {
                 sections: HashMap::new(),
                 switcher_rows: Default::default(),
                 presence: HashMap::new(),
+                last_active: HashMap::new(),
                 out_of_office: false,
                 me: (account.user_id.clone(), account.username.clone()),
                 prefs: matty_notify::UserPrefs::from_props(&account.username, "", &HashMap::new()),
@@ -2373,21 +2378,53 @@ impl Live {
     }
 
     fn profile(&self, user: &User) -> UserProfile {
+        let presence = self
+            .presence
+            .get(&user.id)
+            .copied()
+            .unwrap_or(Presence::Offline);
+        // As the web app: not for someone online, a bot, or someone who
+        // turned sharing it off.
+        let last_active = self
+            .last_active
+            .get(&user.id)
+            .copied()
+            .and_then(std::num::NonZeroI64::new)
+            .filter(|_| {
+                presence != Presence::Online
+                    && !user.is_bot
+                    && user.props.get("show_last_active").map(String::as_str) != Some("false")
+            });
         UserProfile {
             user_id: user.id.clone().into(),
             username: user.username.clone().into(),
             display_name: crate::transcript::display_name_as(user, self.names).into(),
             position: (!user.position.is_empty()).then(|| user.position.clone().into()),
-            presence: self
-                .presence
-                .get(&user.id)
-                .copied()
-                .unwrap_or(Presence::Offline),
+            presence,
             status: crate::custom_status::StatusLine::of(user),
             time_zone: crate::profile::time_zone(&user.timezone),
             tag: crate::profile::AuthorTag::of(user),
             email: (!user.email.is_empty()).then(|| user.email.clone().into()),
+            last_active,
         }
+    }
+
+    /// Whether the user shares when they were last online (#1052).
+    pub fn shares_last_active(&self) -> bool {
+        self.me_user().is_none_or(|user| {
+            user.props.get("show_last_active").map(String::as_str) != Some("false")
+        })
+    }
+
+    /// Sets one of the user's own `props` here at once and on the server.
+    pub fn set_my_prop(&mut self, key: &str, value: &str) {
+        if let Some(user) = self.users.get_mut(&self.me.0) {
+            user.props.insert(key.to_owned(), value.to_owned());
+        }
+        self.send(Command::SetUserProp {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        });
     }
 
     /// The ready channel's id once its row is in a team's sidebar.
@@ -2491,6 +2528,10 @@ impl Live {
                 // statuses, and most belong to nobody on screen (#787).
                 let mut changed = std::collections::HashSet::new();
                 for status in statuses.iter() {
+                    if status.last_activity_at > 0 {
+                        self.last_active
+                            .insert(status.user_id.clone(), status.last_activity_at);
+                    }
                     let now = presence(&status.status);
                     let before = self.presence.insert(status.user_id.clone(), now);
                     if before.unwrap_or(Presence::Offline) != now {
@@ -4400,6 +4441,46 @@ mod tests {
         let update = live.set_names(NameFormat::Username);
         assert_eq!(update.categories.unwrap()[0].rows[0].name.as_ref(), "ada");
         assert_eq!(live.channel_name("dm").as_deref(), Some("ada"));
+    }
+
+    /// #1052: a profile carries when someone was last active only while
+    /// they are not online, are not a bot and share it.
+    #[test]
+    fn last_active_shows_only_when_away_and_shared() {
+        let mut live = live();
+        let status = |id: &str, status: &str| Status {
+            user_id: id.into(),
+            status: status.into(),
+            last_activity_at: 1_000,
+            ..Status::default()
+        };
+        live.apply(&ChangeSet::Presence(Arc::from(vec![
+            status("away", "away"),
+            status("online", "online"),
+            status("private", "offline"),
+            status("bot", "offline"),
+        ])));
+        let user = |id: &str| User {
+            id: id.into(),
+            username: id.into(),
+            ..User::default()
+        };
+        let private = User {
+            props: [("show_last_active".to_owned(), "false".to_owned())].into(),
+            ..user("private")
+        };
+        let bot = User {
+            is_bot: true,
+            ..user("bot")
+        };
+        assert_eq!(
+            live.user_profile(&user("away")).last_active,
+            std::num::NonZeroI64::new(1_000)
+        );
+        assert_eq!(live.user_profile(&user("online")).last_active, None);
+        assert_eq!(live.user_profile(&private).last_active, None);
+        assert_eq!(live.user_profile(&bot).last_active, None);
+        assert_eq!(live.user_profile(&user("unknown")).last_active, None);
     }
 
     #[test]

@@ -48,7 +48,7 @@ pub enum SwitcherEvent {
     },
     /// The user picked a channel to add `user` to (#212).
     AddTo {
-        user: crate::profile::UserProfile,
+        user: Box<crate::profile::UserProfile>,
         channel: SharedString,
     },
     /// The user pasted a link and chose "Open link" (#85).
@@ -79,7 +79,7 @@ enum Pick {
     /// Where to forward this post (#213).
     Forward(SharedString),
     /// A channel to add this person to (#212): the team's channels only.
-    AddTo(crate::profile::UserProfile),
+    AddTo(Box<crate::profile::UserProfile>),
 }
 
 pub struct Switcher {
@@ -319,7 +319,7 @@ impl Switcher {
             "switcher-add-to-placeholder",
             name = user.display_name.to_string()
         );
-        self.forwarding = Some(Pick::AddTo(user));
+        self.forwarding = Some(Pick::AddTo(Box::new(user)));
         self.refresh(cx);
         self.command.update(cx, |state, cx| {
             state.set_placeholder(placeholder, window, cx)

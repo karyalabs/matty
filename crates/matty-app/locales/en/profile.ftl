@@ -1,6 +1,10 @@
 ## Profile card and editor (profile.rs, profile_editor.rs)
 
 profile-local-time = { $time } local time
+profile-last-online-minutes = Last online { $minutes } min ago
+profile-last-online-hours = Last online { $hours } hr ago
+profile-last-online-yesterday = Last online yesterday
+profile-last-online-date = Last online { $date }
 profile-email-send = Email { $email }
 profile-message = Message
 profile-mention = Mention

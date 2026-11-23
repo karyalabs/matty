@@ -89,6 +89,7 @@ impl Live {
             sections: self.sections.clone(),
             switcher_rows: Default::default(),
             presence: self.presence.clone(),
+            last_active: self.last_active.clone(),
             out_of_office: self.out_of_office,
             me: self.me.clone(),
             prefs: self.prefs.clone(),

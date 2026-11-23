@@ -72,6 +72,7 @@ impl ProfileFields {
                 .map(|email| email.to_lowercase()),
             password: None,
             timezone: None,
+            props: None,
         }
     }
 }

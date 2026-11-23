@@ -59,6 +59,9 @@ pub struct Features {
     pub mfa: bool,
     /// ... and must stay on (`EnforceMultifactorAuthentication`).
     pub mfa_required: bool,
+    /// Profiles say when someone was last online, and users may stop
+    /// sharing theirs (`EnableLastActiveTime`, #1052).
+    pub last_active: bool,
 }
 
 impl Global for Features {}
@@ -80,6 +83,7 @@ impl Features {
             automatic_replies: capabilities.automatic_replies,
             mfa: capabilities.mfa,
             mfa_required: capabilities.mfa_required,
+            last_active: capabilities.last_active_time,
         }
     }
 
@@ -99,6 +103,7 @@ impl Features {
             automatic_replies: true,
             mfa: true,
             mfa_required: false,
+            last_active: true,
         }
     }
 

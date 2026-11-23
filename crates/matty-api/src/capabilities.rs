@@ -182,6 +182,9 @@ pub struct ServerCapabilities {
     pub mfa: bool,
     /// Every user must keep it on (`EnforceMultifactorAuthentication`).
     pub mfa_required: bool,
+    /// Profiles show when someone was last online, unless they turned
+    /// sharing it off (`EnableLastActiveTime`).
+    pub last_active_time: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -303,6 +306,7 @@ impl ServerCapabilities {
             automatic_replies: flag(config, "ExperimentalEnableAutomaticReplies"),
             mfa: flag(config, "EnableMultifactorAuthentication"),
             mfa_required: flag(config, "EnforceMultifactorAuthentication"),
+            last_active_time: flag(config, "EnableLastActiveTime"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,
             post_acknowledgements,

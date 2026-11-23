@@ -1805,6 +1805,7 @@ pub fn profiles() -> Vec<UserProfile> {
         time_zone: time_zone.map(Into::into),
         tag: None,
         email: Some(format!("{username}@example.com").into()),
+        last_active: None,
     };
     vec![
         profile(

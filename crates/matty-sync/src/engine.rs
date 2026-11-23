@@ -369,6 +369,15 @@ pub enum Command {
         /// The fields to change.
         patch: matty_api::ProfilePatch,
     },
+    /// Sets one of the user's own `props`, such as `show_last_active`,
+    /// keeping the others as the server has them;
+    /// [`ChangeSet::Users`](crate::ChangeSet::Users) follows.
+    SetUserProp {
+        /// The prop.
+        key: String,
+        /// Its new value.
+        value: String,
+    },
     /// Sets the user's profile picture from an image file's bytes and
     /// name, or with `None` goes back to the generated one.
     SetPicture {
@@ -1137,6 +1146,7 @@ impl std::fmt::Debug for Command {
             Self::SetNotifyProps { .. } => f.write_str("SetNotifyProps"),
             Self::SetCustomStatus { .. } => f.write_str("SetCustomStatus"),
             Self::UpdateProfile { .. } => f.write_str("UpdateProfile"),
+            Self::SetUserProp { key, .. } => write!(f, "SetUserProp({key})"),
             Self::SetPicture { picture } => f
                 .debug_struct("SetPicture")
                 .field("bytes", &picture.as_ref().map(|(bytes, _)| bytes.len()))
@@ -2200,6 +2210,9 @@ impl Engine {
                 }
                 Message::Command(Command::SetNotifyProps { notify_props }) => {
                     writes.push(Write::NotifyProps(notify_props))
+                }
+                Message::Command(Command::SetUserProp { key, value }) => {
+                    writes.push(Write::UserProp { key, value });
                 }
                 Message::Command(Command::UpdateProfile { patch }) => {
                     writes.push(Write::Profile(patch))

@@ -1678,6 +1678,34 @@ impl MainWindow {
                     .description(t!("prefs-visible-dms-detail"))
                     .control(select(&visible_dms, t!("prefs-visible-dms"), &theme)),
             );
+        if crate::priority::Features::read(cx).last_active {
+            let view = view.clone();
+            let on = self
+                .live
+                .as_ref()
+                .is_none_or(|live| live.shares_last_active());
+            reading = reading.row(
+                Row::new("preferences.last-active", t!("prefs-last-active"))
+                    .description(t!("prefs-last-active-detail"))
+                    .control(
+                        Switch::new("preferences.last-active.switch")
+                            .checked(on)
+                            .aria_label(t!("prefs-last-active"))
+                            .on_change(move |&next, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    if let Some(live) = this.live.as_mut() {
+                                        live.set_my_prop(
+                                            "show_last_active",
+                                            if next { "true" } else { "false" },
+                                        );
+                                    }
+                                    cx.notify();
+                                })
+                                .ok();
+                            }),
+                    ),
+            );
+        }
         if let Some((true, on)) = self.collapsed_threads {
             let view = view.clone();
             reading = reading.row(

@@ -38,6 +38,10 @@ pub struct UserProfile {
     pub tag: Option<AuthorTag>,
     /// The email address, when the server shares it (#1012).
     pub email: Option<SharedString>,
+    /// When they were last active, in milliseconds since the epoch, while
+    /// they are not online and share it; the card says "Last online …"
+    /// when the server has `EnableLastActiveTime` on (#1052).
+    pub last_active: Option<std::num::NonZeroI64>,
 }
 
 /// The kind of account a name belongs to, when it is not a member's.
@@ -155,6 +159,37 @@ pub fn time_zone(props: &std::collections::HashMap<String, String>) -> Option<Sh
 impl UserProfile {
     pub fn presence_label(&self) -> SharedString {
         crate::account::presence_label(self.presence)
+    }
+}
+
+/// "Last online 5 min ago", "… 3 hr ago", "… yesterday" or "… on
+/// November 20", as Mattermost words it; `None` within the last minute,
+/// when Mattermost says nothing.
+pub fn last_online(at: i64, now: &jiff::Zoned) -> Option<SharedString> {
+    let ago = now.timestamp().as_millisecond() - at;
+    let minute = 60 * 1000;
+    let hour = 60 * minute;
+    if ago <= minute {
+        None
+    } else if ago < hour {
+        Some(t!("profile-last-online-minutes", minutes = ago / minute))
+    } else if ago < 24 * hour {
+        Some(t!("profile-last-online-hours", hours = ago / hour))
+    } else if ago < 48 * hour {
+        Some(t!("profile-last-online-yesterday"))
+    } else {
+        let then = jiff::Timestamp::from_millisecond(at)
+            .ok()?
+            .to_zoned(now.time_zone().clone());
+        let format = if then.year() == now.year() {
+            "%B %-d"
+        } else {
+            "%B %-d, %Y"
+        };
+        Some(t!(
+            "profile-last-online-date",
+            date = then.strftime(format).to_string()
+        ))
     }
 }
 
@@ -308,14 +343,28 @@ fn details(profile: &UserProfile, cx: &App) -> gpui_kit::Div {
         .flex()
         .flex_col()
         .gap(theme.space(1.5))
-        .child(detail(
-            div()
-                .size(scaled(&theme, 8.))
-                .rounded_full()
-                .bg(dot)
-                .into_any_element(),
-            profile.presence_label().to_string(),
-        ))
+        .child(
+            detail(
+                div()
+                    .size(scaled(&theme, 8.))
+                    .rounded_full()
+                    .bg(dot)
+                    .into_any_element(),
+                profile.presence_label().to_string(),
+            )
+            .children(
+                profile
+                    .last_active
+                    .filter(|_| crate::priority::Features::read(cx).last_active)
+                    .and_then(|at| last_online(at.get(), &crate::clock::now()))
+                    .map(|label| {
+                        div()
+                            .type_style(style::UI, &theme)
+                            .text_color(theme.colors.muted_foreground)
+                            .child(format!("· {label}"))
+                    }),
+            ),
+        )
         .children(profile.status.as_ref().map(|status| {
             let until = status.until_label(
                 &crate::clock::now(),
@@ -631,6 +680,25 @@ mod tests {
         );
         assert_eq!(time_zone(&props("false", "Europe/Berlin", "")), None);
         assert_eq!(time_zone(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn last_online_reads_like_mattermost() {
+        let now: jiff::Zoned = "2026-11-23T09:00:00+00:00[UTC]".parse().unwrap();
+        let at = |minutes: i64| now.timestamp().as_millisecond() - minutes * 60 * 1000;
+        let label = |minutes| last_online(at(minutes), &now).map(|label| label.to_string());
+        assert_eq!(label(0), None, "nothing within the last minute");
+        assert_eq!(label(5).as_deref(), Some("Last online 5 min ago"));
+        assert_eq!(label(3 * 60 + 10).as_deref(), Some("Last online 3 hr ago"));
+        assert_eq!(label(30 * 60).as_deref(), Some("Last online yesterday"));
+        assert_eq!(
+            label(3 * 24 * 60).as_deref(),
+            Some("Last online November 20")
+        );
+        assert_eq!(
+            label(400 * 24 * 60).as_deref(),
+            Some("Last online October 19, 2025")
+        );
     }
 
     #[test]

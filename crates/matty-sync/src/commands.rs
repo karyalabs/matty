@@ -79,6 +79,10 @@ pub(crate) enum Write {
     /// A custom status, or `None` to clear it.
     CustomStatus(Option<matty_api::models::CustomStatus>),
     Profile(matty_api::ProfilePatch),
+    UserProp {
+        key: String,
+        value: String,
+    },
     /// A new profile picture, or `None` to remove it.
     Picture(Option<(Vec<u8>, String)>),
     /// A new custom emoji: its name, image bytes and file name (#209).
@@ -321,6 +325,7 @@ impl Write {
             Self::CustomStatus(Some(_)) => "set your status",
             Self::CustomStatus(None) => "clear your status",
             Self::Profile(_) => "save your profile",
+            Self::UserProp { .. } => "save a setting",
             Self::Picture(Some(_)) => "change your picture",
             Self::Picture(None) => "remove your picture",
             Self::AddEmoji { .. } => "add emoji",
@@ -417,6 +422,7 @@ impl Write {
             | Self::NotifyProps(_)
             | Self::CustomStatus(_)
             | Self::Profile(_)
+            | Self::UserProp { .. }
             | Self::Picture(_)
             | Self::Sessions
             | Self::Password(_)
@@ -741,6 +747,19 @@ pub(crate) async fn run(
                 }
                 // The user's props now hold it, and the recent statuses.
                 Some(Loaded::Users(vec![client.me().await?]))
+            }
+            Write::UserProp { key, value } => {
+                // The server replaces `props` whole, so start from its copy
+                // rather than one that may be stale.
+                let mut props = client.me().await?.props;
+                props.insert(key, value);
+                let patch = matty_api::ProfilePatch {
+                    props: Some(Box::new(props)),
+                    ..matty_api::ProfilePatch::default()
+                };
+                Some(Loaded::Users(vec![
+                    client.patch_profile(&user_id, &patch).await?,
+                ]))
             }
             Write::Profile(patch) => {
                 let user = client.patch_profile(&user_id, &patch).await?;

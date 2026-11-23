@@ -4888,6 +4888,7 @@ mod tests {
                         time_zone: None,
                         tag: None,
                         email: None,
+                        last_active: None,
                     }],
                     cx,
                 );

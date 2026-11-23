@@ -71,6 +71,10 @@ pub struct ProfilePatch {
     /// `automaticTimezone` and `manualTimezone`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<Box<std::collections::HashMap<String, String>>>,
+    /// The whole `props` map, which the server replaces as a unit: send it
+    /// with every prop the user has, changed or not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub props: Option<Box<std::collections::HashMap<String, String>>>,
 }
 
 // By hand, so the password never reaches a log.
@@ -85,6 +89,7 @@ impl std::fmt::Debug for ProfilePatch {
             .field("email", &self.email)
             .field("password", &self.password.as_ref().map(|_| "…"))
             .field("timezone", &self.timezone)
+            .field("props", &self.props)
             .finish()
     }
 }

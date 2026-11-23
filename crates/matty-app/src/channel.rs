@@ -6290,7 +6290,11 @@ fn person_details(person: &crate::profile::UserProfile, cx: &App) -> Option<gpui
     let time = person.time_zone.as_ref().and_then(|zone| {
         crate::profile::local_time(zone, crate::settings::ClockFormat::current(cx))
     });
-    if person.status.is_none() && time.is_none() {
+    let last_online = person
+        .last_active
+        .filter(|_| crate::priority::Features::read(cx).last_active)
+        .and_then(|at| crate::profile::last_online(at.get(), &crate::clock::now()));
+    if person.status.is_none() && time.is_none() && last_online.is_none() {
         return None;
     }
     Some(
@@ -6329,7 +6333,10 @@ fn person_details(person: &crate::profile::UserProfile, cx: &App) -> Option<gpui
                             .text_color(muted),
                     )
                     .child(t!("chan-local-time", time = time.to_string()))
-            })),
+            }))
+            .children(
+                last_online.map(|label| div().flex_shrink_0().whitespace_nowrap().child(label)),
+            ),
     )
 }
 
@@ -6815,6 +6822,7 @@ mod tests {
             time_zone: None,
             tag: None,
             email: None,
+            last_active: None,
         };
         let shown = |format, query: &str| {
             people_suggestions(std::iter::once(&profile(format)), query, 8)
@@ -6972,6 +6980,7 @@ mod tests {
             time_zone: None,
             tag: None,
             email: None,
+            last_active: None,
         };
         let model = ChannelModel {
             purpose: None,
