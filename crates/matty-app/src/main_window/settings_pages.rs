@@ -530,6 +530,12 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
     if let Some(value) = find(preferences, DISPLAY, "collapse_previews") {
         settings.collapse_previews = value == "true";
     }
+    if let Some(value) = find(preferences, "notifications", "email_interval") {
+        settings.email_interval = value.parse().unwrap_or(30);
+    }
+    if let Some(value) = find(preferences, DISPLAY, "link_previews") {
+        settings.link_previews = value != "false";
+    }
     if let Some(value) = find(preferences, ADVANCED, "join_leave") {
         settings.join_leave = value != "false";
     }
@@ -609,6 +615,24 @@ pub(crate) fn collapse_previews_preference(collapsed: bool) -> Vec<Preference> {
         DISPLAY,
         "collapse_previews",
         if collapsed { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for whether website link previews show.
+pub(crate) fn link_previews_preference(on: bool) -> Vec<Preference> {
+    vec![preference(
+        DISPLAY,
+        "link_previews",
+        if on { "true" } else { "false" },
+    )]
+}
+
+/// The server preference for how often notification emails come.
+pub(crate) fn email_interval_preference(seconds: u32) -> Vec<Preference> {
+    vec![preference(
+        "notifications",
+        "email_interval",
+        &seconds.to_string(),
     )]
 }
 
@@ -1314,6 +1338,22 @@ impl MainWindow {
             window,
             cx,
         );
+        let show_previews = Switch::new("preferences.link-previews.switch")
+            .checked(settings.link_previews)
+            .aria_label(t!("prefs-link-previews"))
+            .on_change({
+                let view = view.clone();
+                move |&next, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.set_synced(
+                            |s| s.link_previews = next,
+                            |s| link_previews_preference(s.link_previews),
+                            cx,
+                        )
+                    })
+                    .ok();
+                }
+            });
         let previews = Switch::new("preferences.collapse-previews.switch")
             .checked(settings.collapse_previews)
             .aria_label(t!("prefs-collapse-previews"))
@@ -1549,6 +1589,11 @@ impl MainWindow {
                         NameFormat::Username => t!("prefs-names-username-hint"),
                     })
                     .control(select(&names, t!("prefs-names-label"), &theme)),
+            )
+            .row(
+                Row::new("preferences.link-previews", t!("prefs-link-previews"))
+                    .description(t!("prefs-link-previews-detail"))
+                    .control(show_previews),
             )
             .row(
                 Row::new(
@@ -1921,21 +1966,51 @@ impl MainWindow {
             );
         }
         if features.email {
-            groups.push(
-                Group::new("preferences.email", t!("prefs-email"))
-                    .synced()
-                    .row(
-                        Row::new("preferences.email", t!("prefs-email-label"))
-                            .description(t!("prefs-email-detail"))
-                            .control(switch(
-                                "preferences.email.switch",
-                                t!("prefs-email-label"),
-                                on("email", true),
-                                "email",
-                                ("true", "false"),
-                            )),
-                    ),
-            );
+            let mut email = Group::new("preferences.email", t!("prefs-email"))
+                .synced()
+                .row(
+                    Row::new("preferences.email", t!("prefs-email-label"))
+                        .description(t!("prefs-email-detail"))
+                        .control(switch(
+                            "preferences.email.switch",
+                            t!("prefs-email-label"),
+                            on("email", true),
+                            "email",
+                            ("true", "false"),
+                        )),
+                );
+            if features.email_batching && on("email", true) {
+                let interval = self.settings.read(cx).get().email_interval;
+                let how_often = selects.get(
+                    "preferences.email-interval",
+                    &[
+                        ("30", t!("prefs-email-immediately")),
+                        ("900", t!("prefs-email-fifteen")),
+                        ("3600", t!("prefs-email-hourly")),
+                    ],
+                    match interval {
+                        900 => "900",
+                        3600 => "3600",
+                        _ => "30",
+                    },
+                    |value, this, cx| {
+                        let seconds = value.parse().unwrap_or(30);
+                        this.set_synced(
+                            |s| s.email_interval = seconds,
+                            |s| email_interval_preference(s.email_interval),
+                            cx,
+                        )
+                    },
+                    window,
+                    cx,
+                );
+                email = email.row(
+                    Row::new("preferences.email-interval", t!("prefs-email-interval"))
+                        .description(t!("prefs-email-interval-detail"))
+                        .control(select(&how_often, t!("prefs-email-interval"), &theme)),
+                );
+            }
+            groups.push(email);
         }
         if features.automatic_replies {
             let active = on("auto_responder_active", false);

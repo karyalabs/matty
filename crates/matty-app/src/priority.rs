@@ -48,6 +48,8 @@ pub struct Features {
     pub confirm_channel_wide: bool,
     /// Email notification settings (`SendEmailNotifications`, #970).
     pub email: bool,
+    /// Email notifications can be batched (#999).
+    pub email_batching: bool,
     /// Mobile push settings (`SendPushNotifications`, #970).
     pub push: bool,
     /// Automatic replies (`ExperimentalEnableAutomaticReplies`, #969).
@@ -68,6 +70,7 @@ impl Features {
             max_count: capabilities.persistent_notification_max_count,
             confirm_channel_wide: capabilities.confirm_notifications_to_channel,
             email: capabilities.email_notifications,
+            email_batching: capabilities.email_batching,
             push: capabilities.push_notifications,
             automatic_replies: capabilities.automatic_replies,
         }
@@ -84,6 +87,7 @@ impl Features {
             max_count: 6,
             confirm_channel_wide: true,
             email: true,
+            email_batching: true,
             push: true,
             automatic_replies: true,
         }

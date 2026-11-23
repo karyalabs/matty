@@ -162,6 +162,9 @@ pub struct ServerCapabilities {
     pub confirm_notifications_to_channel: bool,
     /// The server sends notification emails (`SendEmailNotifications`).
     pub email_notifications: bool,
+    /// Notification emails can be batched (`EnableEmailBatching`), so the
+    /// user may pick how often they come.
+    pub email_batching: bool,
     /// The server sends mobile push notifications (`SendPushNotifications`).
     pub push_notifications: bool,
     /// Users may set an out-of-office reply
@@ -259,6 +262,7 @@ impl ServerCapabilities {
             link_previews: flag(config, "EnableLinkPreviews"),
             confirm_notifications_to_channel: flag(config, "EnableConfirmNotificationsToChannel"),
             email_notifications: flag(config, "SendEmailNotifications"),
+            email_batching: flag(config, "EnableEmailBatching"),
             push_notifications: flag(config, "SendPushNotifications"),
             automatic_replies: flag(config, "ExperimentalEnableAutomaticReplies"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),

@@ -3423,7 +3423,13 @@ impl Live {
             .map(|section| {
                 let channels = self.sorted(section);
                 let shown = if section.kind == "direct_messages" {
-                    shown_conversations(&channels, self.dm_limit, open)
+                    shown_conversations(&channels, self.dm_limit, open, |channel| {
+                        channel
+                            .dm_user_id
+                            .as_ref()
+                            .and_then(|id| self.users.get(id))
+                            .is_some_and(|user| user.delete_at != 0)
+                    })
                 } else {
                     vec![true; channels.len()]
                 };
@@ -3552,8 +3558,13 @@ fn shown_conversations(
     channels: &[&SidebarChannel],
     limit: usize,
     open: Option<&str>,
+    deactivated: impl Fn(&SidebarChannel) -> bool,
 ) -> Vec<bool> {
-    let mut recent: Vec<usize> = (0..channels.len()).collect();
+    // A deactivated person's conversation shows only while unread or
+    // open, as in Mattermost (#1000).
+    let mut recent: Vec<usize> = (0..channels.len())
+        .filter(|&index| !deactivated(channels[index]))
+        .collect();
     recent.sort_by_key(|&index| std::cmp::Reverse(channels[index].active_at));
     let mut shown = vec![false; channels.len()];
     for index in recent.into_iter().take(limit) {
@@ -3932,6 +3943,39 @@ mod tests {
     }
 
     #[test]
+    fn deactivated_people_drop_out_unless_unread_or_open() {
+        let gone = SidebarChannel {
+            active_at: 9,
+            ..channel("gone", "D", 0, 0)
+        };
+        let here = SidebarChannel {
+            active_at: 1,
+            ..channel("here", "D", 0, 0)
+        };
+        let both = [&gone, &here];
+        let is_gone = |channel: &SidebarChannel| channel.id == "gone";
+        assert_eq!(
+            shown_conversations(&both, 20, None, is_gone),
+            vec![false, true]
+        );
+        assert_eq!(
+            shown_conversations(&both, 20, Some("gone"), is_gone),
+            vec![true, true]
+        );
+        let unread = SidebarChannel {
+            unreads: Unreads {
+                messages: 1,
+                ..Default::default()
+            },
+            ..gone.clone()
+        };
+        assert_eq!(
+            shown_conversations(&[&unread, &here], 20, None, is_gone),
+            vec![true, true]
+        );
+    }
+
+    #[test]
     fn direct_messages_show_the_most_recent_plus_unread_and_open() {
         let dms: Vec<SidebarChannel> = (0..30)
             .map(|at| SidebarChannel {
@@ -3945,6 +3989,7 @@ mod tests {
                     &dms.iter().collect::<Vec<_>>(),
                     limit,
                     open,
+                    |_| false,
                 ))
                 .filter(|(_, shown)| *shown)
                 .map(|(dm, _)| dm.id.clone())

@@ -359,9 +359,17 @@ pub struct Settings {
     /// Link previews start collapsed: the account's `collapse_previews`
     /// display setting (#187).
     pub collapse_previews: bool,
+    /// Website link previews show at all: the account's
+    /// `display_settings/link_previews` (#998).
+    #[serde(default = "yes")]
+    pub link_previews: bool,
     /// Joins and leaves show: the account's `advanced_settings/join_leave`
     /// (#967).
     pub join_leave: bool,
+    /// Seconds between notification emails: the account's
+    /// `notifications/email_interval` (#999); 30 is immediately.
+    #[serde(default = "email_interval")]
+    pub email_interval: u32,
     /// How many direct messages the sidebar shows: the account's
     /// `sidebar_settings/limit_visible_dms_gms` (#966); 10000 is "All".
     pub visible_dms: usize,
@@ -433,6 +441,10 @@ pub struct Settings {
     pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
+fn email_interval() -> u32 {
+    30
+}
+
 fn yes() -> bool {
     true
 }
@@ -469,6 +481,8 @@ impl Default for Settings {
             name_format: NameFormat::NicknameFullName,
             reduce_motion: false,
             collapse_previews: false,
+            link_previews: true,
+            email_interval: 30,
             join_leave: true,
             unread_section: false,
             quick_reactions: true,

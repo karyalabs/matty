@@ -5163,8 +5163,9 @@ fn cached_link(db: &Db, query: &crate::LinkQuery) -> Result<Option<crate::LinkAn
 /// The categories of account preferences Preferences mirrors (#156, #157),
 /// the user's Mattermost themes (#214), and the sidebar's settings, such
 /// as how many direct messages to show (#619).
-const ACCOUNT_CATEGORIES: [&str; 4] = [
+const ACCOUNT_CATEGORIES: [&str; 5] = [
     "display_settings",
+    "notifications",
     "advanced_settings",
     "theme",
     "sidebar_settings",
