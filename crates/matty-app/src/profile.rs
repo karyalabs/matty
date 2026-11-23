@@ -104,7 +104,7 @@ pub fn zones() -> &'static [&'static str] {
         let mut zones: Vec<&'static str> = jiff::tz::db()
             .available()
             .map(|name| &*Box::leak(name.as_str().to_owned().into_boxed_str()))
-            .filter(|name| name.contains('/') && !name.starts_with("Etc/"))
+            .filter(|name| name.contains('/') && !name.starts_with("Etc/")) // i18n-ignore: a zone prefix
             .collect();
         zones.sort_unstable();
         zones.dedup();
