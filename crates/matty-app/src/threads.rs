@@ -19,6 +19,7 @@ use crate::ui::{
     avatar::{Avatar, AvatarSize},
     badge::Badge,
     button::{Button, ButtonSize, ButtonVariant},
+    menu::{Menu, MenuItem, MenuState},
     spinner::Spinner,
     theme::UiTheme,
     toggle_group::{ToggleGroup, ToggleGroupItem},
@@ -81,7 +82,22 @@ pub enum ThreadsEvent {
     /// The list reached its last row while the server follows more
     /// threads; sync pages them in (#122).
     LoadMore,
+    /// Show the thread's root in its channel (#1014).
+    OpenInChannel {
+        channel: SharedString,
+        root: SharedString,
+    },
+    /// Copy the root's permalink (#1014).
+    CopyLink {
+        channel: SharedString,
+        root: SharedString,
+    },
+    /// Read the thread's replies without opening it (#1014).
+    Read(SharedString),
 }
+
+/// Groups a row with its options button, which shows on hover.
+const ROW_GROUP: &str = "threads-row";
 
 /// How close to the end of the list, in pixels, the next page is asked for.
 const LOAD_MORE_WITHIN: f32 = 240.;
@@ -98,6 +114,8 @@ pub struct ThreadsView {
     scroll: gpui_kit::ScrollHandle,
     /// A page of threads is on its way (#122).
     loading_more: bool,
+    /// A row's options, from its ⋯ button or a right click (#1014).
+    row_menu: Entity<MenuState>,
 }
 
 impl EventEmitter<ThreadsEvent> for ThreadsView {}
@@ -123,6 +141,7 @@ impl ThreadsView {
             detail,
             scroll: gpui_kit::ScrollHandle::new(),
             loading_more: false,
+            row_menu: cx.new(|cx| MenuState::new([], cx)),
         };
         this.set_model(model, cx);
         this
@@ -359,6 +378,83 @@ impl ThreadsView {
             })
     }
 
+    /// Opens the options of the thread under `root` at `at`.
+    fn open_row_menu(
+        &mut self,
+        root: &SharedString,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(row) = self.model.threads.iter().find(|row| row.id() == root) else {
+            return;
+        };
+        let view = cx.entity().downgrade();
+        let emit = |id: &'static str, label: SharedString, event: ThreadsEvent| {
+            let view = view.clone();
+            MenuItem::new(id, label).on_click(move |_, _, cx| {
+                view.update(cx, |this, cx| this.on_row_menu(event.clone(), cx))
+                    .ok();
+            })
+        };
+        let (channel, root) = (row.channel_id.clone(), row.id().clone());
+        let mut items = vec![
+            emit(
+                "threads.row.open-in-channel",
+                t!("threads-open-in-channel"),
+                ThreadsEvent::OpenInChannel {
+                    channel: channel.clone(),
+                    root: root.clone(),
+                },
+            ),
+            emit(
+                "threads.row.copy-link",
+                t!("threads-copy-link"),
+                ThreadsEvent::CopyLink {
+                    channel,
+                    root: root.clone(),
+                },
+            ),
+        ];
+        if row.summary.unread() {
+            items.push(emit(
+                "threads.row.read",
+                t!("threads-mark-read"),
+                ThreadsEvent::Read(root.clone()),
+            ));
+        }
+        items.push(MenuItem::separator());
+        items.push(emit(
+            "threads.row.unfollow",
+            t!("threads-unfollow"),
+            ThreadsEvent::Unfollow(root),
+        ));
+        self.row_menu.update(cx, |menu, cx| {
+            menu.set_items(items, cx);
+            menu.open_at(Some(at), window, cx);
+        });
+    }
+
+    fn on_row_menu(&mut self, event: ThreadsEvent, cx: &mut Context<Self>) {
+        match &event {
+            ThreadsEvent::Read(root) => {
+                if let Some(row) = self.model.threads.iter_mut().find(|row| row.id() == root) {
+                    row.summary.unread_replies = 0;
+                    row.summary.unread_mentions = 0;
+                }
+            }
+            ThreadsEvent::Unfollow(root) => {
+                self.model.threads.retain(|row| row.id() != root);
+                if self.selected.as_ref() == Some(root) {
+                    self.selected = None;
+                }
+            }
+            _ => {}
+        }
+        cx.emit(event);
+        cx.notify();
+    }
+
     fn row(&self, row: &ThreadRow, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let clock = ClockFormat::current(cx);
@@ -366,6 +462,7 @@ impl ThreadsView {
         let selected = self.selected.as_ref() == Some(row.id());
         let id = row.id().clone();
         let id_for_badge = id.clone();
+        let (menu_id, context_id) = (id.clone(), id.clone());
         let initial: String = root.author.chars().take(1).collect();
         let channel = match row.thread.channel_name.as_ref() {
             name if name.contains(' ') => name.to_string(),
@@ -395,7 +492,42 @@ impl ThreadsView {
             .when(!selected, |this| {
                 this.hover(|style| style.bg(theme.colors.accent.opacity(0.6)))
             })
+            .group(ROW_GROUP)
+            .relative()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                cx.listener(move |this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                    this.open_row_menu(&context_id, event.position, window, cx)
+                }),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.select(Some(id.clone()), cx)))
+            .child(
+                div()
+                    .absolute()
+                    .top(theme.space(1.))
+                    .right(theme.space(2.))
+                    .invisible()
+                    .group_hover(ROW_GROUP, |style| style.visible())
+                    .child(
+                        Button::new(gpui_kit::ElementId::Name(
+                            format!("threads.{}.options", row.id()).into(),
+                        ))
+                        .variant(ButtonVariant::Outline)
+                        .size(ButtonSize::IconSm)
+                        .aria_label(t!("threads-options"))
+                        .child(
+                            lucide(LucideIcon::Ellipsis)
+                                .size(scaled(&theme, metrics::ICON_SMALL))
+                                .text_color(theme.colors.foreground),
+                        )
+                        .on_click(cx.listener(
+                            move |this, event: &gpui_kit::ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.open_row_menu(&menu_id, event.position(), window, cx)
+                            },
+                        )),
+                    ),
+            )
             .child(crate::avatars::with_picture(
                 Avatar::new(gpui_kit::ElementId::Name(
                     format!("threads.{}.avatar", row.id()).into(),
@@ -434,9 +566,11 @@ impl ThreadsView {
                                     .child(t!("threads-in-channel", channel = channel.clone())),
                             )
                             .child(
+                                // The options button takes its place on hover.
                                 div()
                                     .type_style(style::META, &theme)
                                     .text_color(theme.colors.muted_foreground)
+                                    .group_hover(ROW_GROUP, |style| style.invisible())
                                     .child(row.summary.last_reply_label(clock)),
                             ),
                     )
@@ -493,6 +627,7 @@ impl ThreadsView {
                 this.child(
                     div()
                         .flex_shrink_0()
+                        .group_hover(ROW_GROUP, |style| style.invisible())
                         .debug_selector(move || format!("threads.{}.mentions", id_for_badge))
                         .child(
                             Badge::count(mentions, 99)
@@ -508,6 +643,7 @@ impl ThreadsView {
                 this.child(
                     div()
                         .flex_shrink_0()
+                        .group_hover(ROW_GROUP, |style| style.invisible())
                         .mt(theme.space(1.5))
                         .size(theme.space(2.))
                         .rounded_full()
@@ -591,6 +727,11 @@ impl Render for ThreadsView {
             .flex()
             .bg(theme.colors.background)
             .child(list)
+            .child(
+                Menu::new(&self.row_menu, t!("threads-options"))
+                    .context_area(div())
+                    .disabled(true),
+            )
             .child(
                 div()
                     .flex_1()

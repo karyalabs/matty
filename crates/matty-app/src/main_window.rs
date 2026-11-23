@@ -681,35 +681,54 @@ impl MainWindow {
             },
         )
         .detach();
-        cx.subscribe(&threads, |this, threads, event: &ThreadsEvent, cx| {
-            // Sync owns the server side; the sidebar count follows at once.
-            let unread = threads.read(cx).model().unread();
-            let mentions = threads.read(cx).model().mentions();
-            this.sidebar.update(cx, |sidebar, cx| {
-                let mut model = sidebar.model().clone();
-                model.unread_threads = unread;
-                model.thread_mentions = mentions;
-                sidebar.set_model(model, cx);
-            });
-            let Some(live) = &mut this.live else {
-                return;
-            };
-            match event {
-                ThreadsEvent::MarkAllRead => live.read_all_threads(),
-                ThreadsEvent::Unfollow(root) => live.follow_thread(root, false),
-                ThreadsEvent::LoadMore => live.load_more_threads(),
-                ThreadsEvent::Open { root, unread } => {
-                    // Only while on screen: the view keeps its selection
-                    // when the user goes back to a channel.
-                    if this.threads_open {
-                        live.open_thread(root);
-                        if *unread {
-                            live.read_thread(root);
+        cx.subscribe_in(
+            &threads,
+            window,
+            |this, threads, event: &ThreadsEvent, window, cx| {
+                // Sync owns the server side; the sidebar count follows at once.
+                let unread = threads.read(cx).model().unread();
+                let mentions = threads.read(cx).model().mentions();
+                this.sidebar.update(cx, |sidebar, cx| {
+                    let mut model = sidebar.model().clone();
+                    model.unread_threads = unread;
+                    model.thread_mentions = mentions;
+                    sidebar.set_model(model, cx);
+                });
+                match event {
+                    ThreadsEvent::OpenInChannel { channel, root } => {
+                        return this.open_permalink(channel.clone(), root.clone(), window, cx);
+                    }
+                    ThreadsEvent::CopyLink { channel, root } => {
+                        let link = this
+                            .live
+                            .as_ref()
+                            .and_then(|live| live.permalink(channel, root));
+                        return this.copy_to_clipboard(link, cx);
+                    }
+                    _ => {}
+                }
+                let Some(live) = &mut this.live else {
+                    return;
+                };
+                match event {
+                    ThreadsEvent::OpenInChannel { .. } | ThreadsEvent::CopyLink { .. } => {}
+                    ThreadsEvent::Read(root) => live.read_thread(root),
+                    ThreadsEvent::MarkAllRead => live.read_all_threads(),
+                    ThreadsEvent::Unfollow(root) => live.follow_thread(root, false),
+                    ThreadsEvent::LoadMore => live.load_more_threads(),
+                    ThreadsEvent::Open { root, unread } => {
+                        // Only while on screen: the view keeps its selection
+                        // when the user goes back to a channel.
+                        if this.threads_open {
+                            live.open_thread(root);
+                            if *unread {
+                                live.read_thread(root);
+                            }
                         }
                     }
                 }
-            }
-        })
+            },
+        )
         .detach();
         let detail = threads.read(cx).detail().clone();
         cx.subscribe_in(&detail, window, Self::pane_event).detach();
