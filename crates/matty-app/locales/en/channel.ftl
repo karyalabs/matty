@@ -214,3 +214,4 @@ file-preview-detail = A preview of the downloaded file.
 file-preview-cut = The first { $lines } lines. The downloaded file has the rest.
 file-preview-reveal = Show in folder
 file-preview-close = Close
+chan-add-mentioned = Would you like to [add them to the channel]({ $link })? They will have access to all message history.

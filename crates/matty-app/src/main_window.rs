@@ -4802,6 +4802,19 @@ impl MainWindow {
                 tracing::info!(link = %crate::deeplink::redacted(&url), "ignored a link Matty cannot show");
             }
             LinkTarget::Nothing => {}
+            // Only from a message, never from a link the OS hands over.
+            LinkTarget::AddToChannel {
+                channel_id,
+                user_ids,
+            } if external => {
+                if let Some(live) = &self.live {
+                    live.send(matty_sync::Command::AddMembers {
+                        channel_id,
+                        user_ids,
+                    });
+                }
+            }
+            LinkTarget::AddToChannel { .. } => {}
             LinkTarget::Hashtag(tag) => self.search(format!("#{tag}").into(), window, cx),
             LinkTarget::User(username) => self.open_user(username, window, cx),
             LinkTarget::Channel { team: named, name } => {

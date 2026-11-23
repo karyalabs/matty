@@ -32,6 +32,12 @@ pub enum LinkTarget {
     Hashtag(String),
     /// A post on this server: its channel, at the post.
     Permalink { team: String, post_id: String },
+    /// Add these people to the channel: the server's "did not get
+    /// notified" message offers it (#1018).
+    AddToChannel {
+        channel_id: String,
+        user_ids: Vec<String>,
+    },
     /// Nothing to open: `@here`, an emoji, or a `matty://` link Matty
     /// does not know.
     Nothing,
@@ -64,6 +70,15 @@ fn entity_target(entity: &str) -> LinkTarget {
             name: value.to_owned(),
         },
         "hashtag" => LinkTarget::Hashtag(value.to_owned()),
+        "add-to-channel" => match value.split_once('/') {
+            Some((channel_id, ids)) if !channel_id.is_empty() && !ids.is_empty() => {
+                LinkTarget::AddToChannel {
+                    channel_id: channel_id.to_owned(),
+                    user_ids: ids.split(',').map(str::to_owned).collect(),
+                }
+            }
+            _ => LinkTarget::Nothing,
+        },
         _ => LinkTarget::Nothing,
     }
 }
@@ -544,6 +559,14 @@ mod tests {
         assert_eq!(go("matty://special/here"), LinkTarget::Nothing);
         assert_eq!(go("matty://emoji/tada"), LinkTarget::Nothing);
         assert_eq!(go("matty://user/"), LinkTarget::Nothing);
+        assert_eq!(
+            go("matty://add-to-channel/c1/u1,u2"),
+            LinkTarget::AddToChannel {
+                channel_id: "c1".into(),
+                user_ids: vec!["u1".into(), "u2".into()],
+            }
+        );
+        assert_eq!(go("matty://add-to-channel/c1/"), LinkTarget::Nothing);
     }
 
     #[test]

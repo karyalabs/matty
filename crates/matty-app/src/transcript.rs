@@ -277,6 +277,30 @@ fn webhook_name(post: &ApiPost) -> Option<&str> {
 }
 
 /// One post as the views draw it.
+/// The offer under the server's "did not get notified by this mention"
+/// message, as the official client adds it (#1018): a link that adds the
+/// people to the channel.
+fn add_to_channel_offer(post: &ApiPost) -> Option<String> {
+    let ids: Vec<&str> = post
+        .props
+        .get("add_channel_member")?
+        .get("not_in_channel_user_ids")?
+        .as_array()?
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() || post.channel_id.is_empty() {
+        return None;
+    }
+    let link = format!(
+        "matty://add-to-channel/{}/{}",
+        post.channel_id,
+        ids.join(",")
+    );
+    Some(crate::t!("chan-add-mentioned", link = link).to_string())
+}
+
 fn display_post(
     post: &ApiPost,
     users: &HashMap<String, User>,
@@ -313,6 +337,10 @@ fn display_post(
         PostKind::System { .. } => system_text(post, users, viewer)
             .unwrap_or_else(|| post.message.clone())
             .into(),
+        _ if ephemeral => match add_to_channel_offer(post) {
+            Some(offer) => format!("{}\n\n{offer}", post.message).into(),
+            None => post.message.clone().into(),
+        },
         _ => post.message.clone().into(),
     };
     Post {
