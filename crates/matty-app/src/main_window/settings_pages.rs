@@ -1574,6 +1574,7 @@ impl MainWindow {
                     .control(colorize_names),
             );
         }
+        let zone = self.zone_row(selects, window, cx);
         reading = reading
             .row(
                 Row::new("preferences.width", t!("prefs-width"))
@@ -1581,6 +1582,7 @@ impl MainWindow {
                     .control(select(&width, t!("prefs-width"), &theme)),
             )
             .row(Row::new("preferences.clock", t!("prefs-clock")).control(clock))
+            .rows(zone)
             .row(
                 Row::new("preferences.names", t!("prefs-names-label"))
                     .description(match settings.name_format {
@@ -1774,6 +1776,88 @@ impl MainWindow {
                     .control(select(&images, t!("prefs-remote-images"), &theme)),
             );
         vec![reading, writing, privacy]
+    }
+
+    /// Time zone (#1016): automatic follows the device, as the official
+    /// clients do, or a zone picked by hand. Others see the user's local
+    /// time from it.
+    fn zone_row(
+        &mut self,
+        selects: &mut PageSelects,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Row> {
+        let props = self.live.as_ref()?.me_user()?.timezone.clone();
+        let theme = UiTheme::read(cx).clone();
+        let device = crate::profile::device_zone().unwrap_or_default();
+        let automatic = props
+            .get("useAutomaticTimezone")
+            .is_none_or(|v| v != "false");
+        let chosen = if automatic {
+            "automatic".to_string()
+        } else {
+            props.get("manualTimezone").cloned().unwrap_or_default()
+        };
+        let mut options: Vec<(&'static str, SharedString)> = vec![(
+            "automatic",
+            if device.is_empty() {
+                t!("prefs-zone-automatic")
+            } else {
+                t!(
+                    "prefs-zone-automatic-named",
+                    zone = device.replace('_', " ")
+                )
+            },
+        )];
+        options.extend(
+            crate::profile::zones()
+                .iter()
+                .map(|zone| (*zone, SharedString::from(zone.replace('_', " ")))),
+        );
+        let state = selects.get(
+            "preferences.zone",
+            &options,
+            &chosen,
+            move |value, this, cx| {
+                let Some(live) = &this.live else {
+                    return;
+                };
+                let Some(me) = live.me_user() else {
+                    return;
+                };
+                let mut timezone = me.timezone.clone();
+                if value == "automatic" {
+                    timezone.insert("useAutomaticTimezone".into(), "true".into());
+                    if let Some(device) = crate::profile::device_zone() {
+                        timezone.insert("automaticTimezone".into(), device);
+                    }
+                } else {
+                    timezone.insert("useAutomaticTimezone".into(), "false".into());
+                    timezone.insert("manualTimezone".into(), value.to_string());
+                }
+                timezone.entry("automaticTimezone".into()).or_default();
+                timezone.entry("manualTimezone".into()).or_default();
+                live.send(matty_sync::Command::UpdateProfile {
+                    patch: matty_api::ProfilePatch {
+                        timezone: Some(Box::new(timezone)),
+                        ..Default::default()
+                    },
+                });
+                cx.notify();
+            },
+            window,
+            cx,
+        );
+        Some(
+            Row::new("preferences.zone", t!("prefs-zone"))
+                .description(t!("prefs-zone-detail"))
+                .control(
+                    div()
+                        .flex_shrink_0()
+                        .w(scaled(&theme, 260.))
+                        .child(crate::ui::combobox::combobox(&state).aria_label(t!("prefs-zone"))),
+                ),
+        )
     }
 
     /// The Notifications section, from the user's `notify_props` with

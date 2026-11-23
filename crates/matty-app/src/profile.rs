@@ -92,6 +92,49 @@ pub fn local_time(zone: &str, clock: crate::settings::ClockFormat) -> Option<Str
     Some(clock.format(now.hour() as u16 * 60 + now.minute() as u16))
 }
 
+/// The zone this device is set to, by its IANA name.
+pub fn device_zone() -> Option<String> {
+    jiff::tz::TimeZone::system().iana_name().map(str::to_owned)
+}
+
+/// Every zone a user may pick, by IANA name, sorted.
+pub fn zones() -> &'static [&'static str] {
+    static ZONES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    ZONES.get_or_init(|| {
+        let mut zones: Vec<&'static str> = jiff::tz::db()
+            .available()
+            .map(|name| &*Box::leak(name.as_str().to_owned().into_boxed_str()))
+            .filter(|name| name.contains('/') && !name.starts_with("Etc/"))
+            .collect();
+        zones.sort_unstable();
+        zones.dedup();
+        zones
+    })
+}
+
+/// The `timezone` props that tell the server the device's zone, as the
+/// official clients send at start (#1016): `None` when the user picked a
+/// zone by hand or the server already has this one.
+pub fn automatic_zone_update(
+    props: &std::collections::HashMap<String, String>,
+    device: &str,
+) -> Option<std::collections::HashMap<String, String>> {
+    let automatic = props.get("useAutomaticTimezone").map(String::as_str);
+    if automatic == Some("false") || device.is_empty() {
+        return None;
+    }
+    if automatic == Some("true")
+        && props.get("automaticTimezone").map(String::as_str) == Some(device)
+    {
+        return None;
+    }
+    let mut next = props.clone();
+    next.insert("useAutomaticTimezone".into(), "true".into());
+    next.insert("automaticTimezone".into(), device.into());
+    next.entry("manualTimezone".into()).or_default();
+    Some(next)
+}
+
 /// The zone a user's `timezone` props name: the automatic one when they
 /// chose it, else the manual one; `None` when neither is set.
 pub fn time_zone(props: &std::collections::HashMap<String, String>) -> Option<SharedString> {
@@ -542,6 +585,31 @@ mod tests {
             AuthorTag::of(&user(false, "system_user system_admin")),
             None
         );
+    }
+
+    #[test]
+    fn the_device_zone_is_sent_unless_one_was_picked() {
+        let props = |auto: &str, automatic: &str| {
+            HashMap::from([
+                ("useAutomaticTimezone".to_string(), auto.to_string()),
+                ("automaticTimezone".to_string(), automatic.to_string()),
+                ("manualTimezone".to_string(), "Asia/Tokyo".to_string()),
+            ])
+        };
+        assert_eq!(
+            automatic_zone_update(&props("true", "Europe/Berlin"), "Europe/Berlin"),
+            None
+        );
+        assert_eq!(
+            automatic_zone_update(&props("false", ""), "Europe/Berlin"),
+            None
+        );
+        let next = automatic_zone_update(&props("true", "Europe/Berlin"), "Asia/Kolkata").unwrap();
+        assert_eq!(next["automaticTimezone"], "Asia/Kolkata");
+        assert_eq!(next["manualTimezone"], "Asia/Tokyo");
+        let next = automatic_zone_update(&HashMap::new(), "Asia/Kolkata").unwrap();
+        assert_eq!(next["useAutomaticTimezone"], "true");
+        assert!(zones().contains(&"Europe/Berlin"));
     }
 
     #[test]

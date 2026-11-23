@@ -67,6 +67,10 @@ pub struct ProfilePatch {
     /// changes the email address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
+    /// The whole `timezone` map: `useAutomaticTimezone`,
+    /// `automaticTimezone` and `manualTimezone`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<Box<std::collections::HashMap<String, String>>>,
 }
 
 // By hand, so the password never reaches a log.
@@ -80,6 +84,7 @@ impl std::fmt::Debug for ProfilePatch {
             .field("username", &self.username)
             .field("email", &self.email)
             .field("password", &self.password.as_ref().map(|_| "…"))
+            .field("timezone", &self.timezone)
             .finish()
     }
 }

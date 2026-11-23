@@ -71,6 +71,7 @@ impl ProfileFields {
                 .filter(|_| before.email_editable)
                 .map(|email| email.to_lowercase()),
             password: None,
+            timezone: None,
         }
     }
 }

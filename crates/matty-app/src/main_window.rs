@@ -234,6 +234,8 @@ pub struct MainWindow {
     font_error: Option<SharedString>,
     /// The user's `notify_props` as the server last sent them.
     notify_props: Option<std::collections::HashMap<String, String>>,
+    /// The server was told this device's time zone this session (#1016).
+    zone_checked: bool,
     /// Whether the user may choose collapsed reply threads, and whether
     /// they are on (#157).
     collapsed_threads: Option<(bool, bool)>,
@@ -1341,6 +1343,7 @@ impl MainWindow {
             },
             badge: matty_notify::Badge::Clear,
             notify_props: preview_props,
+            zone_checked: false,
             collapsed_threads: crate::preview::enabled().then_some((true, true)),
             browse,
             join_team_view,
@@ -1523,6 +1526,7 @@ impl MainWindow {
             self.settings.read(cx).get().load_remote_images == RemoteImages::Ask,
         );
         self.live = Some(live);
+        self.zone_checked = false;
         self.cache_limit_sent = None;
         self.send_cache_limit(cx);
         self.account.update(cx, |view, cx| {
@@ -2472,6 +2476,34 @@ impl MainWindow {
         if let Some((key, draft)) = update.draft {
             self.draft_stored(key, draft, window, cx);
         }
+        self.send_device_zone();
+    }
+
+    /// Tells the server this device's time zone once the user is known,
+    /// unless they picked one by hand, as the official clients do (#1016):
+    /// others see the user's local time from it.
+    fn send_device_zone(&mut self) {
+        if self.zone_checked {
+            return;
+        }
+        let Some(live) = &self.live else {
+            return;
+        };
+        let Some(me) = live.me_user() else {
+            return;
+        };
+        self.zone_checked = true;
+        let Some(timezone) = crate::profile::device_zone()
+            .and_then(|zone| crate::profile::automatic_zone_update(&me.timezone, &zone))
+        else {
+            return;
+        };
+        live.send(matty_sync::Command::UpdateProfile {
+            patch: matty_api::ProfilePatch {
+                timezone: Some(Box::new(timezone)),
+                ..Default::default()
+            },
+        });
     }
 
     /// The sign-in card's requests. The preview answers locally; otherwise
