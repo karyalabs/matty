@@ -205,6 +205,15 @@ impl Client {
         self.post("users/usernames", usernames).await
     }
 
+    /// `POST users/group_channels`: the members of each group channel, by
+    /// channel id.
+    pub async fn group_channel_members(
+        &self,
+        channel_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<User>>, ApiError> {
+        self.post("users/group_channels", channel_ids).await
+    }
+
     /// `GET users/{user_id}`.
     pub async fn user(&self, user_id: &str) -> Result<User, ApiError> {
         self.get(&format!("users/{user_id}")).await

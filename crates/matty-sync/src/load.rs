@@ -526,7 +526,7 @@ pub(crate) async fn team(
     user_id: &str,
     team_id: &str,
 ) -> Result<Loaded, ApiError> {
-    let (channels, members, categories) = tokio::try_join!(
+    let (mut channels, members, categories) = tokio::try_join!(
         client.my_channels(team_id),
         client.my_channel_members(user_id, team_id),
         client.sidebar_categories(team_id),
@@ -537,12 +537,25 @@ pub(crate) async fn team(
     } else {
         client.users_by_ids(&partners).await?
     };
-    let group_members = group_usernames(&channels);
-    let group_users = if group_members.is_empty() {
-        Vec::new()
-    } else {
-        client.users_by_usernames(&group_members).await?
-    };
+    // The server cuts a group's name, its members' usernames, at 64
+    // characters, so the members come from the group itself.
+    let groups: Vec<String> = channels
+        .iter()
+        .filter(|channel| channel.kind == "G")
+        .map(|channel| channel.id.clone())
+        .collect();
+    let mut group_users = Vec::new();
+    if !groups.is_empty() {
+        let members = client.group_channel_members(&groups).await?;
+        for channel in channels.iter_mut().filter(|channel| channel.kind == "G") {
+            if let Some(people) = members.get(&channel.id) {
+                channel.display_name = group_display_name(people);
+            }
+        }
+        group_users = members.into_values().flatten().collect();
+        group_users.sort_by(|a, b| a.id.cmp(&b.id));
+        group_users.dedup_by(|a, b| a.id == b.id);
+    }
     Ok(Loaded::Team {
         team_id: team_id.to_owned(),
         channels,
@@ -553,19 +566,12 @@ pub(crate) async fn team(
     })
 }
 
-/// Everyone in group channels, which the server names by their usernames,
-/// comma-separated.
-fn group_usernames(channels: &[Channel]) -> Vec<String> {
-    let mut usernames: Vec<String> = channels
-        .iter()
-        .filter(|channel| channel.kind == "G")
-        .flat_map(|channel| channel.display_name.split(','))
-        .map(|username| username.trim().to_owned())
-        .filter(|username| !username.is_empty())
-        .collect();
-    usernames.sort();
-    usernames.dedup();
-    usernames
+/// A group's name as the server makes it, every member's username sorted
+/// and comma-separated, without its length limit.
+fn group_display_name(people: &[User]) -> String {
+    let mut usernames: Vec<&str> = people.iter().map(|user| user.username.as_str()).collect();
+    usernames.sort_unstable();
+    usernames.join(", ")
 }
 
 /// The other people in direct channels (named `a__b`).
@@ -762,4 +768,29 @@ pub(crate) struct Around {
     pub post: matty_api::models::Post,
     pub before: matty_api::models::PostList,
     pub after: matty_api::models::PostList,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_group_is_named_by_all_its_usernames_without_the_length_limit() {
+        let person = |username: &str| User {
+            id: username.into(),
+            username: username.into(),
+            ..User::default()
+        };
+        let people = [
+            person("tester"),
+            person("brian.franklin"),
+            person("edsger.wirth"),
+            person("dennis.rossum"),
+            person("claude.liskov"),
+        ];
+        assert_eq!(
+            group_display_name(&people),
+            "brian.franklin, claude.liskov, dennis.rossum, edsger.wirth, tester"
+        );
+    }
 }
