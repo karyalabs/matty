@@ -35,8 +35,46 @@ pub struct DirectoryChannel {
     pub joined: bool,
     /// Archived (#965): it opens to read, and nobody joins it.
     pub archived: bool,
-    /// Private: only archived ones the user was in are listed.
+    /// Private: listed only when the user is in it, or was (archived).
     pub private: bool,
+}
+
+/// Which channels Browse lists, as the official client's channel type
+/// filter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum BrowseKind {
+    #[default]
+    Public,
+    /// The private channels the user is in (#1010).
+    Private,
+    /// Archived channels (#965).
+    Archived,
+}
+
+impl BrowseKind {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Private => "private",
+            Self::Archived => "archived",
+        }
+    }
+
+    fn of_id(id: &str) -> Self {
+        match id {
+            "private" => Self::Private,
+            "archived" => Self::Archived,
+            _ => Self::Public,
+        }
+    }
+
+    fn lists(self, channel: &DirectoryChannel) -> bool {
+        match self {
+            Self::Public => !channel.archived && !channel.private,
+            Self::Private => !channel.archived && channel.private,
+            Self::Archived => channel.archived,
+        }
+    }
 }
 
 /// What the browse dialog asks the window to do.
@@ -65,8 +103,9 @@ pub struct BrowseView {
     channels: Vec<DirectoryChannel>,
     team_name: SharedString,
     search: Entity<InputState>,
-    /// Lists the archived channels instead (#965).
-    archived: bool,
+    kind: BrowseKind,
+    /// Leaves out the channels the user is already in (#1010).
+    hide_joined: bool,
     handle: DialogHandle,
     focus_search: bool,
     _subscription: gpui_kit::Subscription,
@@ -87,7 +126,8 @@ impl BrowseView {
             channels: Vec::new(),
             team_name: team_name.into(),
             search,
-            archived: false,
+            kind: BrowseKind::default(),
+            hide_joined: false,
             handle: DialogHandle::new(false),
             focus_search: false,
             _subscription: subscription,
@@ -112,7 +152,7 @@ impl BrowseView {
     pub fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
-        self.archived = false;
+        self.kind = BrowseKind::default();
         self.handle.open(window, cx);
         self.focus_search = true;
         cx.notify();
@@ -251,11 +291,13 @@ impl Render for BrowseView {
             window.on_next_frame(move |window, cx| window.focus(&focus, cx));
         }
         let query = self.search.read(cx).value().trim().to_lowercase();
-        let archived = self.archived;
+        let kind = self.kind;
+        let hide_joined = self.hide_joined && kind != BrowseKind::Archived;
         let matching: Vec<&DirectoryChannel> = self
             .channels
             .iter()
-            .filter(|channel| channel.archived == archived)
+            .filter(|channel| kind.lists(channel))
+            .filter(|channel| !(hide_joined && channel.joined))
             .filter(|channel| {
                 query.is_empty()
                     || channel.name.to_lowercase().contains(&query)
@@ -272,34 +314,72 @@ impl Render for BrowseView {
         let listed = self
             .channels
             .iter()
-            .filter(|channel| channel.archived == archived)
+            .filter(|channel| kind.lists(channel))
             .count();
+        let any_private = self.channels.iter().any(|c| !c.archived && c.private);
         let any_archived = self.channels.iter().any(|c| c.archived);
         let view = cx.entity().downgrade();
         let filter = crate::ui::toggle_group::ToggleGroup::new("browse.filter")
             .aria_label(t!("browse-filter"))
             .segmented(true)
-            .value([SharedString::from(if archived {
-                "archived"
-            } else {
-                "public"
-            })])
+            .value([SharedString::from(kind.id())])
             .item(
                 crate::ui::toggle_group::ToggleGroupItem::new("browse.filter.public", "public")
                     .child(t!("browse-filter-public")),
             )
-            .item(
-                crate::ui::toggle_group::ToggleGroupItem::new("browse.filter.archived", "archived")
+            .when(any_private, |group| {
+                group.item(
+                    crate::ui::toggle_group::ToggleGroupItem::new(
+                        "browse.filter.private",
+                        "private",
+                    )
+                    .child(t!("browse-filter-private")),
+                )
+            })
+            .when(any_archived, |group| {
+                group.item(
+                    crate::ui::toggle_group::ToggleGroupItem::new(
+                        "browse.filter.archived",
+                        "archived",
+                    )
                     .child(t!("browse-filter-archived")),
-            )
+                )
+            })
             .on_change(move |next, _, cx| {
-                let archived = next.first().is_some_and(|value| value == "archived");
+                let kind = next
+                    .first()
+                    .map_or(BrowseKind::Public, |value| BrowseKind::of_id(value));
                 view.update(cx, |this, cx| {
-                    this.archived = archived;
+                    this.kind = kind;
                     cx.notify();
                 })
                 .ok();
             });
+        let hide_view = cx.entity().downgrade();
+        let hide_joined_box = div()
+            .flex()
+            .items_center()
+            .gap(theme.space(2.))
+            .child(
+                Checkbox::new("browse.hide-joined")
+                    .checked(self.hide_joined)
+                    .disabled(kind == BrowseKind::Archived)
+                    .aria_label(t!("browse-hide-joined"))
+                    .on_change(move |&next, _, cx| {
+                        hide_view
+                            .update(cx, |this, cx| {
+                                this.hide_joined = next;
+                                cx.notify();
+                            })
+                            .ok();
+                    }),
+            )
+            .child(
+                div()
+                    .type_style(style::UI, &theme)
+                    .text_color(theme.colors.foreground)
+                    .child(t!("browse-hide-joined")),
+            );
         div()
             .flex()
             .flex_col()
@@ -311,30 +391,34 @@ impl Render for BrowseView {
                     .gap(theme.space(1.))
                     .child(dialog_title("browse.title", cx).child(t!("browse-title")))
                     .child(
-                        dialog_description("browse.description", cx).child(if archived {
-                            t!(
+                        dialog_description("browse.description", cx).child(match kind {
+                            BrowseKind::Archived => t!(
                                 "browse-description-archived",
                                 count = listed,
                                 team = self.team_name.to_string()
-                            )
-                        } else {
-                            t!(
+                            ),
+                            BrowseKind::Private => t!(
+                                "browse-description-private",
+                                count = listed,
+                                team = self.team_name.to_string()
+                            ),
+                            BrowseKind::Public => t!(
                                 "browse-description",
                                 count = listed,
                                 team = self.team_name.to_string()
-                            )
+                            ),
                         }),
                     ),
             )
+            .child(Input::new(&self.search).aria_label(t!("directory-search-channels")))
             .child(
                 div()
                     .flex()
                     .items_center()
+                    .justify_between()
                     .gap(theme.space(2.))
-                    .child(div().flex_1().min_w_0().child(
-                        Input::new(&self.search).aria_label(t!("directory-search-channels")),
-                    ))
-                    .when(any_archived, |row| row.child(filter)),
+                    .when(any_private || any_archived, |row| row.child(filter))
+                    .child(hide_joined_box),
             )
             .child(
                 div()
@@ -352,7 +436,13 @@ impl Render for BrowseView {
                                 .text_center()
                                 .type_style(style::UI, &theme)
                                 .text_color(theme.colors.muted_foreground)
-                                .child(t!("browse-no-match", query = query.to_string())),
+                                .child(if !query.is_empty() {
+                                    t!("browse-no-match", query = query.to_string())
+                                } else if hide_joined {
+                                    t!("browse-all-joined")
+                                } else {
+                                    t!("browse-none")
+                                }),
                         )
                     })
                     .children(rows),

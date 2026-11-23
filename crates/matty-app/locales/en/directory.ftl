@@ -14,6 +14,10 @@ browse-description-archived = { $count ->
         [one] { $count } archived channel in { $team }
        *[other] { $count } archived channels in { $team }
     }
+browse-description-private = { $count ->
+        [one] { $count } private channel you're in on { $team }
+       *[other] { $count } private channels you're in on { $team }
+    }
 browse-members = { $count ->
         [one] { $count } member
        *[other] { $count } members
@@ -74,4 +78,8 @@ add-members-add = { $count ->
     }
 browse-filter = Show
 browse-filter-public = Public
+browse-filter-private = Private
 browse-filter-archived = Archived
+browse-hide-joined = Hide joined channels
+browse-all-joined = You're in every channel here.
+browse-none = No channels here.

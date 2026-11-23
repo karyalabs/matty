@@ -865,6 +865,15 @@ pub(crate) async fn run(
                         break;
                     }
                 }
+                // The private channels the user is in, for the Private
+                // filter (#1010); public ones are listed above already.
+                channels.extend(
+                    client
+                        .my_channels(&team_id)
+                        .await?
+                        .into_iter()
+                        .filter(|channel| channel.kind == "P" && channel.delete_at == 0),
+                );
                 let ids: Vec<String> = channels.iter().map(|c| c.id.clone()).collect();
                 let members = if ids.is_empty() {
                     std::collections::HashMap::new()

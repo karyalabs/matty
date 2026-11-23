@@ -4590,7 +4590,10 @@ impl MainWindow {
 
     fn browse(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let handle = self.browse.read(cx).handle().clone();
-        let popup = dialog_popup("browse.popup", "Browse channels", cx).child(self.browse.clone());
+        // Wide enough for the type filter and "Hide joined" on one line.
+        let popup = dialog_popup("browse.popup", "Browse channels", cx)
+            .max_w(UiTheme::read(cx).space(140.))
+            .child(self.browse.clone());
         dialog("browse", &handle, popup, window, cx)
     }
 
