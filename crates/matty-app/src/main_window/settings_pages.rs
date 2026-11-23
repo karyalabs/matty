@@ -1905,6 +1905,26 @@ impl MainWindow {
             window,
             cx,
         );
+        // Followed-thread replies only mean something with collapsed reply
+        // threads on; with them off, Mattermost's `comments` decides which
+        // replies notify, on every device.
+        let threads_on = self.collapsed_threads.is_none_or(|(_, on)| on);
+        let replies = selects.get(
+            "preferences.replies",
+            &[
+                ("any", t!("prefs-replies-any")),
+                ("root", t!("prefs-replies-root")),
+                ("never", t!("prefs-replies-never")),
+            ],
+            match props.get("comments").map(String::as_str) {
+                Some("any") => "any",
+                Some("root") => "root",
+                _ => "never",
+            },
+            |value, this, cx| this.set_notify_prop("comments", value, cx),
+            window,
+            cx,
+        );
         let view = cx.entity().downgrade();
         let on = |key: &str, default: bool| props.get(key).map_or(default, |v| v == "true");
         let switch = |id: &'static str,
@@ -1930,8 +1950,9 @@ impl MainWindow {
                     t!("prefs-desktop-label"),
                     &theme,
                 )),
-            )
-            .row(
+            );
+        let desktop_group = if threads_on {
+            desktop_group.row(
                 Row::new("preferences.desktop-threads", t!("prefs-desktop-threads"))
                     .description(t!("prefs-desktop-threads-detail"))
                     .control(switch(
@@ -1942,30 +1963,37 @@ impl MainWindow {
                         ("all", "mention"),
                     )),
             )
-            .row(
-                Row::new("preferences.desktop-sound", t!("prefs-sound"))
-                    .description(t!("prefs-sound-detail"))
-                    .control(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(theme.space(3.))
-                            .child(
-                                div().w(scaled(&theme, metrics::FIELD_NARROW_WIDTH)).child(
-                                    Select::new(&sound)
-                                        .aria_label(t!("prefs-notification-sound"))
-                                        .disabled(!user.desktop_sound),
-                                ),
-                            )
-                            .child(switch(
-                                "preferences.desktop-sound.switch",
-                                t!("prefs-sound"),
-                                user.desktop_sound,
-                                "desktop_sound",
-                                ("true", "false"),
-                            )),
-                    ),
-            );
+        } else {
+            desktop_group.row(
+                Row::new("preferences.replies", t!("prefs-replies"))
+                    .description(t!("prefs-replies-detail"))
+                    .control(select(&replies, t!("prefs-replies"), &theme)),
+            )
+        };
+        let desktop_group = desktop_group.row(
+            Row::new("preferences.desktop-sound", t!("prefs-sound"))
+                .description(t!("prefs-sound-detail"))
+                .control(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(theme.space(3.))
+                        .child(
+                            div().w(scaled(&theme, metrics::FIELD_NARROW_WIDTH)).child(
+                                Select::new(&sound)
+                                    .aria_label(t!("prefs-notification-sound"))
+                                    .disabled(!user.desktop_sound),
+                            ),
+                        )
+                        .child(switch(
+                            "preferences.desktop-sound.switch",
+                            t!("prefs-sound"),
+                            user.desktop_sound,
+                            "desktop_sound",
+                            ("true", "false"),
+                        )),
+                ),
+        );
         let first_name = self.account.read(cx).account().display_name.clone();
         let first_name = first_name
             .split_whitespace()
@@ -2032,32 +2060,34 @@ impl MainWindow {
                 window,
                 cx,
             );
-            groups.push(
-                Group::new("preferences.push", t!("prefs-push"))
-                    .synced()
-                    .row(
-                        Row::new("preferences.push", t!("prefs-desktop-label")).control(select(
-                            &push,
-                            t!("prefs-push"),
-                            &theme,
+            let mut push_group = Group::new("preferences.push", t!("prefs-push"))
+                .synced()
+                .row(
+                    Row::new("preferences.push", t!("prefs-desktop-label")).control(select(
+                        &push,
+                        t!("prefs-push"),
+                        &theme,
+                    )),
+                );
+            if threads_on {
+                push_group = push_group.row(
+                    Row::new("preferences.push-threads", t!("prefs-desktop-threads"))
+                        .description(t!("prefs-desktop-threads-detail"))
+                        .control(switch(
+                            "preferences.push-threads.switch",
+                            t!("prefs-push-threads"),
+                            props.get("push_threads").is_none_or(|v| v == "all"),
+                            "push_threads",
+                            ("all", "mention"),
                         )),
-                    )
-                    .row(
-                        Row::new("preferences.push-threads", t!("prefs-desktop-threads"))
-                            .description(t!("prefs-desktop-threads-detail"))
-                            .control(switch(
-                                "preferences.push-threads.switch",
-                                t!("prefs-push-threads"),
-                                props.get("push_threads").is_none_or(|v| v == "all"),
-                                "push_threads",
-                                ("all", "mention"),
-                            )),
-                    )
-                    .row(
-                        Row::new("preferences.push-status", t!("prefs-push-status"))
-                            .description(t!("prefs-push-status-detail"))
-                            .control(select(&push_status, t!("prefs-push-status"), &theme)),
-                    ),
+                );
+            }
+            groups.push(
+                push_group.row(
+                    Row::new("preferences.push-status", t!("prefs-push-status"))
+                        .description(t!("prefs-push-status-detail"))
+                        .control(select(&push_status, t!("prefs-push-status"), &theme)),
+                ),
             );
         }
         if features.email {
@@ -2074,7 +2104,7 @@ impl MainWindow {
                             ("true", "false"),
                         )),
                 );
-            if on("email", true) {
+            if threads_on && on("email", true) {
                 email = email.row(
                     Row::new("preferences.email-threads", t!("prefs-desktop-threads"))
                         .description(t!("prefs-desktop-threads-detail"))
