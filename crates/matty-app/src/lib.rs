@@ -21,6 +21,7 @@ pub mod channel_settings;
 pub mod chrome;
 pub mod clock;
 pub mod composer_draft;
+pub mod composer_history;
 pub mod contrast;
 pub mod custom_status;
 pub mod decoded_images;

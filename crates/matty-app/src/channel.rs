@@ -1480,6 +1480,8 @@ pub struct ChannelView {
     remind_dialog: Entity<crate::scheduled::ScheduleDialog>,
     /// The post the reminder dialog is for.
     remind_post: Option<SharedString>,
+    /// Where Ctrl+Up has got to in the sent messages (#1023).
+    sent: crate::composer_history::Browse,
     _subscriptions: Vec<gpui_kit::Subscription>,
 }
 
@@ -1693,6 +1695,23 @@ impl ChannelView {
                         })
                         .unwrap_or(false);
                 }
+                if let Some(older) = crate::composer_history::direction(keystroke) {
+                    // The key arrives from inside the composer's own update,
+                    // so the composer changes once it has let go.
+                    return keys
+                        .update(cx, |this, cx| {
+                            if !this.sent.claims(this.draft_len == 0) {
+                                return false;
+                            }
+                            let view = cx.weak_entity();
+                            window.defer(cx, move |window, cx| {
+                                view.update(cx, |this, cx| this.browse_history(older, window, cx))
+                                    .ok();
+                            });
+                            true
+                        })
+                        .unwrap_or(false);
+                }
                 // Up and Shift+Up only: Alt+Shift+Up is the unread jump.
                 let mods = &keystroke.modifiers;
                 if keystroke.key != "up" || mods.alt || mods.control || mods.platform {
@@ -1848,6 +1867,7 @@ impl ChannelView {
                         let text = composer.read(cx).value(cx);
                         let chrome = this.composer_chrome();
                         this.draft_len = text.chars().count();
+                        this.sent.edited(&text);
                         this.draft_changed(&text, cx);
                         let slash_changed = this.slash.edited(&text);
                         // A restored draft is not the user typing.
@@ -1957,6 +1977,7 @@ impl ChannelView {
             schedule_dialog,
             remind_dialog,
             remind_post: None,
+            sent: Default::default(),
             _subscriptions: subscriptions,
         };
         this.set_model(model, window, cx);
@@ -3235,6 +3256,8 @@ impl ChannelView {
     /// composer and tells sync (PLAN §4.3: optimistic send through the
     /// outbox). Blank text and text over the limit stay in the composer.
     fn send(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        crate::composer_history::record(&text, cx);
+        self.sent.reset();
         if self.run_slash(&text, window, cx) {
             return;
         }
@@ -3244,6 +3267,16 @@ impl ChannelView {
             return;
         }
         self.send_confirmed(text, window, cx);
+    }
+
+    /// Ctrl+Up or Ctrl+Down: the composer shows an older or newer sent
+    /// message, unless it holds text the user typed.
+    fn browse_history(&mut self, older: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let draft = self.composer.read(cx).value(cx);
+        if let Some(text) = self.sent.step(&draft, older, cx) {
+            self.composer
+                .update(cx, |composer, cx| composer.set_value(text, window, cx));
+        }
     }
 
     fn send_confirmed(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {

@@ -634,6 +634,8 @@ pub struct RightPaneView {
     remind_dialog: Entity<crate::scheduled::ScheduleDialog>,
     /// The reply the reminder dialog is for.
     remind_post: Option<SharedString>,
+    /// Where Ctrl+Up has got to in the sent messages (#1023).
+    sent: crate::composer_history::Browse,
     /// The full emoji picker, on the reply composer's emoji button, for the
     /// reply or for a reaction, as in the channel (#679).
     picker: Entity<EmojiPickerState>,
@@ -862,6 +864,23 @@ impl RightPaneView {
                         })
                         .unwrap_or(false);
                 }
+                if let Some(older) = crate::composer_history::direction(keystroke) {
+                    // The key arrives from inside the composer's own update,
+                    // so the composer changes once it has let go.
+                    return keys
+                        .update(cx, |this, cx| {
+                            if !this.sent.claims(this.draft_len == 0) {
+                                return false;
+                            }
+                            let view = cx.weak_entity();
+                            window.defer(cx, move |window, cx| {
+                                view.update(cx, |this, cx| this.browse_history(older, window, cx))
+                                    .ok();
+                            });
+                            true
+                        })
+                        .unwrap_or(false);
+                }
                 if keystroke.key != "enter"
                     || !(keystroke.modifiers.control || keystroke.modifiers.platform)
                 {
@@ -952,6 +971,7 @@ impl RightPaneView {
                         crate::channel::follow_send_key(composer, send_on, cx);
                         let text = composer.read(cx).value(cx);
                         this.draft_len = text.chars().count();
+                        this.sent.edited(&text);
                         this.draft_changed(&text, cx);
                         this.slash.edited(&text);
                         // A restored draft is not the user typing.
@@ -1053,6 +1073,7 @@ impl RightPaneView {
             schedule_dialog,
             remind_dialog,
             remind_post: None,
+            sent: Default::default(),
             picker,
             picker_open: false,
             picker_at: None,
@@ -1269,7 +1290,18 @@ impl RightPaneView {
     /// Appends the text and the tray's files as a pending reply by the
     /// current user, clears the composer and tells sync. Blank text with no
     /// files stays in the composer; Enter while files upload waits for them.
+    /// Ctrl+Up or Ctrl+Down in the reply box, as in the channel (#1023).
+    fn browse_history(&mut self, older: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let draft = self.composer.read(cx).value(cx);
+        if let Some(text) = self.sent.step(&draft, older, cx) {
+            self.composer
+                .update(cx, |composer, cx| composer.set_value(text, window, cx));
+        }
+    }
+
     fn reply(&mut self, text: SharedString, window: &mut Window, cx: &mut Context<Self>) {
+        crate::composer_history::record(&text, cx);
+        self.sent.reset();
         if self.run_slash(&text, window, cx) {
             return;
         }

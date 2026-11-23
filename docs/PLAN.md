@@ -418,6 +418,7 @@ conventions or Matty additions. A Cmd/Ctrl+/ sheet lists them all.
 | Upload files | Cmd+U (MM) |
 | Edit last message | Up in empty composer (MM) |
 | Reply to last message | Shift+Up in empty composer (MM) |
+| Previous / next sent message | Cmd+Up / Cmd+Down in the composer, Ctrl on Windows and Linux (MM) |
 | React to last message | Cmd+Shift+\ (MM) |
 | Focus composer | Cmd+Shift+L (MM), or just start typing |
 | Mark channel read | Escape in the channel (Matty addition, from Slack) |

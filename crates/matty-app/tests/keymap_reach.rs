@@ -32,7 +32,7 @@ impl Render for Root {
 }
 
 /// Rows that are not expected to run an action here, and why.
-const ELSEWHERE: [(&str, &str); 8] = [
+const ELSEWHERE: [(&str, &str); 10] = [
     // The composer reads these keys itself, so that the same keys format
     // an edit and a reply (`channel::format_shortcut`, tested there).
     ("Bold", "the composer handles the key"),
@@ -44,6 +44,9 @@ const ELSEWHERE: [(&str, &str); 8] = [
     // (`Place::Reply` gets to the reply box with Shift+Up).
     ("Edit last message", "the composer handles the key"),
     ("Reply to last message", "the composer handles the key"),
+    // Ctrl+Up and Ctrl+Down walk the sent messages (`composer_history`).
+    ("Previous sent message", "the composer handles the key"),
+    ("Next sent message", "the composer handles the key"),
     // Handled for every window by `menu::init`, which tests leave out, and
     // by the main window where closing hides Matty (tests/close_keeps_running.rs).
     ("Close window", "handled app-wide"),

@@ -60,6 +60,10 @@ gpui_kit::actions!(
         EditLastMessage,
         /// Reply to the last message, from an empty composer. (MM)
         ReplyToLastMessage,
+        /// Bring back an older sent message in the composer. (MM)
+        PreviousSentMessage,
+        /// Bring back a newer sent message in the composer. (MM)
+        NextSentMessage,
         /// React to the last message. (MM)
         ReactToLastMessage,
         /// Wrap the composer selection in bold. (MM)
@@ -359,6 +363,8 @@ impl Binding {
             | "Inline code"
             | "Edit last message"
             | "Reply to last message"
+            | "Previous sent message"
+            | "Next sent message"
             | "React to last message"
             | "Focus composer"
             | "Mark channel read"
@@ -688,6 +694,20 @@ pub fn bindings() -> Vec<Binding> {
             Some(COMPOSER_EMPTY),
             "shift-up",
             "shift-up"
+        ),
+        row!(
+            "Previous sent message",
+            PreviousSentMessage,
+            Some(COMPOSER),
+            "cmd-up",
+            "ctrl-up"
+        ),
+        row!(
+            "Next sent message",
+            NextSentMessage,
+            Some(COMPOSER),
+            "cmd-down",
+            "ctrl-down"
         ),
         row!(
             "React to last message",
@@ -1140,7 +1160,7 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), count, "an action appears in two rows");
-        assert_eq!(count, 47);
+        assert_eq!(count, 49);
     }
 
     #[test]
