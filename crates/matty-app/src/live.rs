@@ -2270,8 +2270,49 @@ impl Live {
             )
             .to_string(),
             Some(person) => crate::transcript::display_name_as(person, self.names),
+            None if channel.kind == "G" => self.group_name(&channel.display_name),
             None => channel.display_name.clone(),
         }
+    }
+
+    /// Whether one of `users` is in a group message in the sidebar, which
+    /// is named by its people.
+    fn names_a_group(&self, users: &[User]) -> bool {
+        self.sections
+            .values()
+            .flat_map(|sections| sections.iter())
+            .flat_map(|section| section.channels.iter())
+            .filter(|channel| channel.kind == "G")
+            .any(|channel| {
+                channel
+                    .display_name
+                    .split(',')
+                    .any(|username| users.iter().any(|user| user.username == username.trim()))
+            })
+    }
+
+    /// A group message's name as the web app shows it: the other people,
+    /// in the user's name format, comma-separated. The server names a
+    /// group by every member's username; one Matty hasn't loaded yet stays
+    /// a username.
+    fn group_name(&self, usernames: &str) -> String {
+        let mut names: Vec<String> = usernames
+            .split(',')
+            .map(str::trim)
+            .filter(|username| !username.is_empty() && *username != self.me.1)
+            .map(|username| {
+                self.users
+                    .values()
+                    .find(|user| user.username == username)
+                    .map(|user| crate::transcript::display_name_as(user, self.names))
+                    .unwrap_or_else(|| username.to_owned())
+            })
+            .collect();
+        if names.is_empty() {
+            return usernames.to_owned();
+        }
+        names.sort_by_key(|name| name.to_lowercase());
+        names.join(", ")
     }
 
     /// A category's channels in the order its sorting asks for, as the web
@@ -3192,6 +3233,9 @@ impl Live {
                     self.avatars.learn(&user.id, user.last_picture_update);
                     self.users.insert(user.id.clone(), user.clone());
                     self.take_me(user, &mut update);
+                }
+                if self.names_a_group(users) {
+                    update.categories = self.shown_categories();
                 }
                 if self.thread_list.is_some() {
                     update.threads = Some(self.threads_model());
@@ -4336,6 +4380,46 @@ mod tests {
         let update = live.set_names(NameFormat::Username);
         assert_eq!(update.categories.unwrap()[0].rows[0].name.as_ref(), "ada");
         assert_eq!(live.channel_name("dm").as_deref(), Some("ada"));
+    }
+
+    #[test]
+    fn a_group_is_named_by_the_other_people_in_the_name_format() {
+        use crate::settings::NameFormat;
+        let mut live = live();
+        live.apply(&ChangeSet::Unreads {
+            teams: Arc::from(vec![team("t1")]),
+        });
+        let mut group = channel("gm", "G", 0, 0);
+        group.display_name = "me, zed, ada".into();
+        let update = live.apply(&ChangeSet::Sidebar {
+            team_id: "t1".into(),
+            sections: Arc::from(vec![section("c", vec![group])]),
+        });
+        // People Matty hasn't loaded keep their usernames.
+        assert_eq!(
+            update.categories.unwrap()[0].rows[0].name.as_ref(),
+            "ada, zed"
+        );
+        let person = |id: &str, username: &str, first: &str| User {
+            id: id.into(),
+            username: username.into(),
+            first_name: first.into(),
+            last_name: "Example".into(),
+            ..User::default()
+        };
+        let update = live.apply(&ChangeSet::Users(Arc::from(vec![
+            person("u1", "zed", "Ada"),
+            person("u2", "ada", "Zoe"),
+        ])));
+        assert_eq!(
+            update.categories.unwrap()[0].rows[0].name.as_ref(),
+            "Ada Example, Zoe Example"
+        );
+        let update = live.set_names(NameFormat::Username);
+        assert_eq!(
+            update.categories.unwrap()[0].rows[0].name.as_ref(),
+            "ada, zed"
+        );
     }
 
     #[test]

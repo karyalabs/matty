@@ -3799,9 +3799,11 @@ impl Engine {
                 members,
                 categories,
                 users,
+                group_users,
             } => {
                 let tx = self.store.write()?;
                 sidebar::upsert_users(&tx, &users)?;
+                sidebar::upsert_users(&tx, &group_users)?;
                 sidebar::upsert_channels(&tx, &channels)?;
                 sidebar::upsert_channel_members(&tx, &members)?;
                 sidebar::replace_categories(&tx, &team_id, &categories)?;
@@ -3811,6 +3813,11 @@ impl Engine {
                 dirty
                     .channels
                     .extend(channels.into_iter().map(|channel| channel.id));
+                if !group_users.is_empty() {
+                    self.sent_users
+                        .extend(group_users.iter().map(|user| user.id.clone()));
+                    dirty.direct.push(ChangeSet::Users(Arc::from(group_users)));
+                }
             }
             Loaded::TeamFailed { team_id, error } => {
                 tracing::warn!(%team_id, %error, "a team did not load");

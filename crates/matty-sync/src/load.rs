@@ -43,6 +43,9 @@ pub(crate) enum Loaded {
         members: Vec<ChannelMember>,
         categories: SidebarCategories,
         users: Vec<User>,
+        /// The other people in the team's group messages, which the app
+        /// names by them.
+        group_users: Vec<User>,
     },
     /// A team could not load; the others carry on.
     TeamFailed { team_id: String, error: String },
@@ -534,13 +537,35 @@ pub(crate) async fn team(
     } else {
         client.users_by_ids(&partners).await?
     };
+    let group_members = group_usernames(&channels);
+    let group_users = if group_members.is_empty() {
+        Vec::new()
+    } else {
+        client.users_by_usernames(&group_members).await?
+    };
     Ok(Loaded::Team {
         team_id: team_id.to_owned(),
         channels,
         members,
         categories,
         users,
+        group_users,
     })
+}
+
+/// Everyone in group channels, which the server names by their usernames,
+/// comma-separated.
+fn group_usernames(channels: &[Channel]) -> Vec<String> {
+    let mut usernames: Vec<String> = channels
+        .iter()
+        .filter(|channel| channel.kind == "G")
+        .flat_map(|channel| channel.display_name.split(','))
+        .map(|username| username.trim().to_owned())
+        .filter(|username| !username.is_empty())
+        .collect();
+    usernames.sort();
+    usernames.dedup();
+    usernames
 }
 
 /// The other people in direct channels (named `a__b`).
