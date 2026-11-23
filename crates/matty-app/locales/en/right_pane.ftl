@@ -96,6 +96,16 @@ pane-weekday-sunday = Sunday
 
 pane-files-empty = No files yet
 pane-files-empty-detail = Files shared in this channel show up here.
+pane-file-kind = File type
+pane-file-kind-none = No files of this type.
+pane-file-kind-all = All file types
+pane-file-kind-documents = Documents
+pane-file-kind-spreadsheets = Spreadsheets
+pane-file-kind-presentations = Presentations
+pane-file-kind-code = Code
+pane-file-kind-images = Images
+pane-file-kind-audio = Audio
+pane-file-kind-video = Video
 pane-pinned-empty = Nothing pinned yet
 pane-pinned-empty-detail = Pin a message from its More menu to keep it here for everyone.
 pane-saved-empty = Nothing saved yet

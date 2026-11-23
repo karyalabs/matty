@@ -78,6 +78,88 @@ pub struct ListedPost {
     pub post: Post,
 }
 
+/// The kinds of file the Files lists filter by, as in Mattermost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileKind {
+    All,
+    Documents,
+    Spreadsheets,
+    Presentations,
+    Code,
+    Images,
+    Audio,
+    Video,
+}
+
+impl FileKind {
+    const ALL: [Self; 8] = [
+        Self::All,
+        Self::Documents,
+        Self::Spreadsheets,
+        Self::Presentations,
+        Self::Code,
+        Self::Images,
+        Self::Audio,
+        Self::Video,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Documents => "documents",
+            Self::Spreadsheets => "spreadsheets",
+            Self::Presentations => "presentations",
+            Self::Code => "code",
+            Self::Images => "images",
+            Self::Audio => "audio",
+            Self::Video => "video",
+        }
+    }
+
+    fn of_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.id() == id)
+    }
+
+    fn label(self) -> SharedString {
+        match self {
+            Self::All => t!("pane-file-kind-all"),
+            Self::Documents => t!("pane-file-kind-documents"),
+            Self::Spreadsheets => t!("pane-file-kind-spreadsheets"),
+            Self::Presentations => t!("pane-file-kind-presentations"),
+            Self::Code => t!("pane-file-kind-code"),
+            Self::Images => t!("pane-file-kind-images"),
+            Self::Audio => t!("pane-file-kind-audio"),
+            Self::Video => t!("pane-file-kind-video"),
+        }
+    }
+
+    /// Whether a file named `name` is of this kind, by its extension, with
+    /// Mattermost's lists of extensions per kind.
+    fn matches(self, name: &str) -> bool {
+        let extension = std::path::Path::new(name)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default();
+        let listed: &[&str] = match self {
+            Self::All => return true,
+            Self::Documents => &["doc", "docx", "odt", "pdf", "txt", "rtf", "md"],
+            Self::Spreadsheets => &["xls", "xlsx", "ods", "csv"],
+            Self::Presentations => &["ppt", "pptx", "odp", "key"],
+            Self::Code => {
+                return crate::file_preview::language(std::path::Path::new(name))
+                    .is_some_and(|language| !language.is_empty() && language != "markdown");
+            }
+            Self::Images => &[
+                "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "heic", "tif", "tiff",
+            ],
+            Self::Audio => &["mp3", "m4a", "wav", "ogg", "flac", "aac"],
+            Self::Video => &["mp4", "mov", "webm", "avi", "mkv", "m4v"],
+        };
+        listed.contains(&extension.as_str())
+    }
+}
+
 /// A file a search found (#207), with where and when it was posted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FoundFile {
@@ -507,6 +589,8 @@ pub struct RightPaneView {
     hints: SearchHints,
     /// The search shows its Files tab, not its Messages one (#207).
     search_files_tab: bool,
+    /// Which kinds of file the Files lists show (#1006).
+    file_kind: Entity<crate::ui::select::SelectState>,
     suggestions: Vec<Suggestion>,
     /// The suggestion the arrow keys point at, which Enter picks.
     suggestion_at: Option<usize>,
@@ -822,7 +906,21 @@ impl RightPaneView {
         let (schedule_dialog, scheduling) = schedule::schedule_dialog(window, cx);
         let composer_input = composer.read(cx).input().clone();
         let picker = cx.new(|cx| EmojiPickerState::new(crate::emoji::categories(), window, cx));
+        let file_kind = cx.new(|cx| {
+            let mut state = crate::ui::select::SelectState::new(
+                FileKind::ALL
+                    .map(|kind| crate::ui::select::SelectItem::new(kind.id(), kind.label())),
+                window,
+                cx,
+            );
+            state.set_value(Some(FileKind::All.id().into()), window, cx);
+            state
+        });
         let subscriptions = vec![
+            cx.subscribe(
+                &file_kind,
+                |_, _, _: &crate::ui::select::SelectEvent, cx| cx.notify(),
+            ),
             cx.subscribe_in(
                 &picker,
                 window,
@@ -930,6 +1028,7 @@ impl RightPaneView {
             focus_reply: false,
             hints: SearchHints::default(),
             search_files_tab: false,
+            file_kind,
             suggestions: Vec::new(),
             suggestion_at: None,
             lightbox: cx.new(|_| LightboxState::new([])),
@@ -3352,13 +3451,41 @@ impl RightPaneView {
     ) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let view = cx.entity().downgrade();
+        let kind = self
+            .file_kind
+            .read(cx)
+            .value()
+            .and_then(|id| FileKind::of_id(id))
+            .unwrap_or(FileKind::All);
+        let shown: Vec<&FoundFile> = files
+            .iter()
+            .filter(|found| kind.matches(&found.file.name))
+            .collect();
+        let filter = div()
+            .px(theme.space(4.))
+            .pb(theme.space(1.))
+            .flex()
+            .justify_end()
+            .child(div().w(theme.space(44.)).child(
+                crate::ui::select::Select::new(&self.file_kind).aria_label(t!("pane-file-kind")),
+            ));
+        let empty = shown.is_empty().then(|| {
+            div()
+                .py(theme.space(6.))
+                .text_center()
+                .type_style(style::UI, &theme)
+                .text_color(theme.colors.muted_foreground)
+                .child(t!("pane-file-kind-none"))
+        });
         div()
             .id("right-pane.search.files")
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
             .py(theme.space(2.))
-            .children(files.iter().map(|found| {
+            .child(filter)
+            .children(empty)
+            .children(shown.into_iter().map(|found| {
                 let channel = match found.channel_name.as_ref() {
                     name if name.contains(' ') => name.to_string(),
                     name => format!("#{name}"),
