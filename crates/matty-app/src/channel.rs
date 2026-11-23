@@ -4968,12 +4968,20 @@ impl ChannelView {
             }
         })
         // A click on the message opens its thread, as in Mattermost
-        // (#680); links, buttons and a text selection keep their own.
-        .when(sent && editor.is_none() && click_to_reply(cx), |row| {
-            let (view, root) = (view.clone(), post.thread_root());
-            row.on_click(move |_, _, cx| {
-                view.update(cx, |_, cx| cx.emit(ChannelEvent::OpenThread(root.clone())))
-                    .ok();
+        // (#680), and Alt+click marks it unread (#1004); links, buttons
+        // and a text selection keep their own.
+        .when(sent && editor.is_none(), |row| {
+            let (view, root, unread) = (view.clone(), post.thread_root(), id.clone());
+            let replies = click_to_reply(cx);
+            row.on_click(move |event, _, cx| {
+                let event = if event.modifiers().alt {
+                    ChannelEvent::MarkUnread(unread.clone())
+                } else if replies {
+                    ChannelEvent::OpenThread(root.clone())
+                } else {
+                    return;
+                };
+                view.update(cx, |_, cx| cx.emit(event)).ok();
             })
         })
         // The hover toolbar is built only for the hovered or selected row
