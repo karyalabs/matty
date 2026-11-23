@@ -186,10 +186,66 @@ pub fn message_body(
 ) -> ShowMore {
     let id = id.into();
     let source = cached_source(body, cx);
-    ShowMore::new(
-        (id.clone(), "more"),
-        markdown_from_source(id, source, image_sizes, on_link, on_link_menu, own, cx),
-    )
+    let mut view = markdown_from_source(
+        id.clone(),
+        source,
+        image_sizes,
+        on_link,
+        on_link_menu,
+        own,
+        cx,
+    );
+    // As in Mattermost, a message of nothing but emoji shows them large.
+    let custom = cx.try_global::<crate::emoji::CustomEmoji>();
+    if only_emoji(body, &|name| {
+        crate::emoji::lookup(name).is_some() || custom.is_some_and(|known| known.contains(name))
+    }) {
+        view = view.text_size(UiTheme::read(cx).text(30.));
+    }
+    ShowMore::new((id, "more"), view)
+}
+
+/// Whether `body` is only emoji: glyphs or `:name:` codes `known` knows,
+/// with nothing but spaces between them.
+fn only_emoji(body: &str, known: &dyn Fn(&str) -> bool) -> bool {
+    let body = body.trim();
+    if body.is_empty() || body.len() > 400 {
+        return false;
+    }
+    body.split_whitespace().all(|word| {
+        let mut rest = word;
+        while !rest.is_empty() {
+            if let Some(after) = rest.strip_prefix(':')
+                && let Some(end) = after.find(':')
+                && end > 0
+                && known(&after[..end])
+            {
+                rest = &after[end + 1..];
+                continue;
+            }
+            let glyphs = rest.find(':').unwrap_or(rest.len());
+            if glyphs == 0 || !emoji_glyphs(&rest[..glyphs]) {
+                return false;
+            }
+            rest = &rest[glyphs..];
+        }
+        true
+    })
+}
+
+/// Whether `text` is made of emoji characters and their joiners alone. A
+/// digit, `#` or `*` counts only as part of a keycap.
+fn emoji_glyphs(text: &str) -> bool {
+    let keycap = text.contains('\u{20E3}');
+    text.chars().all(|c| match u32::from(c) {
+        0x30..=0x39 | 0x23 | 0x2A => keycap,
+        0x200D | 0xFE0F | 0x20E3 | 0xE0020..=0xE007F => true,
+        0xA9 | 0xAE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2194..=0x21AA => true,
+        0x231A..=0x23FF | 0x24C2 | 0x25AA..=0x25FE | 0x2600..=0x27BF => true,
+        0x2934 | 0x2935 | 0x2B05..=0x2B55 | 0x3030 | 0x303D | 0x3297 | 0x3299 => true,
+        0x1F000..=0x1FAFF => true,
+        _ => false,
+    })
 }
 
 /// How many bodies' sources [`cached_source`] keeps before starting over:
@@ -511,6 +567,26 @@ pub fn looks_like_link(query: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_message_of_only_emoji_is_told_apart() {
+        let known = |name: &str| ["tada", "partyparrot", "+1"].contains(&name);
+        for body in [
+            "🎉",
+            " 🎉 🎉 ",
+            ":tada:",
+            ":tada::+1: 👍🏽",
+            "❤️",
+            "👨‍👩‍👧",
+            "1️⃣",
+            ":partyparrot:",
+        ] {
+            assert!(only_emoji(body, &known), "{body:?}");
+        }
+        for body in ["", "hi 🎉", "🎉!", ":nope:", "1", ":tada: ok"] {
+            assert!(!only_emoji(body, &known), "{body:?}");
+        }
+    }
+
     use super::*;
 
     const SERVER: &str = "https://chat.example.com";
