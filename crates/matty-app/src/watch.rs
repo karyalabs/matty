@@ -339,6 +339,7 @@ mod tests {
             muted,
             last_post_at: 0,
             active_at: 0,
+            last_viewed_at: 0,
         }
     }
 

@@ -454,6 +454,9 @@ pub struct SidebarChannel {
     /// reads it: its newest post (newest root post with Collapsed Reply
     /// Threads on), or when it was made if that is later.
     pub active_at: i64,
+    /// When the user last viewed the channel, from their membership: where
+    /// the "New messages" line goes when it opens.
+    pub last_viewed_at: i64,
 }
 
 /// A category and its channels, in sidebar order.
@@ -483,7 +486,8 @@ const SNAPSHOT: &str = "
            m.msg_count, m.mention_count, m.msg_count_root, m.mention_count_root,
            m.urgent_mention_count, m.notify_props,
            u.username, u.first_name, u.last_name, u.nickname,
-           ch.last_root_post_at, coalesce(json_extract(ch.data, '$.create_at'), 0)
+           ch.last_root_post_at, coalesce(json_extract(ch.data, '$.create_at'), 0),
+           coalesce(m.last_viewed_at, 0)
     FROM categories cat
     LEFT JOIN category_channels cc ON cc.category_id = cat.id
     LEFT JOIN channels ch ON ch.id = cc.channel_id AND ch.delete_at = 0
@@ -611,6 +615,7 @@ pub fn sidebar_snapshot(
             dm_user,
             last_post_at,
             active_at: newest.max(created),
+            last_viewed_at: row.get(25)?,
         });
     }
     Ok(sections)

@@ -113,6 +113,8 @@ impl Live {
             offline: self.offline,
             zone: self.zone.clone(),
             shown: None,
+            unread_since: None,
+            shown_unread: None,
             failed: Default::default(),
             queued: self.queued.clone(),
             channel: None,

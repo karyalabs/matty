@@ -103,6 +103,12 @@ pub struct Live {
     zone: jiff::tz::TimeZone,
     /// The posts the channel view shows now, to send it only what changed.
     shown: Option<Vec<Post>>,
+    /// When the user last viewed the open channel before opening it, if it
+    /// was unread then: the "New messages" line goes above the first
+    /// message after it, and stays until another channel opens.
+    unread_since: Option<i64>,
+    /// The post the "New messages" line sat above in what was last shown.
+    shown_unread: Option<SharedString>,
     /// Ephemeral messages and interactive messages' waiting actions (#211).
     interactive: crate::interactive::Session,
     /// The open channel's sends that failed and wait for Retry or Delete;
@@ -792,6 +798,8 @@ impl Live {
                 offline: crate::offline(),
                 zone: crate::clock::zone(),
                 shown: None,
+                unread_since: None,
+                shown_unread: None,
                 interactive: Default::default(),
                 failed: Default::default(),
                 queued: HashMap::new(),
@@ -946,6 +954,15 @@ impl Live {
         self.typing.clear();
         self.ask_bindings(&row.id);
         self.kept_unread = (row.unread || row.mentions > 0).then(|| row.id.clone());
+        self.unread_since = self
+            .sections
+            .values()
+            .flat_map(|sections| sections.iter())
+            .flat_map(|section| &section.channels)
+            .find(|channel| channel.id == row.id.as_ref())
+            .filter(|channel| channel.unreads.is_unread() && channel.last_viewed_at > 0)
+            .map(|channel| channel.last_viewed_at);
+        self.shown_unread = None;
         self.open = Some(row);
         self.channel_model().expect("a channel is open")
     }
@@ -958,10 +975,36 @@ impl Live {
         Some((self.threads_choice?, self.threads_on?))
     }
 
+    /// Where the "New messages" line goes in `rows`: above the first
+    /// message someone else sent after the user last viewed the channel,
+    /// once a message they had seen is loaded above it.
+    fn first_unread(&self, rows: &[crate::channel::Post]) -> Option<usize> {
+        let since = self.unread_since?;
+        let posts = self.posts.as_deref()?;
+        if !posts.iter().any(|post| post.create_at <= since) {
+            return None;
+        }
+        let me = self.me.0.as_str();
+        posts
+            .iter()
+            .filter(|post| post.create_at > since && post.user_id != me)
+            .find_map(|post| rows.iter().position(|row| row.id.as_ref() == post.id))
+    }
+
     fn channel_update(&mut self) -> Option<ChannelUpdate> {
         let model = self.channel_model()?;
         if model.loading {
             return None;
+        }
+        // The line's place comes with a whole model: a patch keeps the one
+        // on screen, so a line that moves to another message replaces it.
+        let unread = model
+            .first_unread
+            .and_then(|index| model.posts.get(index))
+            .map(|post| post.id.clone());
+        if unread != self.shown_unread {
+            self.shown_unread = unread;
+            self.shown = None;
         }
         self.ask_thumbnails(&model.posts);
         self.ask_remote_images(&model.posts);
@@ -1084,6 +1127,14 @@ impl Live {
             || self.archived.contains_key(row.id.as_ref()),
             |channel| channel.delete_at != 0,
         );
+        model.first_unread = self.first_unread(&model.posts);
+        // Below the line a message starts with its author again.
+        if let Some(post) = model
+            .first_unread
+            .and_then(|index| model.posts.get_mut(index))
+        {
+            post.continues = false;
+        }
         for post in &mut model.posts {
             if self.failed.contains(post.id.as_ref()) {
                 post.status = crate::channel::PostStatus::Failed;
@@ -3941,6 +3992,7 @@ mod tests {
             muted: false,
             last_post_at: 0,
             active_at: 0,
+            last_viewed_at: 0,
         }
     }
 
@@ -5597,6 +5649,61 @@ mod tests {
         assert_eq!(names, ["ada", "me", "zed"]);
         // The user can message themselves, named as the web app names them.
         assert_eq!(people[1].display_name.as_ref(), "me (you)");
+    }
+
+    /// The "New messages" line goes above the first message someone else
+    /// sent after the user last viewed the channel, and stays there while
+    /// it is open.
+    #[test]
+    fn an_unread_channel_opens_with_the_new_messages_line() {
+        let mut live = live();
+        let mut unread = channel("c1", "O", 2, 0);
+        unread.last_viewed_at = 20;
+        live.apply(&ChangeSet::Sidebar {
+            team_id: "t1".into(),
+            sections: Arc::from(vec![section("c", vec![unread])]),
+        });
+        live.open(ChannelRow::new("c1", "town", ChannelKind::Public));
+        let post = |id: &str, user: &str, at: i64| matty_api::models::Post {
+            id: id.into(),
+            channel_id: "c1".into(),
+            user_id: user.into(),
+            message: id.into(),
+            create_at: at,
+            ..Default::default()
+        };
+        let posts = |list: Vec<matty_api::models::Post>| ChangeSet::Posts {
+            channel_id: "c1".into(),
+            posts: Arc::from(list),
+        };
+        // Only unread messages so far: no line without one seen above it.
+        let Some(ChannelUpdate::Replace(model)) =
+            live.apply(&posts(vec![post("p3", "ada", 30)])).channel
+        else {
+            panic!("the channel shows");
+        };
+        assert_eq!(model.first_unread, None);
+        let seen = vec![
+            post("p1", "ada", 10),
+            post("p2", "ada", 30),
+            post("p3", "ada", 40),
+        ];
+        let Some(ChannelUpdate::Replace(model)) = live.apply(&posts(seen.clone())).channel else {
+            panic!("the line comes with a whole model");
+        };
+        assert_eq!(model.first_unread, Some(1));
+        assert!(
+            !model.posts[1].continues,
+            "below the line the author shows again"
+        );
+        // Viewing the channel moves the server's mark, not the line.
+        let mut more = seen;
+        more.push(post("p4", "ada", 50));
+        let update = live.apply(&posts(more)).channel;
+        assert!(
+            matches!(update, Some(ChannelUpdate::Patch { .. })),
+            "{update:?}"
+        );
     }
 
     #[test]
