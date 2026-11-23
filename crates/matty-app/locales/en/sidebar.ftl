@@ -10,6 +10,7 @@ sidebar-browse-channels = Browse channels
 sidebar-create-channel = Create channel
 sidebar-create-category = Create new category
 sidebar-mark-read = Mark as read
+sidebar-mark-unread = Mark as unread
 sidebar-mark-category-read = Mark category as read
 sidebar-mute-category = Mute category
 sidebar-unmute-category = Unmute category

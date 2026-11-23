@@ -1155,6 +1155,9 @@ impl MainWindow {
                             .sidebar
                             .update(cx, |sidebar, cx| sidebar.mark_read(&id, cx));
                     }
+                    SidebarEvent::MarkUnread(id) => {
+                        return this.mark_channel_unread(id.clone(), cx);
+                    }
                     SidebarEvent::SetFavorite { id, favorite } => {
                         return this.set_favorite(id.clone(), *favorite, cx);
                     }
@@ -1900,13 +1903,31 @@ impl MainWindow {
             .map(SharedString::from)
             .or_else(|| self.selected_channel.clone());
         if let Some(id) = channel {
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.mark_unread(&id, cx));
-            // The open channel stays unread until the user leaves and comes
-            // back.
-            if self.selected_channel.as_ref() == Some(&id) {
-                self.kept_unread = Some(id);
-            }
+            self.show_unread(id, cx);
+        }
+    }
+
+    /// Marks a channel unread from its newest message, here and on the
+    /// server.
+    fn mark_channel_unread(&mut self, id: SharedString, cx: &mut Context<Self>) {
+        if self.refused_offline("mark unread", cx) {
+            return;
+        }
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::MarkChannelUnread {
+                channel_id: id.to_string(),
+            });
+        }
+        self.show_unread(id, cx);
+    }
+
+    fn show_unread(&mut self, id: SharedString, cx: &mut Context<Self>) {
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.mark_unread(&id, cx));
+        // The open channel stays unread until the user leaves and comes
+        // back.
+        if self.selected_channel.as_ref() == Some(&id) {
+            self.kept_unread = Some(id);
         }
     }
 

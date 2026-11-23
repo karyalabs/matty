@@ -629,6 +629,9 @@ pub enum SidebarEvent {
     /// "Mark as read" from a row's menu or its peek card; the row is
     /// already clear.
     MarkRead(SharedString),
+    /// "Mark as unread" from a read row's menu: unread from its newest
+    /// message.
+    MarkUnread(SharedString),
     /// A row's peek card opened (spec §2.5): the window answers with
     /// [`SidebarView::set_peek`].
     Peek(SharedString),
@@ -885,7 +888,7 @@ impl SidebarView {
         cx.notify();
     }
 
-    /// The row menu's items for `row`: mark read while unread, favorite,
+    /// The row menu's items for `row`: mark read or unread, favorite,
     /// mute, move, open in a new window, then leave or close.
     fn row_items(&self, row: &ChannelRow, cx: &Context<Self>) -> Vec<MenuItem> {
         let view = cx.weak_entity();
@@ -901,13 +904,19 @@ impl SidebarView {
         );
         let favorite = self.model.is_favorite(&row.id);
         let mut items = Vec::new();
-        if row.unread {
-            items.push(emit(
+        items.push(if row.unread {
+            emit(
                 "sidebar.row.read",
                 t!("sidebar-mark-read"),
                 SidebarEvent::MarkRead(row.id.clone()),
-            ));
-        }
+            )
+        } else {
+            emit(
+                "sidebar.row.unread",
+                t!("sidebar-mark-unread"),
+                SidebarEvent::MarkUnread(row.id.clone()),
+            )
+        });
         items.push(emit(
             "sidebar.row.favorite",
             if favorite {

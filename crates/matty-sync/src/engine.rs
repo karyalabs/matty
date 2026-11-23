@@ -252,6 +252,12 @@ pub enum Command {
         /// The first post to show as unread.
         post_id: String,
     },
+    /// Marks the channel unread from its newest message, as the sidebar's
+    /// "Mark as unread" does in Mattermost.
+    MarkChannelUnread {
+        /// The channel.
+        channel_id: String,
+    },
     /// Adds the user's reaction, or removes it when they already reacted
     /// with this emoji. Shown at once; undone if the server refuses.
     ToggleReaction {
@@ -1080,6 +1086,10 @@ impl std::fmt::Debug for Command {
             Self::MarkUnread { post_id } => f
                 .debug_struct("MarkUnread")
                 .field("post_id", post_id)
+                .finish(),
+            Self::MarkChannelUnread { channel_id } => f
+                .debug_struct("MarkChannelUnread")
+                .field("channel_id", channel_id)
                 .finish(),
             Self::ToggleReaction {
                 post_id,
@@ -2078,6 +2088,13 @@ impl Engine {
                     let collapsed_threads = cached_crt(&tx)?;
                     writes.push(Write::Unread {
                         post_id,
+                        collapsed_threads,
+                    });
+                }
+                Message::Command(Command::MarkChannelUnread { channel_id }) => {
+                    let collapsed_threads = cached_crt(&tx)?;
+                    writes.push(Write::UnreadChannel {
+                        channel_id,
                         collapsed_threads,
                     });
                 }

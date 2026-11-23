@@ -165,6 +165,26 @@ async fn viewing_reads_and_marking_unread_unreads() {
         async move { unread.await == 2 }
     })
     .await;
+
+    // The sidebar's "Mark as unread" starts at the newest message.
+    engine.send(Command::ViewChannel {
+        channel_id: channel_id.clone(),
+        prev_channel_id: String::new(),
+    });
+    engine
+        .sidebar(&channel_id, |c| c.unreads.messages == 0)
+        .await;
+    engine.send(Command::MarkChannelUnread {
+        channel_id: channel_id.clone(),
+    });
+    engine
+        .sidebar(&channel_id, |c| c.unreads.messages == 1)
+        .await;
+    eventually("the newest message unread on the server", || {
+        let unread = unread_on_server();
+        async move { unread.await == 1 }
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

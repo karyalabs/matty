@@ -54,6 +54,12 @@ pub(crate) enum Write {
         post_id: String,
         collapsed_threads: bool,
     },
+    /// Marks a channel unread from its newest message, which the server
+    /// names.
+    UnreadChannel {
+        channel_id: String,
+        collapsed_threads: bool,
+    },
     /// Adds or removes the user's reaction; the store already shows the
     /// change, so a failure undoes it.
     React {
@@ -300,7 +306,7 @@ impl Write {
             Self::Edit { .. } => "edit",
             Self::Delete { .. } => "delete",
             Self::View { .. } => "view",
-            Self::Unread { .. } => "mark unread",
+            Self::Unread { .. } | Self::UnreadChannel { .. } => "mark unread",
             Self::React { add: true, .. } => "add reaction",
             Self::React { add: false, .. } => "remove reaction",
             Self::SaveDraft(_) => "save draft",
@@ -393,9 +399,9 @@ impl Write {
             | Self::Delete { post_id }
             | Self::Unread { post_id, .. } => post_id.clone(),
             Self::React { reaction, .. } => reaction.post_id.clone(),
-            Self::View { channel_id, .. } | Self::DeleteDraft { channel_id, .. } => {
-                channel_id.clone()
-            }
+            Self::View { channel_id, .. }
+            | Self::UnreadChannel { channel_id, .. }
+            | Self::DeleteDraft { channel_id, .. } => channel_id.clone(),
             Self::SaveDraft(draft) => draft.channel_id.clone(),
             Self::Status { .. }
             | Self::NotifyProps(_)
@@ -649,6 +655,27 @@ pub(crate) async fn run(
             } => {
                 let unread = client
                     .set_post_unread(&user_id, &post_id, collapsed_threads)
+                    .await?;
+                Some(Loaded::Unread(Box::new(unread)))
+            }
+            Write::UnreadChannel {
+                channel_id,
+                collapsed_threads,
+            } => {
+                // System messages such as joins do not count as unread, so
+                // the newest message someone wrote is the one to mark.
+                let mut query = matty_api::PostsQuery::latest(30);
+                query.collapsed_threads = collapsed_threads;
+                let page = client.channel_posts(&channel_id, &query).await?;
+                let Some(post_id) = page.order.iter().find(|id| {
+                    page.posts
+                        .get(*id)
+                        .is_some_and(|post| !post.kind.starts_with("system_"))
+                }) else {
+                    return Ok(None);
+                };
+                let unread = client
+                    .set_post_unread(&user_id, post_id, collapsed_threads)
                     .await?;
                 Some(Loaded::Unread(Box::new(unread)))
             }
