@@ -48,14 +48,19 @@ pub(crate) enum Loaded {
         group_users: Vec<User>,
     },
     /// A team could not load; the others carry on.
-    TeamFailed { team_id: String, error: String },
+    TeamFailed {
+        team_id: String,
+        error: String,
+    },
     /// A channel the user opened or joined, to store and switch to.
     Ready {
         channel: Box<Channel>,
         member: Box<ChannelMember>,
     },
     /// The user left a channel.
-    Left { channel_id: String },
+    Left {
+        channel_id: String,
+    },
     /// The account itself could not load.
     Failed(String),
     /// The server refused the session token.
@@ -72,7 +77,10 @@ pub(crate) enum Loaded {
     /// Every team has been tried.
     Done,
     /// An opened channel's posts around the first unread.
-    Posts { channel_id: String, posts: PostList },
+    Posts {
+        channel_id: String,
+        posts: PostList,
+    },
     /// A page of an opened thread from the server: its newest replies
     /// with the root, or with `older` the page before the oldest reply
     /// loaded; `None` when it failed.
@@ -92,9 +100,13 @@ pub(crate) enum Loaded {
     /// The teams open to join, the user's own among them.
     JoinableTeams(Vec<matty_api::models::Team>),
     /// The user joined a team, and its channels came before this.
-    JoinedTeam { team_id: String },
+    JoinedTeam {
+        team_id: String,
+    },
     /// The server agreed that the user left a team.
-    LeftTeam { team_id: String },
+    LeftTeam {
+        team_id: String,
+    },
     /// A team's public channels and their member counts.
     Directory {
         team_id: String,
@@ -133,9 +145,15 @@ pub(crate) enum Loaded {
         image: Option<(Vec<u8>, String)>,
     },
     /// Who matches a typed `@name`, channel members first.
-    Suggested { term: String, users: Vec<User> },
+    Suggested {
+        term: String,
+        users: Vec<User>,
+    },
     /// The server took an interactive message's button press or choice.
-    PostActionDone { post_id: String, action_id: String },
+    PostActionDone {
+        post_id: String,
+        action_id: String,
+    },
     CommandSuggestions {
         channel_id: String,
         root_id: String,
@@ -188,7 +206,10 @@ pub(crate) enum Loaded {
         posts: Vec<matty_api::models::Post>,
     },
     /// A team's active people.
-    People { team_id: String, users: Vec<User> },
+    People {
+        team_id: String,
+        users: Vec<User>,
+    },
     /// Roles and their permissions.
     Roles(Vec<matty_api::models::Role>),
     /// The user's team memberships, with their team roles.
@@ -211,6 +232,9 @@ pub(crate) enum Loaded {
     Sessions(Vec<matty_api::models::Session>),
     /// The user's password changed.
     PasswordChanged,
+    MfaSecret(matty_api::MfaSecret),
+    /// The signed-in user after multi-factor authentication changed.
+    Mfa(matty_api::models::User),
     /// A team's people who are not in a channel.
     NonMembers {
         channel_id: String,
@@ -228,7 +252,10 @@ pub(crate) enum Loaded {
         admins: Vec<String>,
     },
     /// An opened channel's posts could not load.
-    PostsFailed { channel_id: String, error: String },
+    PostsFailed {
+        channel_id: String,
+        error: String,
+    },
     /// A channel an event named, with the user's membership when they have one.
     Channel {
         channel: Box<Channel>,
@@ -246,9 +273,15 @@ pub(crate) enum Loaded {
     /// Something from the WebSocket.
     Ws(WsSignal),
     /// What changed in a channel since its cursor, deletes included.
-    Since { channel_id: String, posts: PostList },
+    Since {
+        channel_id: String,
+        posts: PostList,
+    },
     /// A channel's latest page, replacing its cached posts after a long gap.
-    Reset { channel_id: String, posts: PostList },
+    Reset {
+        channel_id: String,
+        posts: PostList,
+    },
     /// Threads that changed in a team since its cursor.
     Threads {
         team_id: String,
@@ -281,11 +314,15 @@ pub(crate) enum Loaded {
     },
     /// Time to try a channel's queued sends again after a transient
     /// failure.
-    Drain { channel_id: String },
+    Drain {
+        channel_id: String,
+    },
     /// An edit the user made, as the server stored it.
     Edited(Box<matty_api::models::Post>),
     /// A delete the user made went through.
-    Deleted { post_id: String },
+    Deleted {
+        post_id: String,
+    },
     /// The read state after marking a post unread.
     Unread(Box<matty_api::models::ChannelUnreadAt>),
     /// A reaction the store already shows did not reach the server.

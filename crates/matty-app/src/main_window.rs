@@ -568,6 +568,13 @@ impl MainWindow {
                             session_id: session_id.clone(),
                         }
                     }
+                    crate::security::SecurityEvent::MfaSecret => matty_sync::Command::MfaSecret,
+                    crate::security::SecurityEvent::SetMfa { activate, code } => {
+                        matty_sync::Command::SetMfa {
+                            activate: *activate,
+                            code: code.clone(),
+                        }
+                    }
                 });
             },
         )
@@ -2168,6 +2175,14 @@ impl MainWindow {
         if let Some(result) = update.password_changed.take() {
             self.security
                 .update(cx, |view, cx| view.password_changed(result, window, cx));
+        }
+        if let Some(secret) = update.mfa_secret.take() {
+            self.security
+                .update(cx, |view, cx| view.set_mfa_secret(secret, window, cx));
+        }
+        if let Some(result) = update.mfa.take() {
+            self.security
+                .update(cx, |view, cx| view.mfa_changed(result, window, cx));
         }
         if let Some(team) = update.team_joined.take() {
             self.joining = Some(team);
@@ -4731,13 +4746,17 @@ impl MainWindow {
     /// Opens "Security" (#964) and asks for the signed-in devices. The
     /// password part shows only for accounts that sign in with one.
     fn open_security(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let password = self
-            .live
-            .as_ref()
-            .and_then(|live| live.me_user())
-            .is_none_or(|user| user.auth_service.is_empty());
+        let me = self.live.as_ref().and_then(|live| live.me_user());
+        let password = me.is_none_or(|user| user.auth_service.is_empty());
+        let features = crate::priority::Features::read(cx);
+        let mfa = features.mfa.then(|| {
+            (
+                me.is_some_and(|user| user.mfa_active),
+                features.mfa_required,
+            )
+        });
         self.security
-            .update(cx, |view, cx| view.open(password, window, cx));
+            .update(cx, |view, cx| view.open(password, mfa, window, cx));
         if let Some(live) = &self.live {
             live.send(matty_sync::Command::Sessions);
         }

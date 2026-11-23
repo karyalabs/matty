@@ -270,6 +270,11 @@ pub struct Update {
     pub sessions: Option<std::sync::Arc<[matty_api::models::Session]>>,
     /// How a password change went: `Ok`, or the server's reason.
     pub password_changed: Option<Result<(), SharedString>>,
+    /// A new multi-factor secret, for Security (#1049).
+    pub mfa_secret: Option<std::sync::Arc<matty_api::MfaSecret>>,
+    /// How a multi-factor step went: whether it is on now, or the
+    /// server's reason.
+    pub mfa: Option<Result<bool, SharedString>>,
     /// Something the server or an App refused, for a toast (#226).
     pub refused: Option<SharedString>,
     /// A link an App answered with, for Matty's link routing (#226).
@@ -2921,6 +2926,21 @@ impl Live {
             }
             ChangeSet::Sessions(sessions) => update.sessions = Some(sessions.clone()),
             ChangeSet::PasswordChanged => update.password_changed = Some(Ok(())),
+            ChangeSet::MfaSecret(secret) => update.mfa_secret = Some(secret.clone()),
+            ChangeSet::Mfa(on) => update.mfa = Some(Ok(*on)),
+            ChangeSet::Failed(matty_sync::CommandError::Server {
+                action:
+                    "set up multi-factor authentication"
+                    | "turn on multi-factor authentication"
+                    | "turn off multi-factor authentication",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.mfa = Some(Err(said.to_owned().into()));
+            }
             ChangeSet::Failed(matty_sync::CommandError::Server {
                 action: "change your password",
                 error,

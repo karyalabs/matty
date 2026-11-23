@@ -54,6 +54,11 @@ pub struct Features {
     pub push: bool,
     /// Automatic replies (`ExperimentalEnableAutomaticReplies`, #969).
     pub automatic_replies: bool,
+    /// Multi-factor authentication can be set up
+    /// (`EnableMultifactorAuthentication`, #1049).
+    pub mfa: bool,
+    /// ... and must stay on (`EnforceMultifactorAuthentication`).
+    pub mfa_required: bool,
 }
 
 impl Global for Features {}
@@ -73,6 +78,8 @@ impl Features {
             email_batching: capabilities.email_batching,
             push: capabilities.push_notifications,
             automatic_replies: capabilities.automatic_replies,
+            mfa: capabilities.mfa,
+            mfa_required: capabilities.mfa_required,
         }
     }
 
@@ -90,6 +97,8 @@ impl Features {
             email_batching: true,
             push: true,
             automatic_replies: true,
+            mfa: true,
+            mfa_required: false,
         }
     }
 

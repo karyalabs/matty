@@ -361,6 +361,12 @@ pub enum ChangeSet {
     Sessions(Arc<[matty_api::models::Session]>),
     /// [`Command::ChangePassword`](crate::Command::ChangePassword) worked.
     PasswordChanged,
+    /// A new multi-factor secret: the answer to
+    /// [`Command::MfaSecret`](crate::Command::MfaSecret).
+    MfaSecret(Arc<matty_api::MfaSecret>),
+    /// [`Command::SetMfa`](crate::Command::SetMfa) worked: whether
+    /// multi-factor authentication is now on.
+    Mfa(bool),
     /// The team's people who are not in a channel, for Add members: the
     /// answer to [`Command::NonMembers`](crate::Command::NonMembers).
     NonMembers {

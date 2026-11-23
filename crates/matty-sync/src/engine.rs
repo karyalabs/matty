@@ -719,6 +719,19 @@ pub enum Command {
         /// The password to use from now on.
         new: String,
     },
+    /// A new multi-factor secret to set up an authenticator app with
+    /// (#1049); [`ChangeSet::MfaSecret`](crate::ChangeSet::MfaSecret)
+    /// answers.
+    MfaSecret,
+    /// Turns multi-factor authentication on with a `code` from the app, or
+    /// off (#1049); [`ChangeSet::Mfa`](crate::ChangeSet::Mfa) answers, or
+    /// a failure.
+    SetMfa {
+        /// On or off.
+        activate: bool,
+        /// A code from the app; empty to turn it off.
+        code: String,
+    },
     /// Adds people already on the server to a team (#962).
     AddTeamMembers {
         /// The team.
@@ -1308,6 +1321,8 @@ impl std::fmt::Debug for Command {
                 .field("session_id", session_id)
                 .finish(),
             Self::ChangePassword { .. } => f.write_str("ChangePassword"),
+            Self::MfaSecret => f.write_str("MfaSecret"),
+            Self::SetMfa { activate, .. } => write!(f, "SetMfa({activate})"),
             Self::AddTeamMembers { team_id, user_ids } => f
                 .debug_struct("AddTeamMembers")
                 .field("team_id", team_id)
@@ -2510,6 +2525,10 @@ impl Engine {
                 }
                 Message::Command(Command::ChangePassword { current, new }) => {
                     writes.push(Write::Password(commands::PasswordChange { current, new }));
+                }
+                Message::Command(Command::MfaSecret) => writes.push(Write::MfaSecret),
+                Message::Command(Command::SetMfa { activate, code }) => {
+                    writes.push(Write::Mfa { activate, code });
                 }
                 Message::Command(Command::AddTeamMembers { team_id, user_ids }) => {
                     writes.push(Write::AddTeamMembers { team_id, user_ids });
@@ -4195,6 +4214,13 @@ impl Engine {
                 dirty.direct.push(ChangeSet::Sessions(Arc::from(sessions)));
             }
             Loaded::PasswordChanged => dirty.direct.push(ChangeSet::PasswordChanged),
+            Loaded::MfaSecret(secret) => dirty.direct.push(ChangeSet::MfaSecret(Arc::new(secret))),
+            Loaded::Mfa(me) => {
+                let active = me.mfa_active;
+                sidebar::upsert_users(self.store.conn(), std::slice::from_ref(&me))?;
+                dirty.direct.push(ChangeSet::Users(Arc::from(vec![me])));
+                dirty.direct.push(ChangeSet::Mfa(active));
+            }
             Loaded::NonMembers { channel_id, users } => {
                 sidebar::upsert_users(self.store.conn(), &users)?;
                 dirty.direct.push(ChangeSet::NonMembers {

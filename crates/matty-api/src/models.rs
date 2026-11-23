@@ -29,6 +29,9 @@ pub struct User {
     pub delete_at: i64,
     /// Whether the user is a bot.
     pub is_bot: bool,
+    /// Whether sign-in asks this user for a code from an authenticator
+    /// app; the server sends it only for the signed-in user.
+    pub mfa_active: bool,
     /// The user's locale, such as `en`.
     pub locale: String,
     /// Job title, when the user set one.

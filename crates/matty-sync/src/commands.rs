@@ -232,6 +232,11 @@ pub(crate) enum Write {
         session_id: String,
     },
     Password(PasswordChange),
+    MfaSecret,
+    Mfa {
+        activate: bool,
+        code: String,
+    },
     AddTeamMembers {
         team_id: String,
         user_ids: Vec<String>,
@@ -369,6 +374,11 @@ impl Write {
             Self::Sessions => "list your sessions",
             Self::RevokeSession { .. } => "sign out a session",
             Self::Password(_) => "change your password",
+            Self::MfaSecret => "set up multi-factor authentication",
+            Self::Mfa { activate: true, .. } => "turn on multi-factor authentication",
+            Self::Mfa {
+                activate: false, ..
+            } => "turn off multi-factor authentication",
             Self::AddTeamMembers { .. } => "add people to the team",
             Self::InviteByEmail { .. } => "send email invites",
             Self::Preferences(_) => "save preferences",
@@ -409,7 +419,9 @@ impl Write {
             | Self::Profile(_)
             | Self::Picture(_)
             | Self::Sessions
-            | Self::Password(_) => user_id.to_owned(),
+            | Self::Password(_)
+            | Self::MfaSecret
+            | Self::Mfa { .. } => user_id.to_owned(),
             Self::RevokeSession { session_id } => session_id.clone(),
             Self::AddEmoji { name, .. } => name.clone(),
             Self::DeleteEmoji { emoji_id } => emoji_id.clone(),
@@ -1237,6 +1249,13 @@ pub(crate) async fn run(
                     .change_password(&user_id, &change.current, &change.new)
                     .await?;
                 Some(Loaded::PasswordChanged)
+            }
+            Write::MfaSecret => Some(Loaded::MfaSecret(
+                client.generate_mfa_secret(&user_id).await?,
+            )),
+            Write::Mfa { activate, code } => {
+                client.set_mfa(&user_id, activate, &code).await?;
+                Some(Loaded::Mfa(client.me().await?))
             }
             Write::AddTeamMembers { team_id, user_ids } => {
                 for id in &user_ids {

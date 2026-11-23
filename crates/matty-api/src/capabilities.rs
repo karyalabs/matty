@@ -177,6 +177,11 @@ pub struct ServerCapabilities {
     /// Users may set an out-of-office reply
     /// (`ExperimentalEnableAutomaticReplies`).
     pub automatic_replies: bool,
+    /// Users may turn on multi-factor authentication
+    /// (`EnableMultifactorAuthentication`).
+    pub mfa: bool,
+    /// Every user must keep it on (`EnforceMultifactorAuthentication`).
+    pub mfa_required: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -296,6 +301,8 @@ impl ServerCapabilities {
             email_batching: flag(config, "EnableEmailBatching"),
             push_notifications: flag(config, "SendPushNotifications"),
             automatic_replies: flag(config, "ExperimentalEnableAutomaticReplies"),
+            mfa: flag(config, "EnableMultifactorAuthentication"),
+            mfa_required: flag(config, "EnforceMultifactorAuthentication"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,
             post_acknowledgements,

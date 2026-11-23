@@ -178,6 +178,27 @@ impl Client {
         .map(|_| ())
     }
 
+    /// `POST users/{user_id}/mfa/generate`: a new secret for an
+    /// authenticator app, which counts once [`Self::set_mfa`] confirms it.
+    pub async fn generate_mfa_secret(&self, user_id: &str) -> Result<MfaSecret, ApiError> {
+        self.post(
+            &format!("users/{user_id}/mfa/generate"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// `PUT users/{user_id}/mfa`: turns multi-factor authentication on
+    /// with a `code` from the app, or off.
+    pub async fn set_mfa(&self, user_id: &str, activate: bool, code: &str) -> Result<(), ApiError> {
+        self.put::<_, Value>(
+            &format!("users/{user_id}/mfa"),
+            &serde_json::json!({ "activate": activate, "code": code }),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// `POST users/{user_id}/sessions/revoke`.
     pub async fn revoke_session(&self, user_id: &str, session_id: &str) -> Result<(), ApiError> {
         self.post::<_, Value>(
@@ -186,6 +207,22 @@ impl Client {
         )
         .await
         .map(|_| ())
+    }
+}
+
+/// A new multi-factor secret, from `POST users/{user_id}/mfa/generate`.
+#[derive(Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct MfaSecret {
+    /// The secret, in base32, for typing into an authenticator app.
+    pub secret: String,
+    /// The same secret as a QR code: a base64 PNG.
+    pub qr_code: String,
+}
+
+impl std::fmt::Debug for MfaSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MfaSecret").finish_non_exhaustive()
     }
 }
 
