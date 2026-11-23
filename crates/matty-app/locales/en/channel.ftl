@@ -206,3 +206,11 @@ chan-wide-description = { $count ->
     }
 chan-wide-send = Send
 chan-edit-history = View edit history
+
+## File preview (#1002)
+
+file-preview-label = File preview
+file-preview-detail = A preview of the downloaded file.
+file-preview-cut = The first { $lines } lines. The downloaded file has the rest.
+file-preview-reveal = Show in folder
+file-preview-close = Close

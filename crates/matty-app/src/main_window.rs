@@ -250,6 +250,7 @@ pub struct MainWindow {
     team_invite_view: Entity<crate::directory::AddMembersView>,
     inviting_team: Option<SharedString>,
     team_settings: Entity<crate::team_settings::TeamSettingsView>,
+    file_preview: Entity<crate::file_preview::FilePreviewView>,
     team_members: Entity<crate::team_members::TeamMembersView>,
     joining: Option<SharedString>,
     /// "Leave {team}?" from a team tab's menu, for the team in `leaving`.
@@ -505,6 +506,7 @@ impl MainWindow {
         cx.subscribe_in(&team_invite_view, window, Self::on_team_invite_event)
             .detach();
         let team_settings = cx.new(|cx| crate::team_settings::TeamSettingsView::new(window, cx));
+        let file_preview = cx.new(|_| crate::file_preview::FilePreviewView::new());
         cx.subscribe_in(&team_settings, window, Self::on_team_settings_event)
             .detach();
         let team_members = cx.new(|cx| crate::team_members::TeamMembersView::new(window, cx));
@@ -1326,6 +1328,7 @@ impl MainWindow {
             team_invite_view,
             inviting_team: None,
             team_settings,
+            file_preview,
             team_members,
             joining: None,
             leave_team_dialog: DialogHandle::new(false),
@@ -1639,7 +1642,7 @@ impl MainWindow {
             Some(FileDownload::Downloading { .. }) => return,
             Some(FileDownload::Saved(path)) if path.exists() => {
                 let path = path.clone();
-                open_download(&path, cx);
+                self.open_saved(path, cx);
                 return;
             }
             _ => {}
@@ -1683,6 +1686,27 @@ impl MainWindow {
         self.right_pane.update(cx, |_, cx| cx.notify());
     }
 
+    /// Opens a downloaded file: text and code in Matty's preview (#1002),
+    /// anything else with the system.
+    fn open_saved(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        let text = crate::file_preview::language(&path).and_then(|language| {
+            let small = std::fs::metadata(&path)
+                .is_ok_and(|meta| meta.len() <= crate::file_preview::MAX_BYTES);
+            small
+                .then(|| std::fs::read(&path).ok())
+                .flatten()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .map(|text| (language, text))
+        });
+        match text {
+            Some((language, text)) => self.file_preview.update(cx, |preview, cx| {
+                preview.show(path, &text, language, cx);
+            }),
+            None => open_download(&path, cx),
+        }
+        cx.notify();
+    }
+
     /// Takes sync's report on a download: progress on the card, then the
     /// saved file opened with a toast, or a failure with Retry.
     fn on_download(
@@ -1698,8 +1722,8 @@ impl MainWindow {
             }
             matty_sync::DownloadState::Done(path) => {
                 self.set_download(file_id, FileDownload::Saved(path.clone()), cx);
-                open_download(&path, cx);
                 self.push_download_toast(&path, cx);
+                self.open_saved(path, cx);
             }
             matty_sync::DownloadState::Failed(error) => {
                 tracing::warn!(%error, %file_id, "download failed");
@@ -5032,6 +5056,15 @@ impl MainWindow {
                 cx,
             ))
             .child(dialog(
+                "file-preview",
+                &self.file_preview.read(cx).handle().clone(),
+                dialog_popup("file-preview.popup", crate::t!("file-preview-label"), cx)
+                    .max_w(UiTheme::read(cx).space(200.))
+                    .child(self.file_preview.clone()),
+                window,
+                cx,
+            ))
+            .child(dialog(
                 "team-settings",
                 &self.team_settings.read(cx).handle().clone(),
                 dialog_popup("team-settings.popup", crate::t!("team-settings-title"), cx)
@@ -5113,6 +5146,8 @@ impl Render for MainWindow {
         let sidebar_width = px(self.settings.read(cx).get().sidebar_width);
         let settings = self.settings.clone();
         self.sync_drawers(window, cx);
+        self.file_preview
+            .update(cx, |preview, cx| preview.open_pending(window, cx));
         let banner = if self.login.is_none() {
             self.connection_banner(window, cx)
         } else {

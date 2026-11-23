@@ -33,6 +33,7 @@ pub mod embeds;
 pub mod emoji;
 pub mod emoji_manager;
 pub mod fd_limit;
+pub mod file_preview;
 pub mod fonts;
 pub mod forward;
 pub mod i18n;
