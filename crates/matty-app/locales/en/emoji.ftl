@@ -13,3 +13,11 @@ emoji-group-flags = Flags
 ## Spelling (spelling.rs)
 
 spelling-ignore = Ignore Spelling
+
+## The composer's GIF picker (#958)
+
+gif-tab-emojis = Emojis
+gif-tab-gifs = GIFs
+gif-search = Search GIPHY
+gif-attribution = Powered by GIPHY
+gif-failed = Couldn't load GIFs. Check your connection and try again.

@@ -37,6 +37,7 @@ pub mod fd_limit;
 pub mod file_preview;
 pub mod fonts;
 pub mod forward;
+pub mod gifs;
 pub mod i18n;
 pub mod instance;
 pub mod interactive;

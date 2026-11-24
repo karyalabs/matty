@@ -576,6 +576,20 @@ pub enum Command {
         /// The image's URL.
         url: String,
     },
+    /// Asks GIPHY for GIFs for the composer's GIF picker (#958): trending
+    /// ones for an empty `query`, else a search, a page from `offset`, in
+    /// `lang` (such as `en`). Needs the server's GIF picker on;
+    /// [`ChangeSet::Gifs`] always answers, with no page when there is none.
+    ///
+    /// [`ChangeSet::Gifs`]: crate::ChangeSet::Gifs
+    SearchGifs {
+        /// The search text.
+        query: String,
+        /// Where the page starts.
+        offset: u32,
+        /// The language GIPHY searches in.
+        lang: String,
+    },
     /// Loads a profile picture, a custom emoji's image or a team's icon
     /// (#153): from the media cache, else from the server, keeping it for
     /// next time under its version. [`ChangeSet::Picture`] always answers,
@@ -1258,6 +1272,10 @@ impl std::fmt::Debug for Command {
             Self::LoadRemoteImage { .. } => {
                 f.debug_struct("LoadRemoteImage").finish_non_exhaustive()
             }
+            Self::SearchGifs { offset, .. } => f
+                .debug_struct("SearchGifs")
+                .field("offset", offset)
+                .finish_non_exhaustive(),
             Self::LoadPicture {
                 picture,
                 id,
@@ -1517,6 +1535,8 @@ type SentChannel = (i64, i64, Option<std::collections::HashMap<String, String>>)
 
 /// Search results asked for at once.
 const SEARCH_PAGE: u32 = 60;
+/// GIFs per GIPHY page: enough to fill the picker and start it scrolling.
+const GIF_PAGE: u32 = 24;
 
 /// What a batch touched, so each view gets one fresh snapshot.
 #[derive(Default)]
@@ -1630,6 +1650,8 @@ pub(crate) struct Engine {
     fetching: BTreeSet<String>,
     /// What the server said about each link asked for while composing.
     link_previews: std::collections::HashMap<String, Option<Arc<matty_api::models::OpenGraph>>>,
+    /// Where GIPHY's API is: `MATTY_GIPHY_API` for a local stand-in.
+    giphy_api: String,
     /// How far back each open thread's replies are loaded (#122).
     thread_pages: std::collections::HashMap<String, ThreadPages>,
     /// How far each team's Threads list is loaded (#122).
@@ -1666,6 +1688,7 @@ impl Engine {
             media: None,
             fetching: BTreeSet::new(),
             link_previews: std::collections::HashMap::new(),
+            giphy_api: giphy_api(),
             history: std::collections::HashMap::new(),
             sending: std::collections::HashMap::new(),
             floors: std::collections::HashMap::new(),
@@ -1756,6 +1779,7 @@ impl Engine {
         let mut thread_lists_to_fetch = Vec::new();
         let mut thread_pages_to_fetch = Vec::new();
         let mut link_previews = Vec::new();
+        let mut gif_search = None;
         let mut pages = Vec::new();
         let mut downloads = Vec::new();
         let mut fetches = Vec::new();
@@ -2404,6 +2428,12 @@ impl Engine {
                 Message::Command(Command::LoadLinkPreview { url }) => {
                     link_previews.push(url);
                 }
+                // Typing asks again on each pause; only the newest counts.
+                Message::Command(Command::SearchGifs {
+                    query,
+                    offset,
+                    lang,
+                }) => gif_search = Some((query, offset, lang)),
                 Message::Command(Command::Download {
                     file_id,
                     folder,
@@ -2868,6 +2898,9 @@ impl Engine {
         for url in link_previews {
             self.link_preview(url, dirty);
         }
+        if let Some((query, offset, lang)) = gif_search {
+            self.gifs(query, offset, lang, dirty);
+        }
         for upload in uploads {
             self.upload(upload, dirty);
         }
@@ -3203,6 +3236,47 @@ impl Engine {
                 }
             };
             let _ = results.send(Loaded::LinkPreview { url, graph });
+        });
+    }
+
+    /// Asks GIPHY for a page of GIFs with the server's key; it comes back
+    /// as [`Loaded::Gifs`].
+    fn gifs(&mut self, query: String, offset: u32, lang: String, dirty: &mut Dirty) {
+        let key = self
+            .capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.giphy_key.clone());
+        let client = self
+            .session
+            .as_ref()
+            .filter(|s| !s.user_id.is_empty())
+            .map(|session| session.client.clone());
+        let (Some(key), Some(client)) = (key, client) else {
+            dirty.direct.push(ChangeSet::Gifs {
+                query,
+                offset,
+                page: None,
+            });
+            return;
+        };
+        let results = self.loaded.clone();
+        let api = self.giphy_api.clone();
+        matty_api::rt::spawn(async move {
+            let page = match client
+                .gifs_from(&api, &key, &query, offset, GIF_PAGE, &lang)
+                .await
+            {
+                Ok(page) => Some(page),
+                Err(error) => {
+                    tracing::debug!(%error, "no GIFs");
+                    None
+                }
+            };
+            let _ = results.send(Loaded::Gifs {
+                query,
+                offset,
+                page,
+            });
         });
     }
 
@@ -4121,6 +4195,15 @@ impl Engine {
                 self.link_previews.insert(url.clone(), graph.clone());
                 dirty.direct.push(ChangeSet::LinkPreview { url, graph });
             }
+            Loaded::Gifs {
+                query,
+                offset,
+                page,
+            } => dirty.direct.push(ChangeSet::Gifs {
+                query,
+                offset,
+                page: page.map(Arc::new),
+            }),
             Loaded::RemoteImage { url, image } => {
                 let key = matty_store::media::remote_key(&url);
                 self.fetching.remove(&key);
@@ -5300,6 +5383,18 @@ pub(crate) fn account_preferences(preferences: &[Preference]) -> Arc<[Preference
         .filter(|p| ACCOUNT_CATEGORIES.contains(&p.category.as_str()))
         .cloned()
         .collect()
+}
+
+/// GIPHY's API, or the stand-in `MATTY_GIPHY_API` names (for screenshots
+/// and tests without GIPHY).
+fn giphy_api() -> String {
+    #[cfg(not(target_family = "wasm"))]
+    if let Ok(api) = std::env::var("MATTY_GIPHY_API")
+        && !api.is_empty()
+    {
+        return api;
+    }
+    matty_api::giphy::GIPHY_API.to_string()
 }
 
 pub(crate) fn link_previews(enabled: bool, preferences: &[Preference]) -> bool {

@@ -20,7 +20,7 @@ use crate::attachments::{
     AttachmentStatus, PostFile, SendGate, UploadSource, UploadTray, post_files,
 };
 use crate::channel::{
-    ChannelModel, Post, PostKind, PostStatus, delete_popup, edit_composer, emoji_popup, plain_text,
+    ChannelModel, Post, PostKind, PostStatus, delete_popup, edit_composer, plain_text,
     waiting_items, waiting_to_send,
 };
 use crate::post_row::{self, PostHost, RowParts, post_message};
@@ -37,7 +37,7 @@ use crate::ui::{
     button::{Button, ButtonSize, ButtonVariant},
     composer::{Composer, ComposerEvent, ComposerState, ComposerSuggestion},
     dialog::{DialogHandle, dialog_description, dialog_popup, dialog_title},
-    emoji_picker::{EmojiPicker, EmojiPickerEvent, EmojiPickerState},
+    emoji_picker::{EmojiPickerEvent, EmojiPickerState},
     input::{Input, InputEvent, InputState},
     lightbox::{LightboxImage, LightboxState, lightbox},
     menu::{Menu, MenuItem, MenuState},
@@ -639,6 +639,8 @@ pub struct RightPaneView {
     /// The full emoji picker, on the reply composer's emoji button, for the
     /// reply or for a reaction, as in the channel (#679).
     picker: Entity<EmojiPickerState>,
+    /// The picker's GIFs tab, when the server offers GIFs (#958).
+    gifs: Entity<crate::gifs::ComposerGifs>,
     picker_open: bool,
     /// Where a post's reaction picker opened, beside the button that asked;
     /// `None` opens it at the composer's emoji button.
@@ -930,6 +932,7 @@ impl RightPaneView {
         let (remind_dialog, reminding) = schedule::remind_dialog(window, cx);
         let composer_input = composer.read(cx).input().clone();
         let picker = cx.new(|cx| EmojiPickerState::new(crate::emoji::categories(), window, cx));
+        let gifs = cx.new(|cx| crate::gifs::ComposerGifs::new(window, cx));
         let file_kind = cx.new(|cx| {
             let mut state = crate::ui::select::SelectState::new(
                 FileKind::ALL
@@ -952,6 +955,19 @@ impl RightPaneView {
                     EmojiPickerEvent::Pick(name) => this.pick_emoji(name.clone(), window, cx),
                     EmojiPickerEvent::Cancel => this.close_picker(window, cx),
                     EmojiPickerEvent::SkinTone(tone) => crate::emoji::save_skin_tone(*tone, cx),
+                },
+            ),
+            cx.subscribe_in(
+                &gifs,
+                window,
+                |this, _, event: &crate::gifs::ComposerGifsEvent, window, cx| match event {
+                    crate::gifs::ComposerGifsEvent::Pick(markdown) => {
+                        this.composer.update(cx, |composer, cx| {
+                            composer.insert(format!("{markdown} "), window, cx);
+                        });
+                        this.close_picker(window, cx);
+                    }
+                    crate::gifs::ComposerGifsEvent::Cancel => this.close_picker(window, cx),
                 },
             ),
             // Typed or set (a draft, a send, a cleared command): the slash
@@ -1075,6 +1091,7 @@ impl RightPaneView {
             remind_post: None,
             sent: Default::default(),
             picker,
+            gifs,
             picker_open: false,
             picker_at: None,
             picker_closed_by: None,
@@ -2474,6 +2491,7 @@ impl RightPaneView {
 
     fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.picker_open {
+            self.gifs.update(cx, |gifs, cx| gifs.closed(cx));
             self.picker_open = false;
             self.picker_target = None;
             self.picker_at = None;
@@ -3212,6 +3230,8 @@ impl RightPaneView {
         // The full picker, for the reply or a reaction, as in the channel
         // (#679).
         let picker = self.picker.clone();
+        let gifs = self.gifs.clone();
+        let reacting = self.picker_target.is_some();
         let picker_open = self.picker_open;
         let picker_at = self.picker_at;
         let emoji_tool = tool(
@@ -3239,8 +3259,7 @@ impl RightPaneView {
                 }
             }))
             .content(move |_, window, cx| {
-                picker.update(cx, |picker, cx| picker.open(window, cx));
-                emoji_popup(EmojiPicker::new(&picker).bordered(false), cx)
+                crate::channel::composer_emoji_popup(&picker, &gifs, reacting, window, cx)
             });
         let format_bar = SettingsStore::global(cx).read(cx).get().format_bar;
         let format_tool =

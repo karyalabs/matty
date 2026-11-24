@@ -253,6 +253,17 @@ pub enum ChangeSet {
         /// What the server read from it.
         graph: Option<Arc<matty_api::models::OpenGraph>>,
     },
+    /// GIFs for the GIF picker: the answer to
+    /// [`Command::SearchGifs`](crate::Command::SearchGifs), with no page
+    /// when the picker is off or GIPHY did not answer.
+    Gifs {
+        /// The search text asked for.
+        query: String,
+        /// Where the page starts.
+        offset: u32,
+        /// The page.
+        page: Option<Arc<matty_api::giphy::GifPage>>,
+    },
     /// An outside image: the answer to
     /// [`Command::LoadRemoteImage`](crate::Command::LoadRemoteImage).
     RemoteImage {

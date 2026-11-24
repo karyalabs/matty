@@ -64,6 +64,9 @@ pub struct Features {
     /// Profiles say when someone was last online, and users may stop
     /// sharing theirs (`EnableLastActiveTime`, #1052).
     pub last_active: bool,
+    /// The composer's emoji picker has a GIFs tab (`EnableGifPicker` with
+    /// a `GiphySdkKey`, #958).
+    pub gifs: bool,
 }
 
 impl Global for Features {}
@@ -87,6 +90,7 @@ impl Features {
             mfa_required: capabilities.mfa_required,
             access_tokens: capabilities.access_tokens,
             last_active: capabilities.last_active_time,
+            gifs: capabilities.giphy_key.is_some(),
         }
     }
 
@@ -108,6 +112,8 @@ impl Features {
             mfa_required: false,
             access_tokens: true,
             last_active: true,
+            // Preview has no GIPHY to ask.
+            gifs: false,
         }
     }
 

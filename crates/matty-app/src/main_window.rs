@@ -398,6 +398,19 @@ impl MainWindow {
         .detach();
         cx.observe_window_bounds(window, |this, window, cx| this.remember_bounds(window, cx))
             .detach();
+        // The GIF picker's searches go to this window's sync (#958).
+        let gif_search = crate::gifs::GifSearch::global(cx);
+        cx.subscribe(&gif_search, |this, _, ask: &crate::gifs::Ask, _| {
+            if let Some(live) = &this.live {
+                live.send(matty_sync::Command::SearchGifs {
+                    query: ask.query.clone(),
+                    offset: ask.offset,
+                    // Matty speaks English only so far.
+                    lang: "en".into(),
+                });
+            }
+        })
+        .detach();
         // Settings goes with the window it sets.
         cx.on_release(|this: &mut Self, cx| {
             if let Some(handle) = this.settings_host.window.take() {
@@ -1563,6 +1576,7 @@ impl MainWindow {
             self.settings.read(cx).get().load_remote_images == RemoteImages::Ask,
         );
         self.live = Some(live);
+        crate::gifs::reset(cx);
         self.zone_checked = false;
         self.cache_limit_sent = None;
         self.send_cache_limit(cx);
@@ -2184,6 +2198,12 @@ impl MainWindow {
             self.team_settings
                 .update(cx, |view, cx| view.set_team(team, window, cx));
         }
+        if let Some((query, offset, page)) = update.gifs.take() {
+            crate::gifs::answered(&query, offset, page.as_deref(), cx);
+        }
+        if let Some(url) = update.remote_image.take() {
+            crate::gifs::image_landed(&url, cx);
+        }
         if let Some(sessions) = update.sessions.take() {
             self.security
                 .update(cx, |view, cx| view.set_sessions(sessions, cx));
@@ -2531,6 +2551,7 @@ impl MainWindow {
             cx.set_global(crate::avatars::Avatars::default());
             cx.set_global(crate::remote_images::RemoteImages::default());
             cx.set_global(crate::composer_draft::DraftBook::default());
+            crate::gifs::reset(cx);
             self.live = None;
             self._live_task = None;
             self.forget_signed_out(cx);

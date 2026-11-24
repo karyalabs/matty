@@ -180,6 +180,12 @@ pub(crate) enum Loaded {
         url: String,
         graph: Option<matty_api::models::OpenGraph>,
     },
+    /// A page of GIFs, or `None` when GIPHY gave none.
+    Gifs {
+        query: String,
+        offset: u32,
+        page: Option<matty_api::giphy::GifPage>,
+    },
     /// An outside image, or `None` when the URL gave none.
     RemoteImage {
         url: String,

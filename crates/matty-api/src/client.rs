@@ -252,7 +252,7 @@ pub const MAX_OUTSIDE_IMAGE: u64 = 20 * 1024 * 1024;
 /// A Mattermost REST v4 client for one server and, optionally, one session.
 #[derive(Clone)]
 pub struct Client {
-    http: reqwest::Client,
+    pub(crate) http: reqwest::Client,
     base: Url,
     token: Option<Token>,
     sleeper: Arc<dyn Sleeper>,
@@ -607,7 +607,9 @@ impl Client {
     }
 
     /// The response if it succeeded (or is a 304), otherwise its error.
-    async fn checked(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
+    pub(crate) async fn checked(
+        response: reqwest::Response,
+    ) -> Result<reqwest::Response, ApiError> {
         let status = response.status();
         if status.is_success() || status == StatusCode::NOT_MODIFIED {
             return Ok(response);

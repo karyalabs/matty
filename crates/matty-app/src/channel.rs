@@ -1420,6 +1420,8 @@ pub struct ChannelView {
     convert: DialogHandle,
     /// The full emoji picker, in a popover on the composer's emoji button.
     picker: Entity<EmojiPickerState>,
+    /// The picker's GIFs tab, when the server offers GIFs (#958).
+    gifs: Entity<crate::gifs::ComposerGifs>,
     picker_open: bool,
     /// Where a post's reaction picker opened, beside the button that asked;
     /// `None` opens it at the composer's emoji button.
@@ -1844,6 +1846,7 @@ impl ChannelView {
         let notifications = cx.new(|_| NotificationsView::new());
         let add_members = cx.new(|cx| AddMembersView::new(window, cx));
         let picker = cx.new(|cx| EmojiPickerState::new(crate::emoji::categories(), window, cx));
+        let gifs = cx.new(|cx| crate::gifs::ComposerGifs::new(window, cx));
         let (schedule_dialog, scheduling) = outgoing::schedule_dialog(window, cx);
         let (remind_dialog, reminding) = outgoing::remind_dialog(window, cx);
         let bookmarks = cx.new(|cx| crate::bookmarks::BookmarksBar::new(window, cx));
@@ -1952,6 +1955,19 @@ impl ChannelView {
                     EmojiPickerEvent::SkinTone(tone) => crate::emoji::save_skin_tone(*tone, cx),
                 },
             ),
+            cx.subscribe_in(
+                &gifs,
+                window,
+                |this, _, event: &crate::gifs::ComposerGifsEvent, window, cx| match event {
+                    crate::gifs::ComposerGifsEvent::Pick(markdown) => {
+                        this.composer.update(cx, |composer, cx| {
+                            composer.insert(format!("{markdown} "), window, cx);
+                        });
+                        this.close_picker(window, cx);
+                    }
+                    crate::gifs::ComposerGifsEvent::Cancel => this.close_picker(window, cx),
+                },
+            ),
         ];
         let mut this = Self {
             chrome: Default::default(),
@@ -1970,6 +1986,7 @@ impl ChannelView {
             archive: DialogHandle::new(false),
             convert: DialogHandle::new(false),
             picker,
+            gifs,
             picker_open: false,
             picker_at: None,
             picker_closed_by: None,
@@ -3671,6 +3688,7 @@ impl ChannelView {
 
     fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.picker_open {
+            self.gifs.update(cx, |gifs, cx| gifs.closed(cx));
             self.picker_open = false;
             self.picker_target = None;
             self.picker_at = None;
@@ -5759,6 +5777,10 @@ impl ChannelView {
                 .child(format!("{} / {}", self.draft_len, max))
         });
         let picker = self.picker.clone();
+        let gifs = self.gifs.clone();
+        // A reaction picked from the keyboard opens here too; reactions
+        // have no GIFs.
+        let reacting = self.picker_target.is_some();
         let picker_open = self.picker_open;
         let picker_at = self.picker_at;
         let emoji_tool = tool(
@@ -5786,8 +5808,7 @@ impl ChannelView {
                 }
             }))
             .content(move |_, window, cx| {
-                picker.update(cx, |picker, cx| picker.open(window, cx));
-                emoji_popup(EmojiPicker::new(&picker).bordered(false), cx)
+                composer_emoji_popup(&picker, &gifs, reacting, window, cx)
             });
         let link_preview = self.link.preview(
             "composer.link-preview",
@@ -6340,7 +6361,28 @@ fn person_details(person: &crate::profile::UserProfile, cx: &App) -> Option<gpui
     )
 }
 
-pub(crate) fn emoji_popup(picker: EmojiPicker, cx: &App) -> impl IntoElement + use<> {
+/// The composer's emoji picker, with the Emojis and GIFs tabs when the
+/// server offers GIFs (#958). The picker showing keeps focus.
+pub(crate) fn composer_emoji_popup(
+    picker: &Entity<EmojiPickerState>,
+    gifs: &Entity<crate::gifs::ComposerGifs>,
+    reacting: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui_kit::AnyElement {
+    if reacting || !crate::gifs::enabled(cx) {
+        picker.update(cx, |picker, cx| picker.open(window, cx));
+        return emoji_popup(EmojiPicker::new(picker).bordered(false), cx).into_any_element();
+    }
+    if gifs.read(cx).showing() {
+        gifs.update(cx, |gifs, cx| gifs.open(window, cx));
+    } else {
+        picker.update(cx, |picker, cx| picker.open(window, cx));
+    }
+    emoji_popup(crate::gifs::ComposerGifs::popup(gifs, picker, cx), cx).into_any_element()
+}
+
+pub(crate) fn emoji_popup<E: IntoElement>(picker: E, cx: &App) -> impl IntoElement + use<E> {
     let theme = UiTheme::read(cx);
     div()
         .rounded(theme.radius.xl)

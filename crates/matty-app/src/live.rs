@@ -278,6 +278,11 @@ pub struct Update {
     pub team_settings: Option<crate::team_settings::TeamSettings>,
     /// A team's people, for Team members (#988).
     pub team_people: Option<(String, Vec<crate::team_members::TeamPerson>)>,
+    /// GIPHY's answer for the GIF picker (#958): the search, where the
+    /// page starts, and the page.
+    pub gifs: Option<(String, u32, Option<Arc<matty_api::giphy::GifPage>>)>,
+    /// An outside image that just landed, which the GIF picker may show.
+    pub remote_image: Option<String>,
     /// The user's signed-in sessions, for Security (#964).
     pub sessions: Option<std::sync::Arc<[matty_api::models::Session]>>,
     /// How a password change went: `Ok`, or the server's reason.
@@ -2786,6 +2791,7 @@ impl Live {
                     }),
                 );
                 self.remote_images.landed(url, image);
+                update.remote_image = Some(url.clone());
                 let shown = self.shown.as_ref().is_some_and(|posts| {
                     posts
                         .iter()
@@ -2977,6 +2983,11 @@ impl Live {
                 update.offline_refused = Some(action);
             }
             ChangeSet::Sessions(sessions) => update.sessions = Some(sessions.clone()),
+            ChangeSet::Gifs {
+                query,
+                offset,
+                page,
+            } => update.gifs = Some((query.clone(), *offset, page.clone())),
             ChangeSet::PasswordChanged => update.password_changed = Some(Ok(())),
             ChangeSet::MfaSecret(secret) => update.mfa_secret = Some(secret.clone()),
             ChangeSet::Mfa(on) => update.mfa = Some(Ok(*on)),

@@ -188,6 +188,10 @@ pub struct ServerCapabilities {
     /// Profiles show when someone was last online, unless they turned
     /// sharing it off (`EnableLastActiveTime`).
     pub last_active_time: bool,
+    /// The composer's emoji picker has a GIFs tab (`EnableGifPicker`): the
+    /// server's `GiphySdkKey`, which GIPHY wants with each search. `None`
+    /// when the picker is off or the key is missing.
+    pub giphy_key: Option<String>,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -330,6 +334,9 @@ impl ServerCapabilities {
             max_post_size: number(config, "MaxPostSize")
                 .and_then(|n| usize::try_from(n).ok())
                 .unwrap_or(DEFAULT_MAX_POST_SIZE),
+            giphy_key: flag(config, "EnableGifPicker")
+                .then(|| text(config, "GiphySdkKey").map(str::to_string))
+                .flatten(),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -521,6 +528,24 @@ mod tests {
         );
         assert_eq!(gate("MaxPostSize", "4000").max_post_size, 4000);
         assert_eq!(gate("MaxFileSize", "52428800").max_file_size, 52_428_800);
+    }
+
+    #[test]
+    fn the_gif_picker_needs_its_flag_and_a_key() {
+        let license = load("license_client_unlicensed.json");
+        let caps = |pairs: &[(&str, &str)]| {
+            let mut config = load("config_client_team.json");
+            for (key, value) in pairs {
+                config.insert((*key).into(), (*value).into());
+            }
+            ServerCapabilities::from_old_format(&config, &license).unwrap()
+        };
+        let on = caps(&[("EnableGifPicker", "true"), ("GiphySdkKey", "key")]);
+        assert_eq!(on.giphy_key.as_deref(), Some("key"));
+        let off = caps(&[("EnableGifPicker", "false"), ("GiphySdkKey", "key")]);
+        assert_eq!(off.giphy_key, None);
+        let keyless = caps(&[("EnableGifPicker", "true"), ("GiphySdkKey", "")]);
+        assert_eq!(keyless.giphy_key, None);
     }
 
     #[test]
