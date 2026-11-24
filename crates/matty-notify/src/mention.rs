@@ -28,6 +28,9 @@ pub struct MentionKeys {
     /// Keywords that highlight a post without notifying
     /// (`highlight_keys`, Mattermost 9.3 and later on a licensed server).
     pub highlight: Vec<String>,
+    /// The names of the user groups the user is in, without the `@`:
+    /// `@developers` mentions everyone in Developers.
+    pub groups: Vec<String>,
 }
 
 /// One of the keyword lists in `notify_props` that Preferences edits.
@@ -68,6 +71,7 @@ impl MentionKeys {
             channel_wide: props.get("channel").is_none_or(|value| value == "true"),
             keywords: keywords(username, props, KeywordList::Mention),
             highlight: keywords(username, props, KeywordList::Highlight),
+            groups: Vec::new(),
         }
     }
 
@@ -80,6 +84,10 @@ impl MentionKeys {
                 .as_deref()
                 .is_some_and(|name| has_word(message, name))
             || self.keywords.iter().any(|key| has_word(message, key))
+            || self
+                .groups
+                .iter()
+                .any(|group| has_word(message, &format!("@{group}")))
     }
 
     /// Whether `message` uses `@channel`, `@all` or `@here` and the user
@@ -279,6 +287,21 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
+    }
+
+    #[test]
+    fn a_group_the_user_is_in_mentions_them() {
+        let keys = MentionKeys {
+            username: "arya".into(),
+            groups: vec!["developers".into()],
+            ..MentionKeys::default()
+        };
+        assert!(keys.mentioned("@developers the build is red"));
+        assert!(keys.mentioned("thanks @Developers."));
+        assert!(!keys.mentioned("developers, the build is red"));
+        assert!(!keys.mentioned("@developers-old"));
+        assert!(!keys.mentioned("`@developers`"));
+        assert!(!keys.mentioned("@design-team"));
     }
 
     #[test]

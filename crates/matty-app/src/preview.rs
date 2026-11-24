@@ -746,6 +746,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         own_mentions: crate::links::OwnMentions {
             username: "arya".into(),
             channel_wide: true,
+            groups: std::sync::Arc::from([]),
         },
         edited: false,
         continues: false,

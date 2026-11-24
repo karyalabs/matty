@@ -2892,6 +2892,7 @@ impl RightPaneView {
             &self.people,
             &self.directory,
             true,
+            crate::user_groups::UserGroups::read(cx),
             &crate::emoji::frequent(cx),
         )
     }

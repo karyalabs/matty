@@ -741,6 +741,12 @@ pub enum Command {
         /// A code from the app; empty to turn it off.
         code: String,
     },
+    /// A user group's people (#1057);
+    /// [`ChangeSet::GroupMembers`](crate::ChangeSet::GroupMembers) answers.
+    GroupMembers {
+        /// The group.
+        group_id: String,
+    },
     /// The user's personal access tokens;
     /// [`ChangeSet::AccessTokens`](crate::ChangeSet::AccessTokens) answers.
     AccessTokens,
@@ -1354,6 +1360,10 @@ impl std::fmt::Debug for Command {
             Self::ChangePassword { .. } => f.write_str("ChangePassword"),
             Self::MfaSecret => f.write_str("MfaSecret"),
             Self::SetMfa { activate, .. } => write!(f, "SetMfa({activate})"),
+            Self::GroupMembers { group_id } => f
+                .debug_struct("GroupMembers")
+                .field("group_id", group_id)
+                .finish(),
             Self::AccessTokens => f.write_str("AccessTokens"),
             Self::CreateAccessToken { .. } => f.write_str("CreateAccessToken"),
             Self::SetAccessTokenActive { token_id, active } => f
@@ -2576,6 +2586,9 @@ impl Engine {
                     writes.push(Write::Mfa { activate, code });
                 }
                 Message::Command(Command::AccessTokens) => writes.push(Write::AccessTokens),
+                Message::Command(Command::GroupMembers { group_id }) => {
+                    writes.push(Write::GroupMembers { group_id });
+                }
                 Message::Command(Command::CreateAccessToken { description }) => {
                     writes.push(Write::CreateAccessToken { description });
                 }
@@ -3917,6 +3930,24 @@ impl Engine {
             Loaded::Emoji(emoji) => {
                 sidebar::upsert_emoji(self.store.conn(), &emoji)?;
                 dirty.emoji = true;
+            }
+            Loaded::Groups { groups, mine } => {
+                dirty.direct.push(ChangeSet::Groups {
+                    groups: Arc::from(groups),
+                    mine: Arc::from(mine),
+                });
+            }
+            Loaded::GroupMembers {
+                group_id,
+                members,
+                total,
+            } => {
+                sidebar::upsert_users(self.store.conn(), &members)?;
+                dirty.direct.push(ChangeSet::GroupMembers {
+                    group_id,
+                    members: Arc::from(members),
+                    total,
+                });
             }
             Loaded::Users(users) => {
                 sidebar::upsert_users(self.store.conn(), &users)?;

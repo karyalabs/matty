@@ -98,3 +98,7 @@ team-members-remove-admin = Remove admin
 team-members-remove = Remove { $name } from the team
 team-members-close = Close
 team-members-failed = Couldn't change the team's members: { $error }
+user-group-description = @{ $name } · { $count ->
+    [one] 1 member
+   *[other] { $count } members
+}

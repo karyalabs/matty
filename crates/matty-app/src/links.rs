@@ -6,6 +6,7 @@
 use gpui_kit::{
     App, ElementId, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div,
 };
+use std::sync::Arc;
 
 use crate::t;
 use crate::ui::{
@@ -142,6 +143,8 @@ pub struct OwnMentions {
     pub username: SharedString,
     /// Whether `@here`, `@channel` and `@all` count.
     pub channel_wide: bool,
+    /// The user groups the viewer is in, by `@name` (#1057).
+    pub groups: Arc<[String]>,
 }
 
 impl OwnMentions {
@@ -149,6 +152,7 @@ impl OwnMentions {
         Self {
             username: keys.username.clone().into(),
             channel_wide: keys.channel_wide,
+            groups: keys.groups.iter().cloned().collect(),
         }
     }
 
@@ -158,7 +162,11 @@ impl OwnMentions {
         match target.strip_prefix("//") {
             Some(rest) => match rest.split_once('/') {
                 Some(("user", name)) => {
-                    !self.username.is_empty() && name.eq_ignore_ascii_case(&self.username)
+                    (!self.username.is_empty() && name.eq_ignore_ascii_case(&self.username))
+                        || self
+                            .groups
+                            .iter()
+                            .any(|group| name.eq_ignore_ascii_case(group))
                 }
                 Some(("special", _)) => self.channel_wide,
                 _ => false,
@@ -619,8 +627,11 @@ mod tests {
         let own = OwnMentions {
             username: "ada".into(),
             channel_wide: true,
+            groups: Arc::from(["developers".to_owned()]),
         };
         assert!(own.matches("//user/ada"));
+        assert!(own.matches("//user/Developers"), "a group the viewer is in");
+        assert!(!own.matches("//user/design-team"));
         assert!(own.matches("//user/Ada"));
         assert!(!own.matches("//user/sam"));
         assert!(!own.matches("//user/adam"));
@@ -628,7 +639,7 @@ mod tests {
         assert!(!own.matches("//channel/ada"));
         let quiet = OwnMentions {
             channel_wide: false,
-            ..own
+            ..own.clone()
         };
         assert!(!quiet.matches("//special/channel"));
         assert!(!OwnMentions::default().matches("//user/"));

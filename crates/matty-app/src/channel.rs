@@ -1802,7 +1802,10 @@ impl ChannelView {
             // People get their avatar, emoji their glyph; channels keep the
             // suggestion's icon.
             state.set_suggestion_leading(move |suggestion, _, cx| {
-                if let Some(username) = suggestion.value.strip_prefix('@') {
+                // Groups and @here, @channel and @all show their icon.
+                if suggestion.icon.is_some() {
+                    None
+                } else if let Some(username) = suggestion.value.strip_prefix('@') {
                     let initial: String = suggestion.label.chars().take(1).collect();
                     let user_id = people
                         .upgrade()
@@ -3632,13 +3635,19 @@ impl ChannelView {
     /// channel's profiles, `~` channels from the sidebar, `:` emoji from the
     /// catalog once two characters narrow it.
     fn suggestions(&self, trigger: char, query: &str, cx: &App) -> Vec<ComposerSuggestion> {
-        self.suggestions_with(trigger, query, &crate::emoji::frequent(cx))
+        self.suggestions_with(
+            trigger,
+            query,
+            crate::user_groups::UserGroups::read(cx),
+            &crate::emoji::frequent(cx),
+        )
     }
 
     fn suggestions_with(
         &self,
         trigger: char,
         query: &str,
+        user_groups: &[matty_api::models::Group],
         frequent: &[SharedString],
     ) -> Vec<ComposerSuggestion> {
         let in_channel = self
@@ -3652,6 +3661,7 @@ impl ChannelView {
             &self.people,
             &self.directory,
             in_channel,
+            user_groups,
             frequent,
         )
     }
@@ -6453,6 +6463,7 @@ impl PeopleAsk {
 /// then the server's matches, plus the group mentions in a channel; `~`
 /// channels from the sidebar; `:` emoji from the catalog once two
 /// characters narrow it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn composer_suggestions<'a>(
     trigger: char,
     query: &str,
@@ -6460,18 +6471,19 @@ pub(crate) fn composer_suggestions<'a>(
     people: &'a PeopleAsk,
     directory: &[ChannelRow],
     groups: bool,
+    user_groups: &[matty_api::models::Group],
     frequent: &[SharedString],
 ) -> Vec<ComposerSuggestion> {
     const LIMIT: usize = 8;
     let query = query.to_lowercase();
     match trigger {
         '@' => {
-            // The groups keep their rows even when many people match.
-            let groups = if groups {
-                group_mentions(&query, LIMIT)
-            } else {
-                Vec::new()
-            };
+            // The groups keep their rows even when many people match: user
+            // groups (#1057), then @here, @channel and @all.
+            let mut mentions = crate::user_groups::suggestions(user_groups, &query, 3);
+            if groups {
+                mentions.extend(group_mentions(&query, LIMIT - mentions.len()));
+            }
             // Local people first, then whoever the server found, each once.
             let mut seen = std::collections::HashSet::new();
             let mut found = people_suggestions(
@@ -6479,9 +6491,9 @@ pub(crate) fn composer_suggestions<'a>(
                     .chain(people.matches(&query))
                     .filter(|profile| seen.insert(profile.username.clone())),
                 &query,
-                LIMIT - groups.len(),
+                LIMIT - mentions.len(),
             );
-            found.extend(groups);
+            found.extend(mentions);
             found
         }
         '~' => directory
@@ -6726,6 +6738,7 @@ mod tests {
                 &PeopleAsk::default(),
                 &rows,
                 true,
+                &[],
                 &[],
             )
             .into_iter()
@@ -7023,7 +7036,7 @@ mod tests {
             .detach();
         });
         let values = |view: &ChannelView, query: &str| {
-            view.suggestions_with('@', query, &[])
+            view.suggestions_with('@', query, &[], &[])
                 .into_iter()
                 .map(|s| s.value.to_string())
                 .collect::<Vec<_>>()

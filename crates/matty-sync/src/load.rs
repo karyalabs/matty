@@ -67,6 +67,17 @@ pub(crate) enum Loaded {
     Expired,
     /// Custom emoji.
     Emoji(Vec<Emoji>),
+    /// The groups `@name` mentions, and the ids of those the user is in.
+    Groups {
+        groups: Vec<matty_api::models::Group>,
+        mine: Vec<String>,
+    },
+    /// The first page of a group's people.
+    GroupMembers {
+        group_id: String,
+        members: Vec<User>,
+        total: i64,
+    },
     /// Statuses for the people in direct messages.
     Statuses(Vec<Status>),
     /// The user's drafts on the server, for one team and its direct
@@ -438,6 +449,8 @@ pub(crate) async fn run(client: Client, results: UnboundedSender<Loaded>) {
         .map(|team| team.id.clone())
         .collect();
     let custom_emoji = capabilities.custom_emoji;
+    // User groups and their mentions come with a license.
+    let groups = capabilities.licensed;
     let synced_drafts = capabilities.synced_drafts;
     let scheduled_posts = capabilities.scheduled_posts;
     let draft_teams = team_ids.clone();
@@ -535,7 +548,21 @@ pub(crate) async fn run(client: Client, results: UnboundedSender<Loaded>) {
             }
         }
     };
-    futures_util::future::join4(teams, drafts, scheduled, emoji).await;
+    let groups = async {
+        if !groups {
+            return;
+        }
+        match tokio::try_join!(client.mentionable_groups(), client.user_groups(&user_id)) {
+            Ok((groups, mine)) => {
+                let _ = results.send(Loaded::Groups {
+                    groups,
+                    mine: mine.into_iter().map(|group| group.id).collect(),
+                });
+            }
+            Err(error) => tracing::warn!(%error, "could not load user groups"),
+        }
+    };
+    futures_util::future::join5(teams, drafts, scheduled, emoji, groups).await;
     let _ = results.send(Loaded::Done);
 }
 

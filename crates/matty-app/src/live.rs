@@ -107,6 +107,9 @@ pub struct Live {
     zone: jiff::tz::TimeZone,
     /// The posts the channel view shows now, to send it only what changed.
     shown: Option<Vec<Post>>,
+    /// The names of the user groups the user is in, whose `@name` mentions
+    /// them (#1057).
+    my_groups: Vec<String>,
     /// When the user last viewed the open channel before opening it, if it
     /// was unread then: the "New messages" line goes above the first
     /// message after it, and stays until another channel opens.
@@ -290,6 +293,10 @@ pub struct Update {
     /// The user's personal access tokens with the one just created, or
     /// why the server refused a change to them.
     pub access_tokens: Option<Result<AccessTokens, SharedString>>,
+    /// The user groups `@name` can mention, for the composer (#1057).
+    pub groups: Option<std::sync::Arc<[matty_api::models::Group]>>,
+    /// A group's people and how many it has, for the members dialog.
+    pub group_members: Option<(String, Vec<UserProfile>, i64)>,
     /// Something the server or an App refused, for a toast (#226).
     pub refused: Option<SharedString>,
     /// A link an App answered with, for Matty's link routing (#226).
@@ -851,6 +858,7 @@ impl Live {
                 emoji_images,
                 team_icons,
                 custom_emoji: crate::emoji::CustomEmoji::default(),
+                my_groups: Vec::new(),
                 views: popout::OpenViews::default(),
                 extras: extras::Extras::default(),
             },
@@ -1071,6 +1079,7 @@ impl Live {
                 &user.first_name,
                 &user.notify_props,
             );
+            self.prefs.keys.groups = self.my_groups.clone();
             self.notify_props = user.notify_props.clone();
             update.notify_props = Some(self.notify_props.clone());
         }
@@ -2758,6 +2767,30 @@ impl Live {
                     matty_sync::Picture::TeamIcon => &self.team_icons,
                 };
                 update.avatars = store.landed(id, *version, image);
+            }
+            ChangeSet::Groups { groups, mine } => {
+                self.my_groups = groups
+                    .iter()
+                    .filter(|group| mine.contains(&group.id) && !group.name.is_empty())
+                    .map(|group| group.name.clone())
+                    .collect();
+                self.prefs.keys.groups = self.my_groups.clone();
+                update.groups = Some(groups.clone());
+            }
+            ChangeSet::GroupMembers {
+                group_id,
+                members,
+                total,
+            } => {
+                for user in members.iter() {
+                    self.avatars.learn(&user.id, user.last_picture_update);
+                }
+                let people = members
+                    .iter()
+                    .filter(|user| user.delete_at == 0)
+                    .map(|user| self.profile(user))
+                    .collect();
+                update.group_members = Some((group_id.clone(), people, *total));
             }
             ChangeSet::CustomEmoji(emoji) => {
                 self.custom_emoji.set(emoji);

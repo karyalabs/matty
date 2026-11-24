@@ -84,6 +84,38 @@ pub struct CustomStatus {
     pub expires_at: String,
 }
 
+/// A user group (custom or LDAP) that `@name` mentions, from `groups`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Group {
+    /// Group id.
+    pub id: String,
+    /// The handle after `@`; empty for groups nobody can mention.
+    #[serde(deserialize_with = "null_as_default")]
+    pub name: String,
+    /// The name people read, such as "Developers".
+    pub display_name: String,
+    /// `custom` or `ldap`.
+    pub source: String,
+    /// Whether `@name` mentions the group.
+    pub allow_reference: bool,
+    /// How many people are in it, when asked with `include_member_count`.
+    pub member_count: i64,
+    /// Milliseconds since the epoch; 0 while the group is live.
+    pub delete_at: i64,
+}
+
+/// A page of a group's members, from `groups/{id}/members`.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct GroupMembers {
+    /// The people on this page.
+    #[serde(deserialize_with = "null_as_default")]
+    pub members: Vec<User>,
+    /// How many people the group has in all.
+    pub total_member_count: i64,
+}
+
 /// A session, as `users/{id}/sessions` returns it.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(default)]

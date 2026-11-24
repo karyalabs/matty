@@ -2180,6 +2180,29 @@ impl MainWindow {
             self.team_members
                 .update(cx, |view, cx| view.set_people(&team_id, people, cx));
         }
+        if let Some(groups) = update.groups.take() {
+            crate::user_groups::UserGroups::set(&groups, cx);
+        }
+        if let Some((group_id, people, total)) = update.group_members.take() {
+            let me = self
+                .live
+                .as_ref()
+                .and_then(|live| live.me_user())
+                .map(|user| user.id.clone())
+                .unwrap_or_default();
+            let people = people
+                .into_iter()
+                .map(|profile| crate::team_members::TeamPerson {
+                    me: profile.user_id.as_ref() == me,
+                    profile,
+                    admin: false,
+                })
+                .collect();
+            self.team_members.update(cx, |view, cx| {
+                view.set_group_total(&group_id, total, cx);
+                view.set_people(&group_id, people, cx);
+            });
+        }
         if let Some(team) = update.team_settings.take() {
             self.team_settings
                 .update(cx, |view, cx| view.set_team(team, window, cx));
@@ -4922,6 +4945,23 @@ impl MainWindow {
 
     /// `@name`: the direct message with them, found or started.
     fn open_user(&mut self, username: String, window: &mut Window, cx: &mut Context<Self>) {
+        // A group's `@name` opens its people (#1057).
+        if let Some(group) = crate::user_groups::UserGroups::named(cx, &username).cloned() {
+            self.team_members.update(cx, |view, cx| {
+                view.open_group(
+                    group.id.clone().into(),
+                    group.display_name.into(),
+                    group.name.into(),
+                    group.member_count,
+                    window,
+                    cx,
+                )
+            });
+            if let Some(live) = &self.live {
+                live.send(matty_sync::Command::GroupMembers { group_id: group.id });
+            }
+            return;
+        }
         let known = match &self.live {
             Some(live) => live.known_user(&username),
             None => crate::preview::profiles()

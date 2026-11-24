@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 use crate::{
     ApiError, Client, Fetched,
     models::{
-        Channel, ChannelMember, ChannelStats, Emoji, Preference, SidebarCategories,
-        SidebarCategory, Status, Team, TeamMember, TeamUnread, User,
+        Channel, ChannelMember, ChannelStats, Emoji, Group, GroupMembers, Preference,
+        SidebarCategories, SidebarCategory, Status, Team, TeamMember, TeamUnread, User,
     },
 };
 
@@ -138,6 +138,42 @@ impl Client {
             "emoji",
             &[
                 ("page", page.to_string()),
+                ("per_page", PAGE_SIZE.to_string()),
+            ],
+        )
+        .await
+    }
+
+    /// Every group `@name` can mention, with member counts, paging until
+    /// the server returns a short page. Licensed servers only.
+    pub async fn mentionable_groups(&self) -> Result<Vec<Group>, ApiError> {
+        collect_pages(|page| self.mentionable_groups_page(page)).await
+    }
+
+    async fn mentionable_groups_page(&self, page: usize) -> Result<Vec<Group>, ApiError> {
+        self.get_query(
+            "groups",
+            &[
+                ("filter_allow_reference", "true".to_owned()),
+                ("include_member_count", "true".to_owned()),
+                ("page", page.to_string()),
+                ("per_page", PAGE_SIZE.to_string()),
+            ],
+        )
+        .await
+    }
+
+    /// `GET users/{user_id}/groups`: the groups the user is in.
+    pub async fn user_groups(&self, user_id: &str) -> Result<Vec<Group>, ApiError> {
+        self.get(&format!("users/{user_id}/groups")).await
+    }
+
+    /// `GET groups/{group_id}/members`: the first page of a group's people.
+    pub async fn group_members(&self, group_id: &str) -> Result<GroupMembers, ApiError> {
+        self.get_query(
+            &format!("groups/{group_id}/members"),
+            &[
+                ("page", "0".to_owned()),
                 ("per_page", PAGE_SIZE.to_string()),
             ],
         )

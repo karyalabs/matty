@@ -1,5 +1,6 @@
 //! Team members (#988): everyone on a team, with search. A click messages
 //! someone; a team admin also makes or unmakes admins and removes people.
+//! A user group's people (#1057) show the same way, from its `@name`.
 
 use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::{
@@ -48,6 +49,9 @@ pub struct TeamMembersView {
     team_id: SharedString,
     team_name: SharedString,
     manage: bool,
+    /// The `@name` and member count when the dialog shows a user group
+    /// rather than a team.
+    group: Option<(SharedString, i64)>,
     people: Option<Vec<TeamPerson>>,
     search: Entity<InputState>,
     handle: DialogHandle,
@@ -79,6 +83,7 @@ impl TeamMembersView {
             team_id: SharedString::default(),
             team_name: SharedString::default(),
             manage: false,
+            group: None,
             people: None,
             search,
             handle: DialogHandle::new(false),
@@ -107,11 +112,35 @@ impl TeamMembersView {
         self.team_id = team_id;
         self.team_name = team_name;
         self.manage = manage;
+        self.group = None;
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
         self.handle.open(window, cx);
         self.focus_search = true;
         cx.notify();
+    }
+
+    /// Opens the dialog for the user group `@name`;
+    /// [`Self::set_people`] fills it with the group's id.
+    pub fn open_group(
+        &mut self,
+        group_id: SharedString,
+        display_name: SharedString,
+        name: SharedString,
+        member_count: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open(group_id, display_name, false, window, cx);
+        self.group = Some((name, member_count));
+    }
+
+    /// The group's member count, once the server says it.
+    pub fn set_group_total(&mut self, group_id: &str, total: i64, cx: &mut Context<Self>) {
+        if let Some((_, count)) = self.group.as_mut().filter(|_| self.team_id == group_id) {
+            *count = total;
+            cx.notify();
+        }
     }
 
     /// The team's people, sorted by name, for the open team.
@@ -304,7 +333,17 @@ impl Render for TeamMembersView {
             Some(_) => None,
         };
         let count = self.people.as_ref().map_or(0, Vec::len);
-        let title = if self.manage {
+        let description = match &self.group {
+            Some((name, total)) => t!(
+                "user-group-description",
+                name = name.to_string(),
+                count = *total
+            ),
+            None => t!("team-members-count", count = count),
+        };
+        let title = if self.group.is_some() {
+            self.team_name.clone()
+        } else if self.manage {
             t!(
                 "team-members-manage-title",
                 team = self.team_name.to_string()
@@ -322,10 +361,7 @@ impl Render for TeamMembersView {
                     .flex_col()
                     .gap(theme.space(1.))
                     .child(dialog_title("team-members.title", cx).child(title))
-                    .child(
-                        dialog_description("team-members.description", cx)
-                            .child(t!("team-members-count", count = count)),
-                    ),
+                    .child(dialog_description("team-members.description", cx).child(description)),
             )
             .child(Input::new(&self.search).aria_label(t!("directory-search-people")))
             .child(

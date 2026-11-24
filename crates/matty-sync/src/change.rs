@@ -280,6 +280,24 @@ pub enum ChangeSet {
     /// each load. Their images come through
     /// [`Command::LoadPicture`](crate::Command::LoadPicture).
     CustomEmoji(Arc<[matty_api::models::Emoji]>),
+    /// The user groups `@name` can mention, on licensed servers, after each
+    /// load.
+    Groups {
+        /// Every mentionable group.
+        groups: Arc<[matty_api::models::Group]>,
+        /// The ids of the groups the user is in, whose mentions are theirs.
+        mine: Arc<[String]>,
+    },
+    /// A group's people, the answer to
+    /// [`Command::GroupMembers`](crate::Command::GroupMembers).
+    GroupMembers {
+        /// The group.
+        group_id: String,
+        /// Its first page of people.
+        members: Arc<[matty_api::models::User]>,
+        /// How many it has in all.
+        total: i64,
+    },
     /// Search results, best first: the answer to
     /// [`Command::Search`](crate::Command::Search). Their authors come
     /// ahead in [`ChangeSet::Users`].

@@ -242,6 +242,9 @@ pub(crate) enum Write {
         code: String,
     },
     AccessTokens,
+    GroupMembers {
+        group_id: String,
+    },
     CreateAccessToken {
         description: String,
     },
@@ -396,6 +399,7 @@ impl Write {
                 activate: false, ..
             } => "turn off multi-factor authentication",
             Self::AccessTokens => "list your access tokens",
+            Self::GroupMembers { .. } => "list a group's members",
             Self::CreateAccessToken { .. } => "create an access token",
             Self::SetAccessTokenActive { active: true, .. } => "turn on an access token",
             Self::SetAccessTokenActive { active: false, .. } => "turn off an access token",
@@ -446,6 +450,7 @@ impl Write {
             | Self::Mfa { .. }
             | Self::AccessTokens
             | Self::CreateAccessToken { .. } => user_id.to_owned(),
+            Self::GroupMembers { group_id } => group_id.clone(),
             Self::SetAccessTokenActive { token_id, .. } | Self::RevokeAccessToken { token_id } => {
                 token_id.clone()
             }
@@ -1301,6 +1306,14 @@ pub(crate) async fn run(
                 created: None,
                 tokens: client.access_tokens(&user_id).await?,
             }),
+            Write::GroupMembers { group_id } => {
+                let page = client.group_members(&group_id).await?;
+                Some(Loaded::GroupMembers {
+                    group_id,
+                    members: page.members,
+                    total: page.total_member_count,
+                })
+            }
             Write::CreateAccessToken { description } => {
                 let created = client.create_access_token(&user_id, &description).await?;
                 Some(Loaded::AccessTokens {

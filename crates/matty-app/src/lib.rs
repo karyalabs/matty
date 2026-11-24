@@ -86,6 +86,7 @@ mod updater;
 #[path = "updater_web.rs"]
 mod updater;
 pub mod url_handler;
+pub mod user_groups;
 pub mod watch;
 #[cfg(target_family = "wasm")]
 pub mod web_storage;
