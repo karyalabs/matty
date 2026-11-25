@@ -40,6 +40,7 @@ pub mod forward;
 pub mod gifs;
 pub mod i18n;
 pub mod instance;
+pub mod integrations;
 pub mod interactive;
 pub mod interactive_dialog;
 pub mod links;

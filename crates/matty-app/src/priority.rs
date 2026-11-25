@@ -67,6 +67,10 @@ pub struct Features {
     /// The composer's emoji picker has a GIFs tab (`EnableGifPicker` with
     /// a `GiphySdkKey`, #958).
     pub gifs: bool,
+    /// Team integrations can be managed: incoming webhooks
+    /// (`EnableIncomingWebhooks`) or custom slash commands
+    /// (`EnableCommands`), #1071.
+    pub integrations: bool,
 }
 
 impl Global for Features {}
@@ -91,6 +95,7 @@ impl Features {
             access_tokens: capabilities.access_tokens,
             last_active: capabilities.last_active_time,
             gifs: capabilities.giphy_key.is_some(),
+            integrations: capabilities.incoming_webhooks || capabilities.custom_commands,
         }
     }
 
@@ -114,6 +119,7 @@ impl Features {
             last_active: true,
             // Preview has no GIPHY to ask.
             gifs: false,
+            integrations: true,
         }
     }
 

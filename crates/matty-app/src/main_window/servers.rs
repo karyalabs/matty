@@ -310,6 +310,7 @@ impl MainWindow {
                 self.invite_to_team(id.clone(), name.clone(), window, cx)
             }
             TeamsEvent::Settings { id } => self.open_team_settings(id.clone(), window, cx),
+            TeamsEvent::Integrations { id } => self.open_integrations(id.clone(), window, cx),
             TeamsEvent::Members { id, name, manage } => {
                 self.team_members.update(cx, |view, cx| {
                     view.open(id.clone(), name.clone(), *manage, window, cx)
@@ -519,6 +520,27 @@ impl MainWindow {
                 team_id: id.to_string(),
             });
         }
+    }
+
+    /// Integrations (#1071) for the shown team, with its channels from the
+    /// sidebar for a webhook's channel.
+    pub(super) fn open_integrations(
+        &mut self,
+        id: gpui_kit::SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        let server = live.server().to_owned();
+        live.send(matty_sync::Command::Integrations {
+            team_id: id.to_string(),
+        });
+        let channels = self.sidebar.read(cx).channel_choices();
+        self.integrations.update(cx, |view, cx| {
+            view.open(id.to_string(), server, channels, window, cx)
+        });
     }
 
     pub(super) fn on_team_members_event(

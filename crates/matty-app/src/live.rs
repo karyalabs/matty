@@ -306,6 +306,9 @@ pub struct Update {
     pub access_tokens: Option<Result<AccessTokens, SharedString>>,
     /// The user groups `@name` can mention, for the composer (#1057).
     pub groups: Option<GroupsUpdate>,
+    /// A team's incoming webhooks and slash commands, or why the server
+    /// refused to list or change them (#1071).
+    pub integrations: Option<Result<crate::integrations::Integrations, SharedString>>,
     /// A group's people and how many it has, for the members dialog.
     pub group_members: Option<(String, Vec<UserProfile>, i64)>,
     /// Something the server or an App refused, for a toast (#226).
@@ -1493,6 +1496,25 @@ impl Live {
     /// Until their roles are known, they may not: Team settings stays out
     /// of the menu rather than offering what the server would refuse.
     pub(super) fn may_manage_team(&self, team_id: &str) -> bool {
+        self.may_in_team(team_id, &["manage_team"])
+    }
+
+    /// Whether the user may manage incoming webhooks or slash commands in
+    /// the team (#1071), as the webapp's Integrations entry asks.
+    pub(super) fn may_manage_integrations(&self, team_id: &str) -> bool {
+        self.may_in_team(
+            team_id,
+            &[
+                "manage_incoming_webhooks",
+                "manage_own_incoming_webhooks",
+                "manage_slash_commands",
+                "manage_own_slash_commands",
+            ],
+        )
+    }
+
+    /// Whether a team or system role of the user's has any of `wanted`.
+    fn may_in_team(&self, team_id: &str, wanted: &[&str]) -> bool {
         if self.is_system_admin() {
             return true;
         }
@@ -1510,7 +1532,11 @@ impl Live {
         names
             .iter()
             .filter_map(|name| self.roles.get(name))
-            .any(|permissions| permissions.iter().any(|p| p == "manage_team"))
+            .any(|permissions| {
+                permissions
+                    .iter()
+                    .any(|permission| wanted.contains(&permission.as_str()))
+            })
     }
 
     /// Whether the user is a system admin.
@@ -2803,6 +2829,34 @@ impl Live {
                 } else {
                     crate::t!("group-change-failed", error = said)
                 });
+            }
+            ChangeSet::Integrations {
+                team_id,
+                hooks,
+                commands,
+                created,
+            } => {
+                update.integrations = Some(Ok(crate::integrations::Integrations {
+                    team_id: team_id.clone(),
+                    hooks: hooks.clone(),
+                    commands: commands.clone(),
+                    created: created.clone(),
+                }));
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
+                action:
+                    "list integrations"
+                    | "create a webhook"
+                    | "delete a webhook"
+                    | "create a slash command"
+                    | "delete a slash command",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.integrations = Some(Err(said.to_owned().into()));
             }
             ChangeSet::GroupMembers {
                 group_id,

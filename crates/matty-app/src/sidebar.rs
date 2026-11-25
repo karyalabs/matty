@@ -1313,6 +1313,21 @@ impl SidebarView {
             .any(|row| row.id.as_ref() == id && (row.unread || row.mentions > 0))
     }
 
+    /// The shown team's channels, by id and name, sorted by name, for
+    /// picking one (#1071).
+    pub fn channel_choices(&self) -> Vec<(SharedString, SharedString)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut choices: Vec<(SharedString, SharedString)> = self
+            .model
+            .rows()
+            .filter(|row| matches!(row.kind, ChannelKind::Public | ChannelKind::Private))
+            .filter(|row| seen.insert(row.id.clone()))
+            .map(|row| (row.id.clone(), row.name.clone()))
+            .collect();
+        choices.sort_by_key(|(_, name)| name.to_lowercase());
+        choices
+    }
+
     /// The channels Mark all read clears.
     pub fn unread_ids(&self) -> Vec<SharedString> {
         self.model.unread_ids()

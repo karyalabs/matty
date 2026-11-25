@@ -3,10 +3,79 @@
 
 use crate::{
     ApiError, Client,
-    models::{CommandResponse, CommandSuggestion, ExecuteCommand, SlashCommand},
+    models::{
+        CommandResponse, CommandSuggestion, CustomCommand, ExecuteCommand, IncomingWebhook,
+        SlashCommand,
+    },
 };
 
 impl Client {
+    /// `GET commands?team_id=&custom_only=true`: the team's custom
+    /// commands with their URLs and tokens, for whoever may manage them.
+    pub async fn custom_commands(&self, team_id: &str) -> Result<Vec<CustomCommand>, ApiError> {
+        let commands: Option<Vec<CustomCommand>> = self
+            .get_query(
+                "commands",
+                &[
+                    ("team_id", team_id.to_owned()),
+                    ("custom_only", "true".to_owned()),
+                ],
+            )
+            .await?;
+        Ok(commands.unwrap_or_default())
+    }
+
+    /// `POST commands`: a custom slash command in its team.
+    pub async fn create_command(&self, command: &CustomCommand) -> Result<CustomCommand, ApiError> {
+        self.post("commands", command).await
+    }
+
+    /// `DELETE commands/{command_id}`.
+    pub async fn delete_command(&self, command_id: &str) -> Result<(), ApiError> {
+        let _: serde_json::Value = self.delete(&format!("commands/{command_id}")).await?;
+        Ok(())
+    }
+
+    /// `GET hooks/incoming?team_id=`: the team's incoming webhooks the
+    /// user may manage.
+    pub async fn incoming_webhooks(&self, team_id: &str) -> Result<Vec<IncomingWebhook>, ApiError> {
+        let hooks: Option<Vec<IncomingWebhook>> = self
+            .get_query(
+                "hooks/incoming",
+                &[
+                    ("team_id", team_id.to_owned()),
+                    ("page", "0".to_owned()),
+                    ("per_page", "200".to_owned()),
+                ],
+            )
+            .await?;
+        Ok(hooks.unwrap_or_default())
+    }
+
+    /// `POST hooks/incoming`: a webhook that posts to `channel_id`.
+    pub async fn create_incoming_webhook(
+        &self,
+        channel_id: &str,
+        display_name: &str,
+        description: &str,
+    ) -> Result<IncomingWebhook, ApiError> {
+        self.post(
+            "hooks/incoming",
+            &serde_json::json!({
+                "channel_id": channel_id,
+                "display_name": display_name,
+                "description": description,
+            }),
+        )
+        .await
+    }
+
+    /// `DELETE hooks/incoming/{hook_id}`.
+    pub async fn delete_incoming_webhook(&self, hook_id: &str) -> Result<(), ApiError> {
+        let _: serde_json::Value = self.delete(&format!("hooks/incoming/{hook_id}")).await?;
+        Ok(())
+    }
+
     /// `GET teams/{team_id}/commands/autocomplete`: the commands the user
     /// may run in the team that autocomplete offers, the server's own and
     /// plugins' among them.

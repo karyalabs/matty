@@ -98,6 +98,8 @@ pub struct Team {
     pub icon: i64,
     /// The user may change the team's settings (#987).
     pub manage: bool,
+    /// The user may manage the team's webhooks or slash commands (#1071).
+    pub integrations: bool,
 }
 
 impl Team {
@@ -109,7 +111,14 @@ impl Team {
             mentions: 0,
             icon: 0,
             manage: false,
+            integrations: false,
         }
+    }
+
+    /// The user may manage the team's integrations.
+    pub fn integrations(mut self, integrations: bool) -> Self {
+        self.integrations = integrations;
+        self
     }
 
     /// The user may change the team's settings.
@@ -188,6 +197,9 @@ pub enum TeamsEvent {
     /// Team settings, for a team admin (#987), from its tab's menu or the
     /// team menu.
     Settings { id: SharedString },
+    /// The team's incoming webhooks and slash commands (#1071), from the
+    /// team menu.
+    Integrations { id: SharedString },
     /// The team's members (#988), from its tab's menu or the team menu.
     Members {
         id: SharedString,
@@ -441,7 +453,7 @@ impl TeamsModel {
     /// a server, joining a team (when the server has one team, so there are
     /// no tabs to join from) and managing servers (spec §6); the More menu
     /// lists the teams whose tabs do not fit (spec §7).
-    fn refresh_menu(&mut self, cx: &mut Context<Self>) {
+    pub fn refresh_menu(&mut self, cx: &mut Context<Self>) {
         let view = cx.entity().downgrade();
         let emit = move |event: TeamsEvent| {
             let view = view.clone();
@@ -501,6 +513,15 @@ impl TeamsModel {
                     MenuItem::new("teams.settings", t!("teams-settings"))
                         .icon(LucideIcon::Settings)
                         .on_click(emit(TeamsEvent::Settings {
+                            id: team.id.clone(),
+                        })),
+                );
+            }
+            if team.integrations && crate::priority::Features::read(cx).integrations {
+                items.push(
+                    MenuItem::new("teams.integrations", t!("teams-integrations"))
+                        .icon(LucideIcon::Webhook)
+                        .on_click(emit(TeamsEvent::Integrations {
                             id: team.id.clone(),
                         })),
                 );

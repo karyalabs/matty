@@ -72,6 +72,14 @@ pub(crate) enum Loaded {
         groups: Vec<matty_api::models::Group>,
         mine: Vec<String>,
     },
+    /// A team's incoming webhooks and custom slash commands, and the id
+    /// of one just made.
+    Integrations {
+        team_id: String,
+        hooks: Vec<matty_api::models::IncomingWebhook>,
+        commands: Vec<matty_api::models::CustomCommand>,
+        created: Option<String>,
+    },
     /// The first page of a group's people.
     GroupMembers {
         group_id: String,

@@ -34,6 +34,74 @@ pub struct SlashCommand {
     pub delete_at: i64,
 }
 
+/// A custom slash command as its owner sees it (#1071): what it calls,
+/// and the token the server sends with each call.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CustomCommand {
+    /// Server id.
+    pub id: String,
+    /// Team the item belongs to.
+    pub team_id: String,
+    /// What follows the slash.
+    pub trigger: String,
+    /// Where the server sends the command.
+    #[serde(deserialize_with = "null_as_default")]
+    pub url: String,
+    /// `P` (POST) or `G` (GET).
+    #[serde(deserialize_with = "null_as_default")]
+    pub method: String,
+    /// Name shown in lists.
+    #[serde(deserialize_with = "null_as_default")]
+    pub display_name: String,
+    /// What it is for.
+    #[serde(deserialize_with = "null_as_default")]
+    pub description: String,
+    /// Listed in the slash menu.
+    pub auto_complete: bool,
+    /// Slash menu description.
+    #[serde(deserialize_with = "null_as_default")]
+    pub auto_complete_desc: String,
+    /// Slash menu argument hint.
+    #[serde(deserialize_with = "null_as_default")]
+    pub auto_complete_hint: String,
+    /// Sent with each call so the integration knows it is the server.
+    #[serde(deserialize_with = "null_as_default")]
+    pub token: String,
+    /// Who made it.
+    #[serde(deserialize_with = "null_as_default")]
+    pub creator_id: String,
+    /// Created, in epoch milliseconds.
+    pub create_at: i64,
+    /// Deleted, in epoch milliseconds, or 0.
+    pub delete_at: i64,
+}
+
+/// An incoming webhook (#1071): posts sent to its URL land in its channel.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct IncomingWebhook {
+    /// Server id.
+    pub id: String,
+    /// Channel the posts land in.
+    pub channel_id: String,
+    /// Team the item belongs to.
+    pub team_id: String,
+    /// Name shown in lists.
+    #[serde(deserialize_with = "null_as_default")]
+    pub display_name: String,
+    /// What it is for.
+    #[serde(deserialize_with = "null_as_default")]
+    pub description: String,
+    /// Who made it.
+    #[serde(deserialize_with = "null_as_default")]
+    pub user_id: String,
+    /// Created, in epoch milliseconds.
+    pub create_at: i64,
+    /// Deleted, in epoch milliseconds, or 0.
+    pub delete_at: i64,
+}
+
 /// One row of `teams/{team_id}/commands/autocomplete_suggestions`: a
 /// command, a subcommand or an argument value. The server spells these
 /// fields with capitals.

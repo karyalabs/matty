@@ -252,6 +252,7 @@ pub struct MainWindow {
     team_invite_view: Entity<crate::directory::AddMembersView>,
     inviting_team: Option<SharedString>,
     team_settings: Entity<crate::team_settings::TeamSettingsView>,
+    integrations: Entity<crate::integrations::IntegrationsView>,
     file_preview: Entity<crate::file_preview::FilePreviewView>,
     team_members: Entity<crate::team_members::TeamMembersView>,
     user_groups: Entity<crate::user_groups::UserGroupsView>,
@@ -553,6 +554,18 @@ impl MainWindow {
                     for change in changes {
                         live.send(matty_sync::Command::ChangeGroup(change.clone()));
                     }
+                }
+            },
+        )
+        .detach();
+        let integrations = cx.new(|cx| crate::integrations::IntegrationsView::new(window, cx));
+        cx.subscribe_in(
+            &integrations,
+            window,
+            |this, _, event: &crate::integrations::IntegrationsEvent, _, _| {
+                let crate::integrations::IntegrationsEvent::Change(change) = event;
+                if let Some(live) = &this.live {
+                    live.send(matty_sync::Command::ChangeIntegration(change.clone()));
                 }
             },
         )
@@ -1440,6 +1453,7 @@ impl MainWindow {
             team_invite_view,
             inviting_team: None,
             team_settings,
+            integrations,
             file_preview,
             team_members,
             user_groups,
@@ -2293,6 +2307,10 @@ impl MainWindow {
             self.security
                 .update(cx, |view, cx| view.mfa_changed(result, window, cx));
         }
+        if let Some(result) = update.integrations.take() {
+            self.integrations
+                .update(cx, |view, cx| view.set(result, cx));
+        }
         if let Some(result) = update.access_tokens.take() {
             self.security
                 .update(cx, |view, cx| view.set_tokens(result, window, cx));
@@ -2575,6 +2593,9 @@ impl MainWindow {
         }
         if let Some(features) = update.features {
             crate::priority::Features::set(features, cx);
+            // The team menu offers Integrations only where the server has them.
+            self.teams_model
+                .update(cx, |teams, cx| teams.refresh_menu(cx));
         }
         if let Some(scheduled) = update.scheduled.take() {
             self.scheduled_changed(scheduled, cx);
@@ -5349,6 +5370,14 @@ impl MainWindow {
                     cx,
                 )
                 .child(self.group_editor.clone()),
+                window,
+                cx,
+            ))
+            .child(dialog(
+                "integrations",
+                &self.integrations.read(cx).handle().clone(),
+                dialog_popup("integrations.popup", crate::t!("integrations-title"), cx)
+                    .child(self.integrations.clone()),
                 window,
                 cx,
             ))

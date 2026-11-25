@@ -299,6 +299,20 @@ pub enum ChangeSet {
         /// The ids of the groups the user is in, whose mentions are theirs.
         mine: Arc<[String]>,
     },
+    /// A team's incoming webhooks and custom slash commands (#1071), the
+    /// answer to [`Command::Integrations`](crate::Command::Integrations)
+    /// and [`Command::ChangeIntegration`](crate::Command::ChangeIntegration).
+    Integrations {
+        /// The team.
+        team_id: String,
+        /// Its incoming webhooks, oldest first.
+        hooks: Arc<[matty_api::models::IncomingWebhook]>,
+        /// Its custom slash commands, oldest first.
+        commands: Arc<[matty_api::models::CustomCommand]>,
+        /// The id of the webhook or command just made, so its URL or
+        /// token can be shown.
+        created: Option<String>,
+    },
     /// A group's people, the answer to
     /// [`Command::GroupMembers`](crate::Command::GroupMembers).
     GroupMembers {

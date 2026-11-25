@@ -246,6 +246,10 @@ pub(crate) enum Write {
         group_id: String,
     },
     ChangeGroup(crate::GroupChange),
+    Integrations {
+        team_id: String,
+    },
+    ChangeIntegration(crate::IntegrationChange),
     CreateAccessToken {
         description: String,
     },
@@ -403,6 +407,19 @@ impl Write {
             Self::GroupMembers { .. } => "list a group's members",
             Self::ChangeGroup(crate::GroupChange::Create { .. }) => "create a group",
             Self::ChangeGroup(_) => "change a group",
+            Self::Integrations { .. } => "list integrations",
+            Self::ChangeIntegration(crate::IntegrationChange::CreateWebhook { .. }) => {
+                "create a webhook"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::DeleteWebhook { .. }) => {
+                "delete a webhook"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::CreateCommand(_)) => {
+                "create a slash command"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::DeleteCommand { .. }) => {
+                "delete a slash command"
+            }
             Self::CreateAccessToken { .. } => "create an access token",
             Self::SetAccessTokenActive { active: true, .. } => "turn on an access token",
             Self::SetAccessTokenActive { active: false, .. } => "turn off an access token",
@@ -455,6 +472,8 @@ impl Write {
             | Self::CreateAccessToken { .. } => user_id.to_owned(),
             Self::GroupMembers { group_id } => group_id.clone(),
             Self::ChangeGroup(change) => change.group_id().unwrap_or_default().to_owned(),
+            Self::Integrations { team_id } => team_id.clone(),
+            Self::ChangeIntegration(change) => change.team_id().to_owned(),
             Self::SetAccessTokenActive { token_id, .. } | Self::RevokeAccessToken { token_id } => {
                 token_id.clone()
             }
@@ -1364,6 +1383,56 @@ pub(crate) async fn run(
                         total: page.total_member_count,
                     })
                 }
+            }
+            Write::Integrations { team_id } => {
+                let (hooks, commands) = tokio::try_join!(
+                    client.incoming_webhooks(&team_id),
+                    client.custom_commands(&team_id)
+                )?;
+                Some(Loaded::Integrations {
+                    team_id,
+                    hooks,
+                    commands,
+                    created: None,
+                })
+            }
+            Write::ChangeIntegration(change) => {
+                use crate::IntegrationChange;
+                let team_id = change.team_id().to_owned();
+                let created = match change {
+                    IntegrationChange::CreateWebhook {
+                        channel_id,
+                        display_name,
+                        description,
+                        ..
+                    } => Some(
+                        client
+                            .create_incoming_webhook(&channel_id, &display_name, &description)
+                            .await?
+                            .id,
+                    ),
+                    IntegrationChange::DeleteWebhook { hook_id, .. } => {
+                        client.delete_incoming_webhook(&hook_id).await?;
+                        None
+                    }
+                    IntegrationChange::CreateCommand(command) => {
+                        Some(client.create_command(&command).await?.id)
+                    }
+                    IntegrationChange::DeleteCommand { command_id, .. } => {
+                        client.delete_command(&command_id).await?;
+                        None
+                    }
+                };
+                let (hooks, commands) = tokio::try_join!(
+                    client.incoming_webhooks(&team_id),
+                    client.custom_commands(&team_id)
+                )?;
+                Some(Loaded::Integrations {
+                    team_id,
+                    hooks,
+                    commands,
+                    created,
+                })
             }
             Write::GroupMembers { group_id } => {
                 let page = client.group_members(&group_id).await?;

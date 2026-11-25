@@ -83,6 +83,50 @@ pub enum GroupChange {
     },
 }
 
+/// A change to a team's integrations (#1071).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IntegrationChange {
+    /// A new incoming webhook that posts to a channel.
+    CreateWebhook {
+        /// The team.
+        team_id: String,
+        /// The channel its posts land in.
+        channel_id: String,
+        /// What it is called.
+        display_name: String,
+        /// What it is for.
+        description: String,
+    },
+    /// An incoming webhook goes away; its URL stops working.
+    DeleteWebhook {
+        /// The team.
+        team_id: String,
+        /// The webhook.
+        hook_id: String,
+    },
+    /// A new custom slash command; its `team_id` says where.
+    CreateCommand(Box<matty_api::models::CustomCommand>),
+    /// A custom slash command goes away.
+    DeleteCommand {
+        /// The team.
+        team_id: String,
+        /// The command.
+        command_id: String,
+    },
+}
+
+impl IntegrationChange {
+    /// The team whose integrations it changes.
+    pub fn team_id(&self) -> &str {
+        match self {
+            Self::CreateWebhook { team_id, .. }
+            | Self::DeleteWebhook { team_id, .. }
+            | Self::DeleteCommand { team_id, .. } => team_id,
+            Self::CreateCommand(command) => &command.team_id,
+        }
+    }
+}
+
 impl GroupChange {
     /// The existing group it changes; `None` for a new one.
     pub fn group_id(&self) -> Option<&str> {
@@ -821,6 +865,16 @@ pub enum Command {
     /// for an existing group,
     /// [`ChangeSet::GroupMembers`](crate::ChangeSet::GroupMembers) answer.
     ChangeGroup(GroupChange),
+    /// A team's incoming webhooks and custom slash commands (#1071);
+    /// [`ChangeSet::Integrations`](crate::ChangeSet::Integrations) answers.
+    Integrations {
+        /// The team.
+        team_id: String,
+    },
+    /// Makes or deletes an incoming webhook or a custom slash command
+    /// (#1071); the team's lists come back in
+    /// [`ChangeSet::Integrations`](crate::ChangeSet::Integrations).
+    ChangeIntegration(IntegrationChange),
     /// The user's personal access tokens;
     /// [`ChangeSet::AccessTokens`](crate::ChangeSet::AccessTokens) answers.
     AccessTokens,
@@ -1443,6 +1497,15 @@ impl std::fmt::Debug for Command {
                 .field("group_id", group_id)
                 .finish(),
             Self::ChangeGroup(change) => f.debug_tuple("ChangeGroup").field(change).finish(),
+            Self::Integrations { team_id } => f
+                .debug_struct("Integrations")
+                .field("team_id", team_id)
+                .finish(),
+            // A command carries its token, which stays out of logs.
+            Self::ChangeIntegration(change) => f
+                .debug_struct("ChangeIntegration")
+                .field("team_id", &change.team_id())
+                .finish_non_exhaustive(),
             Self::AccessTokens => f.write_str("AccessTokens"),
             Self::CreateAccessToken { .. } => f.write_str("CreateAccessToken"),
             Self::SetAccessTokenActive { token_id, active } => f
@@ -2679,6 +2742,12 @@ impl Engine {
                 Message::Command(Command::AccessTokens) => writes.push(Write::AccessTokens),
                 Message::Command(Command::ChangeGroup(change)) => {
                     writes.push(Write::ChangeGroup(change));
+                }
+                Message::Command(Command::Integrations { team_id }) => {
+                    writes.push(Write::Integrations { team_id });
+                }
+                Message::Command(Command::ChangeIntegration(change)) => {
+                    writes.push(Write::ChangeIntegration(change));
                 }
                 Message::Command(Command::GroupMembers { group_id }) => {
                     writes.push(Write::GroupMembers { group_id });
@@ -4073,6 +4142,19 @@ impl Engine {
                 dirty.direct.push(ChangeSet::Groups {
                     groups: Arc::from(groups),
                     mine: Arc::from(mine),
+                });
+            }
+            Loaded::Integrations {
+                team_id,
+                hooks,
+                commands,
+                created,
+            } => {
+                dirty.direct.push(ChangeSet::Integrations {
+                    team_id,
+                    hooks: Arc::from(hooks),
+                    commands: Arc::from(commands),
+                    created,
                 });
             }
             Loaded::GroupMembers {

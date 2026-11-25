@@ -185,6 +185,10 @@ pub struct ServerCapabilities {
     /// Users with the permission may make personal access tokens
     /// (`EnableUserAccessTokens`).
     pub access_tokens: bool,
+    /// Incoming webhooks can be made (`EnableIncomingWebhooks`, #1071).
+    pub incoming_webhooks: bool,
+    /// Custom slash commands can be made (`EnableCommands`, #1071).
+    pub custom_commands: bool,
     /// Profiles show when someone was last online, unless they turned
     /// sharing it off (`EnableLastActiveTime`).
     pub last_active_time: bool,
@@ -314,6 +318,8 @@ impl ServerCapabilities {
             mfa: flag(config, "EnableMultifactorAuthentication"),
             mfa_required: flag(config, "EnforceMultifactorAuthentication"),
             access_tokens: flag(config, "EnableUserAccessTokens"),
+            incoming_webhooks: flag(config, "EnableIncomingWebhooks"),
+            custom_commands: flag(config, "EnableCommands"),
             last_active_time: flag(config, "EnableLastActiveTime"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,
@@ -499,7 +505,9 @@ mod tests {
             ServerCapabilities::from_old_format(&config, &license).unwrap()
         };
         type Gate = fn(&ServerCapabilities) -> bool;
-        let cases: [(&str, Gate); 11] = [
+        let cases: [(&str, Gate); 13] = [
+            ("EnableIncomingWebhooks", |c| c.incoming_webhooks),
+            ("EnableCommands", |c| c.custom_commands),
             ("EnableLdap", |c| c.ldap),
             ("EnableSignUpWithGitLab", |c| c.sso.gitlab),
             ("EnableSignUpWithGoogle", |c| c.sso.google),
