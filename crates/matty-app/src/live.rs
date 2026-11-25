@@ -2488,7 +2488,7 @@ impl Live {
             .filter(|_| self.teams.len() > 1 && !matches!(channel.kind.as_str(), "D" | "G"));
         match team {
             Some(team) => format!("{name} · {}", team.display_name).into(),
-            None => name.into(),
+            None => name,
         }
     }
 
