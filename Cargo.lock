@@ -4885,6 +4885,8 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "web-time",
+ "windows 0.62.2",
+ "x11rb",
  "zbus",
 ]
 

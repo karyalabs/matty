@@ -443,6 +443,12 @@ pub enum Command {
         /// Thread root when typing a reply, or empty.
         parent_id: String,
     },
+    /// Whether the user is at the computer, for the server's automatic
+    /// Away (as the official desktop app reports it).
+    Activity {
+        /// False once the computer has been idle a while.
+        active: bool,
+    },
     /// Sets the user's status: `online`, `away`, `dnd` or `offline`.
     SetStatus {
         /// The status.
@@ -1357,6 +1363,7 @@ impl std::fmt::Debug for Command {
                 .field("channel_id", channel_id)
                 .field("parent_id", parent_id)
                 .finish(),
+            Self::Activity { active } => write!(f, "Activity({active})"),
             Self::SetStatus { status, .. } => f
                 .debug_struct("SetStatus")
                 .field("status", status)
@@ -2452,6 +2459,16 @@ impl Engine {
                                 connection.user_typing(&channel_id, &parent_id).await
                             {
                                 tracing::debug!(%error, "a typing notice was not sent");
+                            }
+                        });
+                    }
+                }
+                Message::Command(Command::Activity { active }) => {
+                    let connection = self.session.as_ref().and_then(|s| s.socket.connection());
+                    if let Some(connection) = connection {
+                        matty_api::rt::spawn(async move {
+                            if let Err(error) = connection.update_active_status(active).await {
+                                tracing::debug!(%error, "an activity update was not sent");
                             }
                         });
                     }

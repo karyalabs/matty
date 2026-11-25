@@ -39,6 +39,7 @@ pub mod fonts;
 pub mod forward;
 pub mod gifs;
 pub mod i18n;
+pub mod idle;
 pub mod instance;
 pub mod integrations;
 pub mod interactive;

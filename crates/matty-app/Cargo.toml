@@ -60,9 +60,13 @@ rustix.workspace = true
 # The tray icon for "Keep running when closed" (#634).
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus.workspace = true
+# The computer's idle time under X11, for the automatic Away.
+x11rb = { version = "0.13", default-features = false, features = ["screensaver"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tray-icon = { version = "=0.26.1", default-features = false }
+# The computer's idle time, for the automatic Away.
+windows = { version = "0.62", features = ["Win32_System_SystemInformation", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = "0.2"

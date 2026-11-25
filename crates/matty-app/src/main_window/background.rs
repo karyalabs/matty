@@ -320,6 +320,20 @@ impl MainWindow {
         self.is_shown(&data_key, cx) && self.live.is_some()
     }
 
+    /// Tells every signed-in server whether the user is at the computer,
+    /// for its automatic Away: the shown one through the window's sync,
+    /// the rest through their watches.
+    pub(super) fn report_activity(&self, active: bool, cx: &Context<Self>) {
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::Activity { active });
+        }
+        for running in &self.watches.running {
+            if !self.is_shown(running.watch.data_key(), cx) {
+                running.watch.send(matty_sync::Command::Activity { active });
+            }
+        }
+    }
+
     /// Whether `data_key` names the server the window shows.
     pub(super) fn is_shown(&self, data_key: &str, cx: &Context<Self>) -> bool {
         self.settings

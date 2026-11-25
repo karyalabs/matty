@@ -364,6 +364,9 @@ pub struct MainWindow {
     /// The sync engine, once there is an account to show.
     live: Option<Live>,
     _live_task: Option<gpui_kit::Task<()>>,
+    /// Reads the computer's idle time and tells the servers, for their
+    /// automatic Away.
+    _idle_task: gpui_kit::Task<()>,
     /// Every saved server's sync, the shown one's included (#206).
     watches: background::Watches,
     /// The signed-out account's database and media folder, deleted once
@@ -1535,6 +1538,7 @@ impl MainWindow {
             history_at: 0,
             live: None,
             _live_task: None,
+            _idle_task: Self::watch_idle(cx),
             watches: Default::default(),
             forget: None,
             _typing_task: None,
@@ -1648,6 +1652,32 @@ impl MainWindow {
         if let Some(live) = &self.live {
             live.send(matty_sync::Command::ShowCache);
         }
+    }
+
+    /// Every [`crate::idle::CHECK_EVERY`], reads how long the computer has
+    /// been idle and tells the servers when the user goes away or comes
+    /// back.
+    fn watch_idle(cx: &mut Context<Self>) -> gpui_kit::Task<()> {
+        cx.spawn(async move |this, cx| {
+            let mut reported = crate::idle::Reported::default();
+            loop {
+                cx.background_executor()
+                    .timer(crate::idle::CHECK_EVERY)
+                    .await;
+                let Some(idle) = cx.background_spawn(crate::idle::system_idle()).await else {
+                    continue;
+                };
+                let Some(active) = reported.next(idle, web_time::Instant::now()) else {
+                    continue;
+                };
+                if this
+                    .update(cx, |this, cx| this.report_activity(active, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
     }
 
     /// Applies what `started` sync publishes, for `account`.

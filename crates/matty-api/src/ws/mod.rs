@@ -395,6 +395,17 @@ impl WsConnection {
         .await
     }
 
+    /// Says whether the user is at the computer: the server sets an
+    /// automatic Online on `true`, and Away on `false` once the user has
+    /// been inactive for its away timeout. A status the user picked stays.
+    pub async fn update_active_status(&self, active: bool) -> Result<WsReply, ApiError> {
+        self.send(
+            "user_update_active_status",
+            json!({ "user_is_active": active, "manual": false }),
+        )
+        .await
+    }
+
     /// Asks for the statuses of `user_ids`; the reply's `data` maps user id
     /// to status.
     pub async fn get_statuses_by_ids(&self, user_ids: &[&str]) -> Result<WsReply, ApiError> {
