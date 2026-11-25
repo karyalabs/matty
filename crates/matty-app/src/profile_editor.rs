@@ -4,8 +4,8 @@
 
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, Focusable as _, IntoElement,
-    ParentElement as _, PathPromptOptions, Render, SharedString, Styled as _, Subscription, Window,
-    div, prelude::FluentBuilder as _,
+    ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
+    prelude::FluentBuilder as _,
 };
 use matty_api::ProfilePatch;
 
@@ -222,20 +222,14 @@ impl ProfileEditor {
 
     /// Asks for an image file and sends it as the new picture.
     fn pick_picture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t!("profile-picture-prompt")),
-        });
+        let chosen =
+            crate::attachments::choose_files(false, Some(t!("profile-picture-prompt")), cx);
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
+            let Some(file) = chosen.await.into_iter().next() else {
                 return;
             };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            if let Some(problem) = picture_problem(&path) {
+            let name = file.file_name().unwrap_or_else(|| "picture".into());
+            if let Some(problem) = picture_problem(std::path::Path::new(&name)) {
                 this.update(cx, |this, cx| {
                     this.picture_error = Some(problem);
                     cx.notify();
@@ -243,18 +237,13 @@ impl ProfileEditor {
                 .ok();
                 return;
             }
-            let read = path.clone();
             let bytes = cx
                 .background_executor()
-                .spawn(async move { std::fs::read(read) })
+                .spawn(async move { file.read() })
                 .await;
             this.update(cx, |this, cx| {
                 match bytes {
                     Ok(bytes) => {
-                        let name = path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "picture".into());
                         this.picture_error = None;
                         this.before.custom_picture = true;
                         cx.emit(PictureChosen(Some((bytes, name))));

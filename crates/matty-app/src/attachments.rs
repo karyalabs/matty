@@ -32,6 +32,88 @@ pub enum UploadSource {
     Path(PathBuf),
     /// Image bytes from the clipboard.
     Image(Arc<Image>),
+    /// A file the browser handed over, held in memory: the web has no
+    /// paths to read from (#1109).
+    Picked(Arc<PickedFile>),
+}
+
+impl UploadSource {
+    /// The bytes to upload: read from disk for a path, else already here.
+    pub fn read(self) -> std::io::Result<Vec<u8>> {
+        match self {
+            Self::Path(path) => std::fs::read(path),
+            Self::Image(image) => Ok(image.bytes.clone()),
+            Self::Picked(file) => Ok(file.bytes.clone()),
+        }
+    }
+
+    /// The file's name, when it has one (a pasted image has none).
+    pub fn file_name(&self) -> Option<String> {
+        match self {
+            Self::Path(path) => path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
+            Self::Image(_) => None,
+            Self::Picked(file) => Some(file.name.to_string()),
+        }
+    }
+}
+
+/// Asks the user for files: the system's file dialog on the desktop, the
+/// browser's file chooser on the web, where a file comes as its bytes
+/// (#1116). Resolves to nothing when the user cancels.
+#[cfg_attr(target_family = "wasm", allow(unused_variables))]
+pub fn choose_files(
+    multiple: bool,
+    prompt: Option<SharedString>,
+    cx: &mut gpui_kit::App,
+) -> impl std::future::Future<Output = Vec<UploadSource>> + 'static {
+    #[cfg(target_family = "wasm")]
+    {
+        let picked = crate::web_files::pick(multiple);
+        async move { picked.recv().await.unwrap_or_default() }
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple,
+            prompt,
+        });
+        async move {
+            match receiver.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().map(UploadSource::Path).collect(),
+                _ => Vec::new(),
+            }
+        }
+    }
+}
+
+/// A file read in the browser, with its name.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PickedFile {
+    pub name: SharedString,
+    pub bytes: Vec<u8>,
+    /// The same bytes as an image, for the tray's thumbnail, when the name
+    /// says it is one GPUI can draw.
+    pub image: Option<Arc<Image>>,
+}
+
+impl PickedFile {
+    pub fn new(name: impl Into<SharedString>, bytes: Vec<u8>) -> Self {
+        let name = name.into();
+        let format = match extension(&name).as_str() {
+            "png" => Some(ImageFormat::Png),
+            "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
+            "gif" => Some(ImageFormat::Gif),
+            "webp" => Some(ImageFormat::Webp),
+            "bmp" => Some(ImageFormat::Bmp),
+            _ => None,
+        };
+        let image = format.map(|format| Arc::new(Image::from_bytes(format, bytes.clone())));
+        Self { name, bytes, image }
+    }
 }
 
 /// One file in the composer tray.
@@ -74,6 +156,27 @@ impl Upload {
             name: PASTED_IMAGE.into(),
             size,
             source: UploadSource::Image(image),
+            status: AttachmentStatus::Uploading(0.),
+            queued: false,
+        }
+    }
+
+    /// An upload for whichever kind of file `source` is.
+    pub fn from_source(id: impl Into<SharedString>, source: UploadSource) -> Self {
+        match source {
+            UploadSource::Path(path) => Self::from_path(id, path),
+            UploadSource::Image(image) => Self::from_image(id, image),
+            UploadSource::Picked(file) => Self::from_picked(id, file),
+        }
+    }
+
+    /// An upload for a file the browser handed over.
+    pub fn from_picked(id: impl Into<SharedString>, file: Arc<PickedFile>) -> Self {
+        Self {
+            id: id.into(),
+            name: file.name.clone(),
+            size: file.bytes.len() as u64,
+            source: UploadSource::Picked(file),
             status: AttachmentStatus::Uploading(0.),
             queued: false,
         }
@@ -231,6 +334,7 @@ impl UploadTray {
             .map(|source| match source {
                 UploadSource::Path(path) => Upload::from_path("", path),
                 UploadSource::Image(image) => Upload::from_image("", image),
+                UploadSource::Picked(file) => Upload::from_picked("", file),
             })
             .collect();
         self.admit(files)
@@ -398,24 +502,29 @@ impl UploadTray {
 /// Where a file added while offline is read from when it uploads later
 /// (#194): a picked or dropped file stays where it is, and a pasted image
 /// is written to a folder of its own under the system's temporary folder,
-/// keeping its name.
+/// keeping its name, as is a file picked in the browser.
 pub fn keep_for_outbox(id: &str, name: &str, source: &UploadSource) -> std::io::Result<PathBuf> {
-    match source {
-        UploadSource::Path(path) => Ok(path.clone()),
-        UploadSource::Image(image) => {
-            let stamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|since| since.as_nanos())
-                .unwrap_or_default();
-            let dir = std::env::temp_dir()
-                .join("matty-outbox")
-                .join(format!("{id}-{stamp}"));
-            std::fs::create_dir_all(&dir)?;
-            let path = dir.join(name);
-            std::fs::write(&path, &image.bytes)?;
-            Ok(path)
-        }
+    let bytes = match source {
+        UploadSource::Path(path) => return Ok(path.clone()),
+        UploadSource::Image(image) => &image.bytes,
+        UploadSource::Picked(file) => &file.bytes,
+    };
+    // A browser has no folder to keep it in; std's clock and temporary
+    // folder panic there.
+    if cfg!(target_family = "wasm") {
+        return Err(std::io::ErrorKind::Unsupported.into());
     }
+    let stamp = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
+        .map(|since| since.as_nanos())
+        .unwrap_or_default();
+    let dir = std::env::temp_dir()
+        .join("matty-outbox")
+        .join(format!("{id}-{stamp}"));
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(name);
+    std::fs::write(&path, bytes)?;
+    Ok(path)
 }
 
 /// A file on a posted message (PLAN §4.6 Files).
@@ -861,6 +970,10 @@ fn thumbnail(name: &str, source: &UploadSource) -> Option<ImageSource> {
             Some(ImageSource::from(path.clone()))
         }
         UploadSource::Path(_) => None,
+        UploadSource::Picked(file) => file
+            .image
+            .as_ref()
+            .map(|image| crate::decoded_images::source(image, crate::decoded_images::Fit::Tile)),
     }
 }
 

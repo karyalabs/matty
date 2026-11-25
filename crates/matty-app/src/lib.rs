@@ -92,6 +92,8 @@ pub mod url_handler;
 pub mod user_groups;
 pub mod watch;
 #[cfg(target_family = "wasm")]
+pub mod web_files;
+#[cfg(target_family = "wasm")]
 pub mod web_storage;
 pub mod webhooks;
 mod when;

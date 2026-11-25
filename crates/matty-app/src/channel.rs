@@ -14,9 +14,8 @@ use std::sync::Arc;
 
 use gpui_kit::{
     App, AppContext as _, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths,
-    InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, Pixels, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
-    prelude::FluentBuilder as _, px,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::{
@@ -3002,18 +3001,31 @@ impl ChannelView {
             cx.notify();
             return;
         }
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: None,
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = receiver.await {
-                this.update(cx, |this, cx| this.add_paths(paths, cx)).ok();
-            }
-        })
-        .detach();
+        #[cfg(target_family = "wasm")]
+        {
+            let picked = crate::web_files::pick(true);
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(files) = picked.recv().await {
+                    this.update(cx, |this, cx| this.add_sources(files, cx)).ok();
+                }
+            })
+            .detach();
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: true,
+                prompt: None,
+            });
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(Ok(Some(paths))) = receiver.await {
+                    this.update(cx, |this, cx| this.add_paths(paths, cx)).ok();
+                }
+            })
+            .detach();
+        }
     }
 
     /// Adds files to the tray and asks sync to upload them.
@@ -3023,7 +3035,7 @@ impl ChannelView {
 
     /// Adds what passes the size and count checks to the tray and asks
     /// sync to upload it; the tray says why the rest stayed out.
-    fn add_sources(
+    pub(crate) fn add_sources(
         &mut self,
         sources: impl IntoIterator<Item = UploadSource>,
         cx: &mut Context<Self>,

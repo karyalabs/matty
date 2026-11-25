@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use gpui_kit::{
     App, AppContext as _, Context, Entity, EventEmitter, Focusable as _, Image, ImageSource,
-    InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img,
 };
 
 use crate::style::{self, TypeStyleExt as _, scaled};
@@ -173,30 +173,19 @@ impl EmojiManager {
 
     /// Asks for an image file and shows it.
     fn choose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t!("emoji-manager-choose-prompt")),
-        });
+        let chosen =
+            crate::attachments::choose_files(false, Some(t!("emoji-manager-choose-prompt")), cx);
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
+            let Some(file) = chosen.await.into_iter().next() else {
                 return;
             };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            let read = path.clone();
+            let file_name = file.file_name().unwrap_or_else(|| "emoji".into());
             let bytes = cx
                 .background_executor()
-                .spawn(async move { std::fs::read(read) })
+                .spawn(async move { file.read() })
                 .await;
             this.update_in(cx, |this, window, cx| {
-                let file_name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "emoji".into());
-                let stem = path
+                let stem = std::path::Path::new(&file_name)
                     .file_stem()
                     .map(|n| n.to_string_lossy().to_lowercase())
                     .unwrap_or_default();

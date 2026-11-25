@@ -487,6 +487,29 @@ impl MainWindow {
         .detach();
         // The red button hides Matty where closing should keep it running
         // (#929); Cmd+W does the same through `CloseWindow` below.
+        #[cfg(target_family = "wasm")]
+        {
+            // Files dropped or pasted in the browser go to the reply box
+            // when it has the caret, else to the channel's.
+            let incoming = crate::web_files::incoming();
+            cx.spawn_in(window, async move |this, cx| {
+                while let Ok(files) = incoming.recv().await {
+                    let added = this.update_in(cx, |this, window, cx| {
+                        if this.right_pane.read(cx).reply_focused(window, cx) {
+                            this.right_pane
+                                .update(cx, |pane, cx| pane.add_sources(files, cx));
+                        } else {
+                            this.channel
+                                .update(cx, |channel, cx| channel.add_sources(files, cx));
+                        }
+                    });
+                    if added.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
         window.on_window_should_close(cx, |_, cx| {
             if crate::close_hides(cx) {
                 crate::hide_for_close(cx);
@@ -1788,14 +1811,7 @@ impl MainWindow {
             return;
         }
         cx.spawn_in(window, async move |this, cx| {
-            let bytes = cx
-                .background_spawn(async move {
-                    match job.source {
-                        crate::attachments::UploadSource::Path(path) => std::fs::read(path),
-                        crate::attachments::UploadSource::Image(image) => Ok(image.bytes.clone()),
-                    }
-                })
-                .await;
+            let bytes = cx.background_spawn(async move { job.source.read() }).await;
             this.update_in(cx, |this, window, cx| {
                 // Removed from the tray while it was being read.
                 let Some(live) = this

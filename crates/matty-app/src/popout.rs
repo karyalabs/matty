@@ -1223,14 +1223,7 @@ impl PopOutView {
             return;
         }
         cx.spawn_in(window, async move |this, cx| {
-            let bytes = cx
-                .background_spawn(async move {
-                    match job.source {
-                        crate::attachments::UploadSource::Path(path) => std::fs::read(path),
-                        crate::attachments::UploadSource::Image(image) => Ok(image.bytes.clone()),
-                    }
-                })
-                .await;
+            let bytes = cx.background_spawn(async move { job.source.read() }).await;
             this.update_in(cx, |this, window, cx| {
                 // Removed from the tray while it was being read.
                 let Some(live) = this

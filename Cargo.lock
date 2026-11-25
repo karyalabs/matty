@@ -4883,6 +4883,7 @@ dependencies = [
  "unic-langid",
  "url",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "web-time",
  "windows 0.62.2",

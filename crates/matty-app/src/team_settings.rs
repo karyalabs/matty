@@ -224,20 +224,14 @@ impl TeamSettingsView {
         let Some(team_id) = self.team_id().cloned() else {
             return;
         };
-        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t!("team-settings-icon-prompt")),
-        });
+        let chosen =
+            crate::attachments::choose_files(false, Some(t!("team-settings-icon-prompt")), cx);
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
+            let Some(file) = chosen.await.into_iter().next() else {
                 return;
             };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            if crate::profile_editor::picture_problem(&path).is_some() {
+            let name = file.file_name().unwrap_or_else(|| "icon".into());
+            if crate::profile_editor::picture_problem(std::path::Path::new(&name)).is_some() {
                 this.update(cx, |this, cx| {
                     this.icon_error = Some(t!("team-settings-icon-type"));
                     cx.notify();
@@ -245,18 +239,13 @@ impl TeamSettingsView {
                 .ok();
                 return;
             }
-            let read = path.clone();
             let bytes = cx
                 .background_executor()
-                .spawn(async move { std::fs::read(read) })
+                .spawn(async move { file.read() })
                 .await;
             this.update(cx, |this, cx| {
                 match bytes {
                     Ok(bytes) => {
-                        let name = path
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "icon".into());
                         this.icon_error = None;
                         cx.emit(TeamSettingsEvent::Icon {
                             team_id,

@@ -10,9 +10,9 @@ use gpui_icons::{LucideIcon, lucide};
 use gpui_kit::base::input::{MoveDown, MoveUp};
 use gpui_kit::{
     App, AppContext as _, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths,
-    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _,
-    PathPromptOptions, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
-    div, prelude::FluentBuilder as _, px,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    prelude::FluentBuilder as _, px,
 };
 
 use crate::actions::{self, CloseRightPane, UploadFiles};
@@ -1514,26 +1514,39 @@ impl RightPaneView {
             cx.notify();
             return;
         }
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: None,
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = receiver.await {
-                this.update(cx, |this, cx| {
-                    this.add_sources(paths.into_iter().map(UploadSource::Path), cx)
-                })
-                .ok();
-            }
-        })
-        .detach();
+        #[cfg(target_family = "wasm")]
+        {
+            let picked = crate::web_files::pick(true);
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(files) = picked.recv().await {
+                    this.update(cx, |this, cx| this.add_sources(files, cx)).ok();
+                }
+            })
+            .detach();
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: true,
+                prompt: None,
+            });
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(Ok(Some(paths))) = receiver.await {
+                    this.update(cx, |this, cx| {
+                        this.add_sources(paths.into_iter().map(UploadSource::Path), cx)
+                    })
+                    .ok();
+                }
+            })
+            .detach();
+        }
     }
 
     /// Adds what passes the size and count checks to the reply tray and
     /// asks sync to upload it.
-    fn add_sources(
+    pub(crate) fn add_sources(
         &mut self,
         sources: impl IntoIterator<Item = UploadSource>,
         cx: &mut Context<Self>,
@@ -2037,6 +2050,15 @@ impl RightPaneView {
         self.suggestion_at = step(self.suggestion_at, count, down);
         cx.stop_propagation();
         cx.notify();
+    }
+
+    /// Whether the thread's reply box has the caret.
+    pub fn reply_focused(&self, window: &Window, cx: &App) -> bool {
+        use gpui_kit::Focusable as _;
+        self.composer
+            .read(cx)
+            .focus_handle(cx)
+            .contains_focused(window, cx)
     }
 
     /// Puts the caret in the thread's reply box, now or as soon as the

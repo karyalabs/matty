@@ -398,7 +398,7 @@ impl BookmarkEditor {
         self.handle.close(window, cx);
         let file = self.file.take().and_then(|file| match file.source {
             UploadSource::Path(path) => Some(path),
-            UploadSource::Image(_) => None,
+            UploadSource::Image(_) | UploadSource::Picked(_) => None,
         });
         cx.emit(EditorSave {
             bookmark_id: self.editing.as_ref().map(|bookmark| bookmark.id.clone()),
@@ -592,21 +592,13 @@ impl BookmarksBar {
                 .update(cx, |editor, cx| editor.open_file(file, window, cx));
             return;
         }
-        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: None,
-        });
+        let chosen = crate::attachments::choose_files(false, None, cx);
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
+            let Some(source) = chosen.await.into_iter().next() else {
                 return;
             };
             this.update_in(cx, |this, window, cx| {
-                let file = Upload::from_path("bookmark-file", path);
+                let file = Upload::from_source("bookmark-file", source);
                 let size = file.size;
                 let file = file.ready(size);
                 this.editor
