@@ -101,7 +101,9 @@ fn cache(dir: &Path) -> PathBuf {
     path
 }
 
-/// Connects, waits for the load, asks for a resync and waits for it.
+/// Connects and waits for the catch-up a cache from an earlier run gets
+/// once the load ends: posts deleted or edited while Matty was closed
+/// reach no event and no latest page.
 async fn resync(server: &MockServer, path: &Path) -> Store {
     let sync = matty_sync::spawn(Store::open(path).unwrap()).unwrap();
     let changes = sync.subscribe();
@@ -125,7 +127,6 @@ async fn resync(server: &MockServer, path: &Path) -> Store {
         }
     };
     wait(Connection::Loaded).await;
-    sync.send(Command::Resync);
     wait(Connection::Resynced).await;
     drop(sync);
     tokio::time::sleep(Duration::from_millis(100)).await;

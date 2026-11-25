@@ -753,6 +753,9 @@ pub(crate) const RESET_PAGE: u32 = 60;
 pub(crate) struct ResyncPlan {
     pub(crate) user_id: String,
     pub(crate) teams: Vec<String>,
+    /// Each channel's newest post time where `teams` is empty because a
+    /// load has just stored it.
+    pub(crate) newest: std::collections::HashMap<String, i64>,
     /// Channels with cached posts, most important first, with their `since`.
     pub(crate) channels: Vec<(String, Option<i64>)>,
     /// Under Collapsed Reply Threads, each team's thread-list `since`.
@@ -764,7 +767,7 @@ pub(crate) struct ResyncPlan {
 /// Catches the cache up after missed events (#37): memberships and counts
 /// per team, then `since` for each cached channel, then thread lists.
 pub(crate) async fn resync(client: Client, plan: ResyncPlan, results: UnboundedSender<Loaded>) {
-    let mut last_post_at = std::collections::HashMap::new();
+    let mut last_post_at = plan.newest;
     for team_id in &plan.teams {
         match team(&client, &plan.user_id, team_id).await {
             Ok(loaded) => {

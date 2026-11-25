@@ -1827,6 +1827,10 @@ struct Session {
     /// A resync is running; another request waits for it.
     resyncing: bool,
     resync_again: bool,
+    /// The cache held posts from an earlier run. Nothing reports what
+    /// changed in them while Matty was closed (a delete leaves no trace in
+    /// the latest page), so the first load ends with a catch-up.
+    catch_up_cache: bool,
 }
 
 pub(crate) struct Engine {
@@ -2070,6 +2074,7 @@ impl Engine {
                         online: true,
                         resyncing: false,
                         resync_again: false,
+                        catch_up_cache: !posts::cached_channels(&tx)?.is_empty(),
                     });
                     // Tell the app what is still waiting from an earlier run.
                     dirty.outbox.extend(queue::channels(&tx)?);
@@ -3949,6 +3954,17 @@ impl Engine {
     /// Starts a catch-up, or queues one behind the running one. Needs the
     /// account loaded: the plan names the user and their teams.
     fn resync(&mut self) {
+        self.start_resync(true);
+    }
+
+    /// Catches up the cached channels only: the load that just ended
+    /// already refreshed teams and memberships, and stored each channel's
+    /// newest post time.
+    fn resync_channels(&mut self) {
+        self.start_resync(false);
+    }
+
+    fn start_resync(&mut self, with_teams: bool) {
         let Some(session) = &mut self.session else {
             return;
         };
@@ -3961,7 +3977,12 @@ impl Engine {
         }
         let conn = self.store.conn();
         let plan = (|| -> Result<load::ResyncPlan, StoreError> {
-            let teams = cached_team_ids(conn)?;
+            let all_teams = cached_team_ids(conn)?;
+            let newest = if with_teams {
+                std::collections::HashMap::new()
+            } else {
+                newest_posts(conn)?
+            };
             // Open channels first, then the rest by their newest post.
             let mut channels: Vec<String> = self.open_channels.iter().cloned().collect();
             for channel_id in posts::cached_channels(conn)? {
@@ -3980,7 +4001,7 @@ impl Engine {
                 })
                 .collect::<Result<_, StoreError>>()?;
             let threads = if session.collapsed_threads {
-                teams
+                all_teams
                     .iter()
                     .map(|team_id| Ok((team_id.clone(), since(posts::threads_since_key(team_id))?)))
                     .collect::<Result<_, StoreError>>()?
@@ -3989,7 +4010,8 @@ impl Engine {
             };
             Ok(load::ResyncPlan {
                 user_id: session.user_id.clone(),
-                teams,
+                teams: if with_teams { all_teams } else { Vec::new() },
+                newest,
                 channels,
                 threads,
                 max_response_bytes: MAX_SINCE_BYTES,
@@ -4335,6 +4357,13 @@ impl Engine {
                     self.drain(&channel_id, dirty)?;
                 }
                 dirty.direct.push(ChangeSet::Connection(Connection::Loaded));
+                if self
+                    .session
+                    .as_mut()
+                    .is_some_and(|session| std::mem::take(&mut session.catch_up_cache))
+                {
+                    self.resync_channels();
+                }
             }
             Loaded::SignedOut => dirty
                 .direct
@@ -5637,6 +5666,14 @@ fn cached_team_ids(conn: &Db) -> Result<Vec<String>, StoreError> {
         .query_map([], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     Ok(ids)
+}
+
+fn newest_posts(conn: &Db) -> Result<std::collections::HashMap<String, i64>, StoreError> {
+    let mut statement = conn.prepare_cached("SELECT id, last_post_at FROM channels")?;
+    let newest = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(newest)
 }
 
 /// Whether threads are collapsed for this user: the server's mode, then the
