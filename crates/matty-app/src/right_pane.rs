@@ -92,17 +92,19 @@ impl ThreadModel {
 pub struct ListedPost {
     pub channel_id: SharedString,
     pub channel_name: SharedString,
-    /// A direct or group message, whose name is shown without `#`.
-    pub direct: bool,
     pub post: Post,
 }
 
 impl ListedPost {
-    /// Where the post is, as its listing's header names it.
-    pub fn place(&self) -> SharedString {
-        match self.channel_name.as_ref() {
-            name if self.direct || name.contains(' ') => self.channel_name.clone(),
-            name => format!("#{name}").into(),
+    /// The posts a listing shows, if `content` is one.
+    pub fn of(content: &RightPaneContent) -> &[ListedPost] {
+        match content {
+            RightPaneContent::Pinned { posts, .. }
+            | RightPaneContent::Saved(posts)
+            | RightPaneContent::Mentions(posts)
+            | RightPaneContent::Unreads(posts)
+            | RightPaneContent::EditHistory(posts) => posts,
+            _ => &[],
         }
     }
 }
@@ -3960,7 +3962,7 @@ impl RightPaneView {
             .py(theme.space(2.))
             .children(items.iter().map(|item| {
                 let listing_menus = crate::interactive::Menus::default();
-                let channel = item.place().to_string();
+                let channel = item.channel_name.to_string();
                 let (jump_channel, jump_post) = (item.channel_id.clone(), item.post.id.clone());
                 let jump_view = view.clone();
                 div()
@@ -5152,7 +5154,6 @@ mod tests {
                     Some(RightPaneContent::Saved(vec![ListedPost {
                         channel_id: "c-town".into(),
                         channel_name: "town".into(),
-                        direct: false,
                         post: post("s1"),
                     }])),
                     cx,

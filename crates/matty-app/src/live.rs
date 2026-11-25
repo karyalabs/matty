@@ -1270,6 +1270,14 @@ impl Live {
         if self.search_files.iter().any(|file| file.id == file_id) {
             update.search = self.search_model();
         }
+        // Saved, mentions and search results show the same tiles.
+        let shows = |post: &Post| {
+            post.files
+                .iter()
+                .chain(post.embeds.iter().flat_map(crate::embeds::Embed::files))
+                .any(|file| file.id.as_ref() == file_id)
+        };
+        self.refresh_listed(shows, update);
         if self.listed_file(file_id) {
             update.channel_files = self.channel_files_model();
         }
@@ -1935,7 +1943,7 @@ impl Live {
     }
 
     /// The listing as the pane shows it, once its posts have come.
-    fn listing_content(&self) -> Option<crate::right_pane::RightPaneContent> {
+    fn listing_content(&mut self) -> Option<crate::right_pane::RightPaneContent> {
         use crate::right_pane::RightPaneContent;
         let (listing, Some(posts)) = self.listing.as_ref()? else {
             return None;
@@ -1951,7 +1959,7 @@ impl Live {
             names: self.names,
             join_leave: self.join_leave,
         };
-        let listed: Vec<_> = posts
+        let mut listed: Vec<_> = posts
             .iter()
             // Mattermost keeps a post's earlier versions as deleted copies.
             .filter(|post| {
@@ -1963,16 +1971,13 @@ impl Live {
             })
             .map(|post| crate::right_pane::ListedPost {
                 channel_id: post.channel_id.clone().into(),
-                channel_name: self.listed_place(
-                    &post.channel_id,
-                    self.channel_name(&post.channel_id)
-                        .unwrap_or_else(|| "Another channel".into()),
-                ),
-                direct: self.is_direct(&post.channel_id),
+                channel_name: self.listed_place(post),
                 post: crate::transcript::listed_post(post, &self.users, &viewer),
             })
             .collect();
-        Some(match listing {
+        let listing = listing.clone();
+        self.fill_listed(&mut listed);
+        Some(match &listing {
             matty_sync::Listing::Saved => RightPaneContent::Saved(listed),
             matty_sync::Listing::EditHistory { .. } => RightPaneContent::EditHistory(listed),
             matty_sync::Listing::Mentions { .. } => RightPaneContent::Mentions(listed),
@@ -1982,6 +1987,43 @@ impl Live {
                 posts: listed,
             },
         })
+    }
+
+    /// Redraws the listing and search results when one of their posts
+    /// `shows` what just changed.
+    fn refresh_listed(&mut self, shows: impl Fn(&Post) -> bool, update: &mut Update) {
+        let listed = |posts: &[crate::right_pane::ListedPost]| {
+            posts.iter().any(|listed| shows(&listed.post))
+        };
+        if let Some(listing) = self
+            .listing_content()
+            .filter(|content| listed(crate::right_pane::ListedPost::of(content)))
+        {
+            update.listing = Some(listing);
+        }
+        if let Some(search) = self.search_model().filter(|model| listed(&model.results)) {
+            update.search = Some(search);
+        }
+    }
+
+    /// Puts the image tiles and card images that have landed on listed
+    /// posts, as in the channel, and asks for the rest.
+    fn fill_listed(&mut self, listed: &mut [crate::right_pane::ListedPost]) {
+        for post in listed.iter_mut().map(|listed| &mut listed.post) {
+            let crate::channel::Post { files, embeds, .. } = post;
+            for file in files
+                .iter_mut()
+                .chain(embeds.iter_mut().flat_map(crate::embeds::Embed::files_mut))
+            {
+                self.fill_file(file);
+            }
+            for image in embeds.iter_mut().flat_map(crate::embeds::Embed::images_mut) {
+                image.loaded = self.remote_images.image(&image.url);
+            }
+        }
+        let posts: Vec<_> = listed.iter().map(|listed| listed.post.clone()).collect();
+        self.ask_thumbnails(&posts);
+        self.ask_remote_images(&posts);
     }
 
     /// Shows the thread under `root_id` in the right pane; its posts come
@@ -2332,7 +2374,7 @@ impl Live {
     }
 
     /// The search model for what has come back so far.
-    fn search_model(&self) -> Option<crate::right_pane::SearchModel> {
+    fn search_model(&mut self) -> Option<crate::right_pane::SearchModel> {
         let (terms, posts) = self.search.as_ref()?;
         let viewer = crate::transcript::Viewer {
             user_id: &self.me.0,
@@ -2351,7 +2393,7 @@ impl Live {
             .map(|info| self.found_file(info, &viewer))
             .collect();
         let marks = search_marks(terms);
-        Some(crate::right_pane::SearchModel {
+        let mut model = crate::right_pane::SearchModel {
             files,
             query: terms.clone().into(),
             searching: posts.is_none(),
@@ -2366,46 +2408,14 @@ impl Live {
                     listed.own_mentions = listed.own_mentions.with_marks(marks.iter().cloned());
                     crate::right_pane::ListedPost {
                         channel_id: post.channel_id.clone().into(),
-                        channel_name: self.listed_place(
-                            &post.channel_id,
-                            self.search_channel_name(&post.channel_id),
-                        ),
-                        direct: self.is_direct(&post.channel_id),
+                        channel_name: self.listed_place(post),
                         post: listed,
                     }
                 })
                 .collect(),
-        })
-    }
-
-    /// A search result's channel, with its team's name when an All teams
-    /// search found it in another team.
-    fn search_channel_name(&self, channel_id: &str) -> SharedString {
-        let name = self
-            .channel_name(channel_id)
-            .unwrap_or_else(|| "Another channel".into());
-        if !self.search_all_teams {
-            return name;
-        }
-        let team = self
-            .sections
-            .iter()
-            .find(|(_, sections)| {
-                sections
-                    .iter()
-                    .flat_map(|section| section.channels.iter())
-                    .any(|channel| {
-                        channel.id == channel_id && channel.dm_user.is_none() && channel.kind != "G"
-                    })
-            })
-            .map(|(team_id, _)| team_id);
-        match team
-            .filter(|team_id| Some(*team_id) != self.team.as_ref())
-            .and_then(|team_id| self.teams.iter().find(|team| &team.id == team_id))
-        {
-            Some(team) => format!("{name} · {}", team.display_name).into(),
-            None => name,
-        }
+        };
+        self.fill_listed(&mut model.results);
+        Some(model)
     }
 
     /// A channel's name in any team's sidebar.
@@ -2445,23 +2455,44 @@ impl Live {
         deactivated.then(|| crate::t!("chan-deactivated-note"))
     }
 
-    /// Whether `channel_id` is a direct or group message in the sidebar.
-    /// A listed post's place as Mattermost heads it: a direct message
-    /// reads "Direct Message (with ana)", anything else keeps `name`.
-    fn listed_place(&self, channel_id: &str, name: SharedString) -> SharedString {
-        let direct = self
+    /// A listed post's place as Mattermost heads it: "Thread in" before
+    /// a channel when the post is part of a thread, the team after it when
+    /// the user is in more than one, and "Direct Message (with ana)" for a
+    /// direct message.
+    fn listed_place(&self, post: &matty_api::models::Post) -> SharedString {
+        let channel = self
             .sections
-            .values()
-            .flat_map(|sections| sections.iter())
-            .flat_map(|section| section.channels.iter())
-            .any(|channel| channel.id == channel_id && channel.kind == "D");
-        if direct {
-            crate::t!("listed-direct-with", name = name.to_string()).into()
+            .iter()
+            .flat_map(|(team_id, sections)| {
+                sections
+                    .iter()
+                    .flat_map(|section| section.channels.iter())
+                    .map(move |channel| (team_id, channel))
+            })
+            .find(|(_, channel)| channel.id == post.channel_id);
+        let Some((team_id, channel)) = channel else {
+            return "Another channel".into();
+        };
+        let name = self.sidebar_name(channel);
+        let name = if channel.kind == "D" {
+            crate::t!("listed-direct-with", name = name)
+        } else if !post.root_id.is_empty() || post.reply_count > 0 {
+            crate::t!("listed-thread-in", name = name)
         } else {
-            name
+            name.into()
+        };
+        let team = self
+            .teams
+            .iter()
+            .find(|team| &team.id == team_id)
+            .filter(|_| self.teams.len() > 1 && !matches!(channel.kind.as_str(), "D" | "G"));
+        match team {
+            Some(team) => format!("{name} · {}", team.display_name).into(),
+            None => name.into(),
         }
     }
 
+    /// Whether `channel_id` is a direct or group message in the sidebar.
     fn is_direct(&self, channel_id: &str) -> bool {
         self.sections
             .values()
@@ -3102,6 +3133,13 @@ impl Live {
                         .flat_map(crate::embeds::Embed::images)
                         .any(|image| image.url.as_ref() == url)
                 });
+                let shows = |post: &Post| {
+                    post.embeds
+                        .iter()
+                        .flat_map(crate::embeds::Embed::images)
+                        .any(|image| image.url.as_ref() == url)
+                };
+                self.refresh_listed(shows, &mut update);
                 // Inline Markdown images read the store as they render.
                 update.avatars = true;
             }
@@ -6619,6 +6657,33 @@ mod tests {
         assert_eq!(
             update.search.unwrap().results[0].post.author.as_ref(),
             "ada"
+        );
+        // With a second team, each result names its team; a reply or a
+        // root with replies reads "Thread in", as in Mattermost.
+        live.apply(&ChangeSet::Unreads {
+            teams: Arc::from(vec![team("t1"), team("t2")]),
+        });
+        let reply = matty_api::models::Post {
+            root_id: "p1".into(),
+            ..hit("p3", "town")
+        };
+        let model = live
+            .apply(&ChangeSet::Search {
+                page: 0,
+                more: false,
+                terms: "lunch".into(),
+                posts: Arc::from(vec![hit("p1", "town"), reply]),
+                files: Arc::from(Vec::new()),
+            })
+            .search
+            .unwrap();
+        assert_eq!(
+            model
+                .results
+                .iter()
+                .map(|r| r.channel_name.as_ref())
+                .collect::<Vec<_>>(),
+            ["town · Team t1", "Thread in town · Team t1"]
         );
     }
 
