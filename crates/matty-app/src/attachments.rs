@@ -596,6 +596,31 @@ pub fn post_files(
     on_file: impl Fn(SharedString, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui_kit::Div {
+    post_files_with_menu(prefix, files, on_image, on_file, None, cx)
+}
+
+/// What a right-click on one of a post's files does: the file's id and
+/// where the pointer was.
+pub type FileMenu = dyn Fn(SharedString, gpui_kit::Point<gpui_kit::Pixels>, &mut Window, &mut App);
+
+/// [`post_files`] with `on_menu` for a right-click on a file or image.
+pub fn post_files_with_menu(
+    prefix: &str,
+    files: &[PostFile],
+    on_image: impl Fn(usize, &mut Window, &mut App) + 'static,
+    on_file: impl Fn(SharedString, &mut Window, &mut App) + 'static,
+    on_menu: Option<Rc<FileMenu>>,
+    cx: &App,
+) -> gpui_kit::Div {
+    let with_menu = |attachment: Attachment, file_id: &SharedString| match &on_menu {
+        Some(menu) => {
+            let (menu, file_id) = (menu.clone(), file_id.clone());
+            attachment.on_secondary_click(move |event, window, cx| {
+                menu(file_id.clone(), event.position, window, cx)
+            })
+        }
+        None => attachment,
+    };
     let on_image: Rc<ImageHandler> = Rc::new(on_image);
     let on_file: Rc<FileHandler> = Rc::new(on_file);
     let mut images = Vec::new();
@@ -615,7 +640,7 @@ pub fn post_files(
                 let index = loaded;
                 loaded += 1;
                 let open = on_image.clone();
-                images.push(
+                images.push(with_menu(
                     Attachment::new(id, file.name.clone())
                         .image(image)
                         .dimensions(file.width, file.height)
@@ -623,14 +648,15 @@ pub fn post_files(
                             cx.stop_propagation();
                             open(index, window, cx)
                         }),
-                );
+                    &file.id,
+                ));
             }
             shown @ (Shown::Card | Shown::Missing) => {
                 let missing = matches!(shown, Shown::Missing);
                 let file_id = file.id.clone();
                 let open = on_file.clone();
                 let download = Downloads::get(cx, &file.id);
-                cards.push(
+                cards.push(with_menu(
                     Attachment::new(id, file.name.clone())
                         .meta(download.map_or_else(
                             || {
@@ -659,7 +685,8 @@ pub fn post_files(
                             cx.stop_propagation();
                             open(file_id.clone(), window, cx)
                         }),
-                );
+                    &file.id,
+                ));
             }
         }
     }

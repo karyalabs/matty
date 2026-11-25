@@ -777,6 +777,38 @@ impl PostHost for RightPaneView {
         cx.emit(RightPaneEvent::OpenFile(file));
     }
 
+    fn copy_post_file_link(&mut self, file: SharedString, cx: &mut Context<Self>) {
+        cx.emit(RightPaneEvent::CopyPublicLink(file));
+    }
+
+    fn open_file_menu(
+        &mut self,
+        id: SharedString,
+        file: SharedString,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(post) = self.thread_post(&id).cloned() else {
+            return;
+        };
+        let reply = match self.content.as_ref() {
+            Some(RightPaneContent::Thread(thread)) => thread.root.id != post.id,
+            _ => false,
+        };
+        let view = cx.entity().downgrade();
+        let mut items = crate::post_row::file_items(&view, &file, cx);
+        items.extend(Self::thread_items_for(
+            &view,
+            &post,
+            self.away,
+            reply,
+            crate::priority::Features::read(cx).edit_limit_secs,
+        ));
+        self.select_post(&id, window, cx);
+        self.open_menu(items, at, window, cx);
+    }
+
     fn open_in_browser(&mut self, post: SharedString, cx: &mut Context<Self>) {
         cx.emit(RightPaneEvent::OpenInBrowser(post));
     }

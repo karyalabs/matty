@@ -11,7 +11,6 @@ use gpui_kit::{
     Pixels, Point, SharedString, Styled as _, WeakEntity, Window, div, prelude::FluentBuilder as _,
 };
 
-use crate::attachments::post_files;
 use crate::channel::{
     Post, PostKind, PostStatus, copy_prefix, message_density, post_editor, post_markers, post_time,
     queued, queued_marker, quick_reaction_buttons, reaction_tooltip,
@@ -74,6 +73,18 @@ pub(crate) trait PostHost: Sized + 'static {
     );
     /// Opens or downloads one of a post's files.
     fn open_post_file(&mut self, file: SharedString, cx: &mut Context<Self>);
+    /// Copies a public link to one of a post's files.
+    fn copy_post_file_link(&mut self, file: SharedString, cx: &mut Context<Self>);
+    /// Opens the right-click menu of post `id` for its `file`:
+    /// [`file_items`] first, then the post's own menu.
+    fn open_file_menu(
+        &mut self,
+        id: SharedString,
+        file: SharedString,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    );
     /// Opens a post the client can't draw in the browser.
     fn open_in_browser(&mut self, post: SharedString, cx: &mut Context<Self>);
     /// Opens the image viewer at a post's `index`th file image.
@@ -247,7 +258,13 @@ pub(crate) fn post_message<H: PostHost>(
     if !post.files.is_empty() {
         let (image_view, image_post) = (view.clone(), post.clone());
         let file_view = view.clone();
-        row = row.child(post_files(
+        let (menu_view, menu_post) = (view.clone(), id.clone());
+        let menu: Rc<crate::attachments::FileMenu> = Rc::new(move |file, at, window, cx| {
+            with(&menu_view, cx, |this, cx| {
+                this.open_file_menu(menu_post.clone(), file, at, window, cx)
+            })
+        });
+        row = row.child(crate::attachments::post_files_with_menu(
             &format!("{}.{id}", H::PREFIX),
             &post.files,
             move |index, window, cx| {
@@ -256,6 +273,7 @@ pub(crate) fn post_message<H: PostHost>(
                 })
             },
             move |file, _, cx| with(&file_view, cx, |this, cx| this.open_post_file(file, cx)),
+            Some(menu),
             cx,
         ));
     }
@@ -532,6 +550,42 @@ pub(crate) fn link_items<H: PostHost>(view: &WeakEntity<H>, url: &SharedString) 
             )
             .on_click(move |_, _, cx| {
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(url.to_string()))
+            }),
+        );
+    }
+    items.push(MenuItem::separator());
+    items
+}
+
+/// The first entries of a file's right-click menu: Download, and Copy
+/// public link where the server allows them.
+pub(crate) fn file_items<H: PostHost>(
+    view: &WeakEntity<H>,
+    file: &SharedString,
+    cx: &App,
+) -> Vec<MenuItem> {
+    let download = {
+        let (view, file) = (view.clone(), file.clone());
+        MenuItem::new(
+            gpui_kit::ElementId::Name(format!("{}.file.download", H::PREFIX).into()),
+            t!("chan-download"),
+        )
+        .on_click(move |_, _, cx| {
+            let file = file.clone();
+            with(&view, cx, |this, cx| this.open_post_file(file, cx))
+        })
+    };
+    let mut items = vec![download];
+    if crate::priority::Features::read(cx).public_links {
+        let (view, file) = (view.clone(), file.clone());
+        items.push(
+            MenuItem::new(
+                gpui_kit::ElementId::Name(format!("{}.file.public-link", H::PREFIX).into()),
+                t!("chan-copy-public-link"),
+            )
+            .on_click(move |_, _, cx| {
+                let file = file.clone();
+                with(&view, cx, |this, cx| this.copy_post_file_link(file, cx))
             }),
         );
     }

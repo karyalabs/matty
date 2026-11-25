@@ -1658,6 +1658,28 @@ impl PostHost for ChannelView {
         cx.emit(ChannelEvent::OpenFile(file));
     }
 
+    fn copy_post_file_link(&mut self, file: SharedString, cx: &mut Context<Self>) {
+        cx.emit(ChannelEvent::CopyPublicLink(file));
+    }
+
+    fn open_file_menu(
+        &mut self,
+        id: SharedString,
+        file: SharedString,
+        at: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(post) = self.shown_post(&id).cloned() else {
+            return;
+        };
+        self.select_post(&id, window, cx);
+        let delete_others = self.model.as_ref().is_some_and(|model| model.delete_others);
+        let mut items = post_row::file_items(&cx.entity().downgrade(), &file, cx);
+        items.extend(Self::context_items_for(&post, self.away, delete_others, cx));
+        self.open_menu(items, at, window, cx);
+    }
+
     fn open_in_browser(&mut self, post: SharedString, cx: &mut Context<Self>) {
         cx.emit(ChannelEvent::OpenInBrowser(post));
     }
