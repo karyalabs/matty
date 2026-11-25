@@ -72,6 +72,36 @@ pub enum ConnectionState {
     Demo,
 }
 
+/// An announcement's words for the banner, with where its links are: the
+/// banner is one line in the server's colors, so it keeps Markdown's links
+/// and drops the rest of the markup.
+fn announcement_text(text: &str) -> (String, Vec<(std::ops::Range<usize>, String)>) {
+    static LINK: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"\[([^\]]+)\]\(([^)\s]+)\)|<?(https?://[^\s>]+[^\s>.,;:!?)])>?")
+            .expect("a valid pattern")
+    });
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut plain = String::new();
+    let mut links = Vec::new();
+    let mut rest = 0;
+    let strip = |words: &str| words.replace("**", "").replace("__", "").replace('`', "");
+    for found in LINK.captures_iter(&text) {
+        let Some(whole) = found.get(0) else { continue };
+        plain.push_str(&strip(&text[rest..whole.start()]));
+        let (label, url) = match (found.get(1), found.get(2), found.get(3)) {
+            (Some(label), Some(url), _) => (strip(label.as_str()), url.as_str()),
+            (_, _, Some(url)) => (url.as_str().to_string(), url.as_str()),
+            _ => continue,
+        };
+        let begin = plain.len();
+        plain.push_str(&label);
+        links.push((begin..plain.len(), url.to_string()));
+        rest = whole.end();
+    }
+    plain.push_str(&strip(&text[rest..]));
+    (plain, links)
+}
+
 /// What the connection banner says for `state` with `queued` messages
 /// waiting, and whether it is the offline one (with Retry now); `None`
 /// when online (#162).
@@ -319,6 +349,11 @@ pub struct MainWindow {
     banner_last: ConnectionState,
     /// Messages waiting to send, for the banner (#195).
     queued: usize,
+    /// The system console's announcement banner, when an admin set one.
+    announcement: Option<matty_api::capabilities::Announcement>,
+    /// The banner text the user closed, so it stays closed until an admin
+    /// changes it.
+    announcement_closed: Option<String>,
     /// Channels opened in order, for Back and Forward; `history_at` is the
     /// one shown now.
     history: Vec<SharedString>,
@@ -1488,6 +1523,8 @@ impl MainWindow {
             drafts_open: false,
             connection: crate::preview::connection(),
             banner_last: crate::preview::connection(),
+            announcement: None,
+            announcement_closed: None,
             queued: crate::preview::queued(),
             history,
             history_at: 0,
@@ -2590,6 +2627,10 @@ impl MainWindow {
                 .update(cx, |view, cx| view.set_link_preview(&url, card.clone(), cx));
             self.channel
                 .update(cx, |view, cx| view.set_link_preview(&url, card, cx));
+        }
+        if let Some(announcement) = update.announcement.take() {
+            self.announcement = announcement;
+            cx.notify();
         }
         if let Some(features) = update.features {
             crate::priority::Features::set(features, cx);
@@ -4598,6 +4639,93 @@ impl MainWindow {
         self.set_connection(ConnectionState::Reconnecting { attempt: 1 }, cx);
     }
 
+    /// The admin's announcement across the top of the window, in the
+    /// server's colors, as the web app shows it. Closing it, where the
+    /// server allows that, lasts until the text changes.
+    fn announcement_banner(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let announcement = self.announcement.as_ref()?;
+        if announcement.dismissible
+            && self.announcement_closed.as_deref() == Some(announcement.text.as_str())
+        {
+            return None;
+        }
+        let theme = UiTheme::read(cx).clone();
+        let color =
+            |css: &str, fallback| crate::mattermost_theme::parse_color(css).unwrap_or(fallback);
+        let background = color(&announcement.color, theme.colors.muted);
+        let foreground = color(&announcement.text_color, theme.colors.foreground);
+        let (plain, links) = announcement_text(&announcement.text);
+        let underline = gpui_kit::HighlightStyle {
+            underline: Some(gpui_kit::UnderlineStyle {
+                thickness: px(1.),
+                color: Some(foreground.into()),
+                wavy: false,
+            }),
+            ..Default::default()
+        };
+        let ranges: Vec<_> = links.iter().map(|(range, _)| range.clone()).collect();
+        let urls: Vec<SharedString> = links.into_iter().map(|(_, url)| url.into()).collect();
+        let view = cx.weak_entity();
+        let body = gpui_kit::InteractiveText::new(
+            "announcement.body",
+            gpui_kit::StyledText::new(plain)
+                .with_highlights(ranges.iter().map(|range| (range.clone(), underline))),
+        )
+        .on_click(ranges, move |index, window, cx| {
+            let Some(url) = urls.get(index).cloned() else {
+                return;
+            };
+            view.update(cx, |this, cx| this.open_message_link(url, window, cx))
+                .ok();
+        });
+        let text = announcement.text.clone();
+        Some(
+            div()
+                .id("announcement")
+                .flex_shrink_0()
+                .min_h(theme.space(8.))
+                .px(scaled(&theme, metrics::GUTTER))
+                .flex()
+                .items_center()
+                .gap(theme.space(2.))
+                .bg(background)
+                .text_color(foreground)
+                .type_style(style::UI, &theme)
+                .child(
+                    lucide(LucideIcon::Megaphone)
+                        .size(scaled(&theme, metrics::ICON_SMALL))
+                        .text_color(foreground),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .justify_center()
+                        .max_h(theme.space(16.))
+                        .overflow_hidden()
+                        .child(body),
+                )
+                .when(announcement.dismissible, |bar| {
+                    bar.child(
+                        Button::new("announcement.close")
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::IconSm)
+                            .aria_label("Close announcement")
+                            .child(
+                                lucide(LucideIcon::X)
+                                    .size(scaled(&theme, metrics::ICON_SMALL))
+                                    .text_color(foreground),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.announcement_closed = Some(text.clone());
+                                cx.notify();
+                            })),
+                    )
+                }),
+        )
+    }
+
     /// A 32px strip under the title bar: `muted` while reconnecting with a
     /// spinner, `destructive`-tinted once offline with a Retry button.
     fn connection_banner(
@@ -5483,10 +5611,13 @@ impl Render for MainWindow {
         self.sync_drawers(window, cx);
         self.file_preview
             .update(cx, |preview, cx| preview.open_pending(window, cx));
-        let banner = if self.login.is_none() {
-            self.connection_banner(window, cx)
+        let (banner, announcement) = if self.login.is_none() {
+            (
+                self.connection_banner(window, cx),
+                self.announcement_banner(cx),
+            )
         } else {
-            None
+            (None, None)
         };
         let narrow_sidebar = Self::narrow_sidebar(window);
         self.sync_chrome(window, cx);
@@ -5656,6 +5787,7 @@ impl Render for MainWindow {
             // top edge (spec §1); the sign-in card keeps a bar for the
             // window controls.
             .children(self.login.is_some().then(|| self.title_bar()))
+            .children(announcement)
             .children(banner)
             .child(match &self.login {
                 Some(login) => div()
@@ -5787,6 +5919,28 @@ mod tests {
     use std::path::Path;
 
     use super::{ConnectionState, Seen, banner_text, opens_safely};
+
+    #[test]
+    fn announcements_keep_their_links_and_drop_other_markup() {
+        let (plain, links) = super::announcement_text(
+            "**Maintenance** tonight.\nSee the [status page](https://status.example.com) or https://example.com/notes.",
+        );
+        assert_eq!(
+            plain,
+            "Maintenance tonight. See the status page or https://example.com/notes."
+        );
+        let shown: Vec<_> = links
+            .iter()
+            .map(|(range, url)| (&plain[range.clone()], url.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("status page", "https://status.example.com"),
+                ("https://example.com/notes", "https://example.com/notes"),
+            ]
+        );
+    }
 
     #[test]
     fn the_banner_says_what_the_connection_is_doing() {

@@ -403,6 +403,9 @@ pub struct Update {
     /// What the server allows of message priority, acknowledgements and
     /// scheduling (#220).
     pub features: Option<crate::priority::Features>,
+    /// The system console's announcement banner, when the config arrived:
+    /// `Some(None)` once an admin turned it off.
+    pub announcement: Option<Option<matty_api::capabilities::Announcement>>,
     /// The user's scheduled messages, when they changed (#220).
     pub scheduled: Option<Arc<[matty_api::models::ScheduledPost]>>,
     /// The open channel's history: whether its first post is loaded,
@@ -3515,6 +3518,7 @@ impl Live {
                 self.max_post_size = Some(capabilities.max_post_size);
                 update.max_file_size = Some(capabilities.max_file_size);
                 update.features = Some(crate::priority::Features::of(capabilities));
+                update.announcement = Some(capabilities.announcement.clone());
                 self.threads_choice = Some(matches!(
                     capabilities.collapsed_threads,
                     matty_api::capabilities::CollapsedThreads::DefaultOn

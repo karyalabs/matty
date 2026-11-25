@@ -200,6 +200,9 @@ pub struct ServerCapabilities {
     /// server's `GiphySdkKey`, which GIPHY wants with each search. `None`
     /// when the picker is off or the key is missing.
     pub giphy_key: Option<String>,
+    /// The system console's announcement banner (`EnableBanner` with a
+    /// `BannerText`), shown across the top of every window.
+    pub announcement: Option<Announcement>,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -219,6 +222,19 @@ pub struct ServerCapabilities {
 
 /// The raw `format=old` payload: every value is a string.
 pub type OldFormat = HashMap<String, serde_json::Value>;
+
+/// The announcement banner an admin set in the system console.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcement {
+    /// Markdown, as the server stores it.
+    pub text: String,
+    /// The bar's color, as CSS (`BannerColor`).
+    pub color: String,
+    /// The text's color, as CSS (`BannerTextColor`).
+    pub text_color: String,
+    /// Whether people may close it (`AllowBannerDismissal`).
+    pub dismissible: bool,
+}
 
 fn text<'a>(map: &'a OldFormat, key: &str) -> Option<&'a str> {
     map.get(key)
@@ -349,6 +365,18 @@ impl ServerCapabilities {
             giphy_key: flag(config, "EnableGifPicker")
                 .then(|| text(config, "GiphySdkKey").map(str::to_string))
                 .flatten(),
+            announcement: flag(config, "EnableBanner")
+                .then(|| text(config, "BannerText"))
+                .flatten()
+                .map(|banner| Announcement {
+                    text: banner.trim().to_string(),
+                    color: text(config, "BannerColor").unwrap_or("#f2a93b").to_string(),
+                    text_color: text(config, "BannerTextColor")
+                        .unwrap_or("#333333")
+                        .to_string(),
+                    dismissible: flag(config, "AllowBannerDismissal"),
+                })
+                .filter(|banner| !banner.text.is_empty()),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -562,6 +590,38 @@ mod tests {
         assert_eq!(off.giphy_key, None);
         let keyless = caps(&[("EnableGifPicker", "true"), ("GiphySdkKey", "")]);
         assert_eq!(keyless.giphy_key, None);
+    }
+
+    #[test]
+    fn the_banner_needs_its_flag_and_text() {
+        let license = load("license_client_unlicensed.json");
+        let caps = |pairs: &[(&str, &str)]| {
+            let mut config = load("config_client_team.json");
+            for (key, value) in pairs {
+                config.insert((*key).into(), (*value).into());
+            }
+            ServerCapabilities::from_old_format(&config, &license).unwrap()
+        };
+        let on = caps(&[
+            ("EnableBanner", "true"),
+            ("BannerText", "Maintenance tonight"),
+            ("BannerColor", "#1e325c"),
+            ("BannerTextColor", "#ffffff"),
+            ("AllowBannerDismissal", "true"),
+        ]);
+        assert_eq!(
+            on.announcement,
+            Some(Announcement {
+                text: "Maintenance tonight".into(),
+                color: "#1e325c".into(),
+                text_color: "#ffffff".into(),
+                dismissible: true,
+            })
+        );
+        let off = caps(&[("EnableBanner", "false"), ("BannerText", "Hi")]);
+        assert_eq!(off.announcement, None);
+        let blank = caps(&[("EnableBanner", "true"), ("BannerText", "  ")]);
+        assert_eq!(blank.announcement, None);
     }
 
     #[test]
