@@ -354,6 +354,13 @@ pub fn posts_window(
 
 /// Roots the user follows take their reply footer from the thread record,
 /// which `thread_*` events keep current: following, who replied and when.
+/// Fills in, for the roots among `posts`, whether the user follows their
+/// thread and who replied, as the cache's thread records know them: a
+/// search or a listing from the server leaves those out.
+pub fn with_followed_threads(conn: &Connection, posts: &mut [Post]) -> Result<()> {
+    followed_threads(conn, posts)
+}
+
 fn followed_threads(conn: &Connection, posts: &mut [Post]) -> Result<()> {
     let mut statement = conn.prepare_cached(
         "SELECT is_following, participants, last_reply_at FROM threads WHERE id = ?1",

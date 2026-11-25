@@ -477,6 +477,10 @@ pub enum RightPaneEvent {
     /// The user discarded a reply the server never got; the row is
     /// already gone and sync drops it from the outbox (#195).
     Discard(SharedString),
+    /// The user opened the thread under a listed root post.
+    OpenThread(SharedString),
+    /// The user went back from a thread to the listing it was opened from.
+    Back,
     /// The user toggled following the thread under `root`.
     ToggleFollow {
         root: SharedString,
@@ -625,6 +629,9 @@ pub struct RightPaneView {
     /// another channel's list shows unfiltered.
     member_filter: Entity<InputState>,
     member_filter_channel: SharedString,
+    /// The listing a thread was opened from, by its root, for the thread
+    /// header's Back button, as in Mattermost.
+    back: Option<(SharedString, RightPaneContent)>,
     /// The saved, pinned or mentions listing has yet to come from sync.
     loading: bool,
     /// The reply box takes the caret once the thread is on screen: a thread
@@ -1167,6 +1174,7 @@ impl RightPaneView {
             search,
             member_filter,
             member_filter_channel: SharedString::default(),
+            back: None,
             loading: false,
             focus_reply: false,
             hints: SearchHints::default(),
@@ -2178,6 +2186,19 @@ impl RightPaneView {
 
     pub fn set_content(&mut self, content: Option<RightPaneContent>, cx: &mut Context<Self>) {
         self.loading = false;
+        // Back stays while the thread opened from a listing loads and
+        // shows, and goes with anything else.
+        let keep_back = match &content {
+            None => true,
+            Some(RightPaneContent::Thread(thread)) => self
+                .back
+                .as_ref()
+                .is_some_and(|(root, _)| *root == thread.root.id),
+            Some(_) => false,
+        };
+        if !keep_back {
+            self.back = None;
+        }
         let rows = match &content {
             Some(RightPaneContent::Thread(thread)) => thread.replies.len() + THREAD_HEAD,
             _ => 0,
@@ -2934,6 +2955,21 @@ impl RightPaneView {
         crate::chrome::frame("pane.header", self.chrome, header, window, cx)
     }
 
+    /// Opens the thread under a listed root, remembering the listing for
+    /// the thread's Back button.
+    fn open_listed_thread(&mut self, root: SharedString, cx: &mut Context<Self>) {
+        self.back = self.content.clone().map(|content| (root.clone(), content));
+        cx.emit(RightPaneEvent::OpenThread(root));
+    }
+
+    /// Back from a thread to the listing it was opened from.
+    fn go_back(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, listing)) = self.back.take() {
+            self.set_content(Some(listing), cx);
+            cx.emit(RightPaneEvent::Back);
+        }
+    }
+
     /// Whether the pane shows in the channel's place.
     pub fn set_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
         if self.expanded != expanded {
@@ -2965,6 +3001,8 @@ impl RightPaneView {
             }
             _ => None,
         };
+        let has_back = self.back.is_some()
+            && matches!(&self.content, Some(RightPaneContent::Thread(_)) | None);
         let action = |id: &'static str, label: SharedString, glyph: LucideIcon| {
             Button::new(id)
                 .variant(ButtonVariant::Ghost)
@@ -2993,6 +3031,15 @@ impl RightPaneView {
                     .items_baseline()
                     .gap(theme.space(2.))
                     .min_w_0()
+                    .when(has_back, |row| {
+                        row.child(style::tipped(
+                            "right-pane.back.tip",
+                            t!("pane-back"),
+                            action("right-pane.back", t!("pane-back"), LucideIcon::ArrowLeft)
+                                .ml(-theme.space(2.))
+                                .on_click(cx.listener(|this, _, _, cx| this.go_back(cx))),
+                        ))
+                    })
                     .child(
                         div()
                             .type_style(style::TITLE, &theme)
@@ -3943,6 +3990,93 @@ impl RightPaneView {
 
     /// Saved, pinned and mention listings: each post under a caption with
     /// its channel and a Jump link, separated by hairlines.
+    /// Under a listed root with replies: how many, opening its thread
+    /// with a way back, and Follow, as Mattermost's lists show them.
+    fn listed_replies(
+        root: &SharedString,
+        summary: &crate::channel::ReplySummary,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let (open_root, follow_root) = (root.clone(), root.clone());
+        let following = summary.following;
+        div()
+            .pl(scaled(&theme, metrics::GUTTER) + theme.space(8.))
+            .pr(theme.space(4.))
+            .flex()
+            .items_center()
+            .gap(theme.space(2.))
+            .child(
+                Button::new(gpui_kit::ElementId::Name(
+                    format!("listed.{root}.replies").into(),
+                ))
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Xs)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(theme.space(1.))
+                        .text_color(theme.colors.link())
+                        .child(
+                            lucide(LucideIcon::MessageSquare)
+                                .size(scaled(&theme, metrics::ICON_SMALL))
+                                .text_color(theme.colors.link()),
+                        )
+                        .child(t!("chan-replies", count = summary.count)),
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| {
+                        this.open_listed_thread(open_root.clone(), cx)
+                    }),
+                ),
+            )
+            .child(
+                Button::new(gpui_kit::ElementId::Name(
+                    format!("listed.{root}.follow").into(),
+                ))
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Xs)
+                .label(if following {
+                    t!("chan-following")
+                } else {
+                    t!("chan-follow")
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_listed_following(&follow_root, !following, cx);
+                    cx.emit(RightPaneEvent::ToggleFollow {
+                        root: follow_root.clone(),
+                        following: !following,
+                    });
+                })),
+            )
+    }
+
+    /// Shows a listed root as followed or not at once; the server has the
+    /// last word the next time the listing loads.
+    fn set_listed_following(&mut self, root: &str, following: bool, cx: &mut Context<Self>) {
+        let posts: &mut [ListedPost] = match self.content.as_mut() {
+            Some(RightPaneContent::Search(model)) => &mut model.results,
+            Some(
+                RightPaneContent::Pinned { posts, .. }
+                | RightPaneContent::Saved(posts)
+                | RightPaneContent::Mentions(posts)
+                | RightPaneContent::Unreads(posts)
+                | RightPaneContent::EditHistory(posts),
+            ) => posts,
+            _ => return,
+        };
+        for listed in posts
+            .iter_mut()
+            .filter(|listed| listed.post.id.as_ref() == root)
+        {
+            if let Some(summary) = listed.post.replies.as_mut() {
+                summary.following = following;
+            }
+        }
+        cx.notify();
+    }
+
     fn listing(
         &self,
         id: &'static str,
@@ -4034,6 +4168,12 @@ impl RightPaneView {
                         self.presence_of(&item.post.author),
                         cx,
                     ))
+                    .children(
+                        item.post
+                            .replies
+                            .as_ref()
+                            .map(|summary| Self::listed_replies(&item.post.id, summary, cx)),
+                    )
             }))
             // `Some(loading)` when another page may follow.
             .when_some(more, |list, loading| {

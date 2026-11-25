@@ -63,6 +63,7 @@ pane-delete = Delete…
 ## Search
 
 pane-search-placeholder = Search messages
+pane-back = Back
 pane-search-empty = Search messages
 pane-search-empty-detail = Words, “exact phrases”, from:someone, in:channel, on:, before: or after: a date, -word to leave a word out, and depl* for words that start with depl.
 pane-search-hint = from:name  in:channel  on:date  -word  “exact phrase”

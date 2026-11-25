@@ -694,6 +694,22 @@ pub fn listed_post(post: &ApiPost, users: &HashMap<String, User>, viewer: &Viewe
     )
 }
 
+/// [`listed_post`] for Saved, mentions and search, with a root's reply
+/// count and Follow under it while collapsed reply threads are on, as
+/// Mattermost's lists show them.
+pub fn listed_with_replies(
+    post: &ApiPost,
+    users: &HashMap<String, User>,
+    viewer: &Viewer<'_>,
+) -> Post {
+    let mut listed = listed_post(post, users, viewer);
+    if viewer.collapsed_threads && post.root_id.is_empty() && post.reply_count > 0 {
+        let today = viewer.now.to_zoned(viewer.zone.clone()).date();
+        listed.replies = Some(reply_summary(post, users, viewer, today));
+    }
+    listed
+}
+
 /// A followed thread as the Threads view lists it (#124): its root post,
 /// and a summary of its replies from the server's thread record.
 pub fn thread_row(

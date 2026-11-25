@@ -4017,6 +4017,12 @@ impl MainWindow {
                     });
                 }
             }
+            RightPaneEvent::OpenThread(root) => self.open_thread(root.clone(), cx),
+            RightPaneEvent::Back => {
+                if let Some(live) = &mut self.live {
+                    live.close_thread();
+                }
+            }
             RightPaneEvent::ToggleFollow { root, following } => {
                 if let Some(live) = &self.live {
                     live.follow_thread(root, *following);
