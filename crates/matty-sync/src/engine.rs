@@ -41,6 +41,61 @@ const ME_KEY: &str = "me";
 /// Whether Collapsed Reply Threads was on at the last load.
 const CRT_KEY: &str = "collapsed_threads";
 
+/// A change to a custom user group (#1068).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupChange {
+    /// A new group `@name` mentions, with its first people.
+    Create {
+        /// The `@name`.
+        name: String,
+        /// What it is called.
+        display_name: String,
+        /// Its people.
+        user_ids: Vec<String>,
+    },
+    /// A new name or `@name`.
+    Rename {
+        /// The group.
+        group_id: String,
+        /// The `@name`.
+        name: String,
+        /// What it is called.
+        display_name: String,
+    },
+    /// People join the group.
+    AddMembers {
+        /// The group.
+        group_id: String,
+        /// Who joins.
+        user_ids: Vec<String>,
+    },
+    /// People leave the group.
+    RemoveMembers {
+        /// The group.
+        group_id: String,
+        /// Who leaves.
+        user_ids: Vec<String>,
+    },
+    /// The group is archived: `@name` no longer mentions it.
+    Archive {
+        /// The group.
+        group_id: String,
+    },
+}
+
+impl GroupChange {
+    /// The existing group it changes; `None` for a new one.
+    pub fn group_id(&self) -> Option<&str> {
+        match self {
+            Self::Create { .. } => None,
+            Self::Rename { group_id, .. }
+            | Self::AddMembers { group_id, .. }
+            | Self::RemoveMembers { group_id, .. }
+            | Self::Archive { group_id } => Some(group_id),
+        }
+    }
+}
+
 /// What the app asks of the engine.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -761,6 +816,11 @@ pub enum Command {
         /// The group.
         group_id: String,
     },
+    /// Makes, renames, archives or changes the people of a custom user
+    /// group (#1068). [`ChangeSet::Groups`](crate::ChangeSet::Groups) and,
+    /// for an existing group,
+    /// [`ChangeSet::GroupMembers`](crate::ChangeSet::GroupMembers) answer.
+    ChangeGroup(GroupChange),
     /// The user's personal access tokens;
     /// [`ChangeSet::AccessTokens`](crate::ChangeSet::AccessTokens) answers.
     AccessTokens,
@@ -1382,6 +1442,7 @@ impl std::fmt::Debug for Command {
                 .debug_struct("GroupMembers")
                 .field("group_id", group_id)
                 .finish(),
+            Self::ChangeGroup(change) => f.debug_tuple("ChangeGroup").field(change).finish(),
             Self::AccessTokens => f.write_str("AccessTokens"),
             Self::CreateAccessToken { .. } => f.write_str("CreateAccessToken"),
             Self::SetAccessTokenActive { token_id, active } => f
@@ -2616,6 +2677,9 @@ impl Engine {
                     writes.push(Write::Mfa { activate, code });
                 }
                 Message::Command(Command::AccessTokens) => writes.push(Write::AccessTokens),
+                Message::Command(Command::ChangeGroup(change)) => {
+                    writes.push(Write::ChangeGroup(change));
+                }
                 Message::Command(Command::GroupMembers { group_id }) => {
                     writes.push(Write::GroupMembers { group_id });
                 }

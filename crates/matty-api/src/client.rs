@@ -368,6 +368,15 @@ impl Client {
         self.json(Method::PUT, path, &[], Some(body)).await
     }
 
+    /// `DELETE` an API path with a JSON body and decode the JSON answer.
+    pub async fn delete_with<B: Serialize + ?Sized, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ApiError> {
+        self.json(Method::DELETE, path, &[], Some(body)).await
+    }
+
     /// `DELETE` an API path and decode the JSON answer.
     pub async fn delete<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         self.json(Method::DELETE, path, &[], None::<&()>).await

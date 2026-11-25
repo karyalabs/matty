@@ -255,6 +255,7 @@ pub struct MainWindow {
     file_preview: Entity<crate::file_preview::FilePreviewView>,
     team_members: Entity<crate::team_members::TeamMembersView>,
     user_groups: Entity<crate::user_groups::UserGroupsView>,
+    group_editor: Entity<crate::user_groups::GroupEditorView>,
     joining: Option<SharedString>,
     /// "Leave {team}?" from a team tab's menu, for the team in `leaving`.
     leave_team_dialog: DialogHandle,
@@ -535,6 +536,23 @@ impl MainWindow {
             |this, _, event: &crate::user_groups::UserGroupsEvent, window, cx| match event {
                 crate::user_groups::UserGroupsEvent::Open(group) => {
                     this.open_group(group.clone(), window, cx)
+                }
+                crate::user_groups::UserGroupsEvent::Create => {
+                    this.edit_group(None, Vec::new(), window, cx)
+                }
+            },
+        )
+        .detach();
+        let group_editor = cx.new(|cx| crate::user_groups::GroupEditorView::new(window, cx));
+        cx.subscribe_in(
+            &group_editor,
+            window,
+            |this, _, event: &crate::user_groups::GroupEditorEvent, _, _| {
+                let crate::user_groups::GroupEditorEvent::Save(changes) = event;
+                if let Some(live) = &this.live {
+                    for change in changes {
+                        live.send(matty_sync::Command::ChangeGroup(change.clone()));
+                    }
                 }
             },
         )
@@ -1418,6 +1436,7 @@ impl MainWindow {
             file_preview,
             team_members,
             user_groups,
+            group_editor,
             joining: None,
             leave_team_dialog: DialogHandle::new(false),
             leaving: Default::default(),
@@ -2289,6 +2308,8 @@ impl MainWindow {
                 .update(cx, |view, cx| view.set_addable(people, cx));
         }
         if let Some(people) = update.people {
+            self.group_editor
+                .update(cx, |view, cx| view.set_people(people.clone(), cx));
             self.new_message
                 .update(cx, |view, cx| view.set_profiles(people, cx));
         }
@@ -4981,7 +5002,6 @@ impl MainWindow {
         }
     }
 
-    /// `@name`: the direct message with them, found or started.
     /// A user group's people, in the members dialog (#1057).
     fn open_group(
         &mut self,
@@ -4989,21 +5009,35 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.team_members.update(cx, |view, cx| {
-            view.open_group(
-                group.id.clone().into(),
-                group.display_name.into(),
-                group.name.into(),
-                group.member_count,
-                window,
-                cx,
-            )
-        });
+        self.team_members
+            .update(cx, |view, cx| view.open_group(&group, window, cx));
         if let Some(live) = &self.live {
             live.send(matty_sync::Command::GroupMembers { group_id: group.id });
         }
     }
 
+    /// The group editor (#1068): a new group, or `group` with its `people`.
+    /// The team's people fill the picker.
+    pub(super) fn edit_group(
+        &mut self,
+        group: Option<matty_api::models::Group>,
+        people: Vec<crate::profile::UserProfile>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(live) = &self.live
+            && let Some(team_id) = live.team()
+        {
+            live.send(matty_sync::Command::FindPeople {
+                team_id: team_id.to_string(),
+            });
+        }
+        self.group_editor
+            .update(cx, |view, cx| view.open(group, people, window, cx));
+    }
+
+    /// `@name`: the direct message with them, found or started, or a
+    /// group's people.
     fn open_user(&mut self, username: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(group) = crate::user_groups::UserGroups::named(cx, &username).cloned() {
             self.open_group(group, window, cx);
@@ -5289,6 +5323,18 @@ impl MainWindow {
                 &self.user_groups.read(cx).handle().clone(),
                 dialog_popup("user-groups.popup", crate::t!("user-groups-title"), cx)
                     .child(self.user_groups.clone()),
+                window,
+                cx,
+            ))
+            .child(dialog(
+                "group-editor",
+                &self.group_editor.read(cx).handle().clone(),
+                dialog_popup(
+                    "group-editor.popup",
+                    crate::t!("group-editor-create-title"),
+                    cx,
+                )
+                .child(self.group_editor.clone()),
                 window,
                 cx,
             ))

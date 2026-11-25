@@ -38,7 +38,7 @@ pub use change::{
     Arrived, ChangeSet, CommandError, Connection, DownloadState, ImageSize, LinkAnswer, LinkQuery,
     Listing, POSTS_WINDOW, Picture, UploadState,
 };
-pub use engine::Command;
+pub use engine::{Command, GroupChange};
 /// Where an account's database lives.
 pub use matty_store::default_path as database_path;
 /// Whose workspace the web demo's snapshot is.

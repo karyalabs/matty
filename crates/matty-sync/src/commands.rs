@@ -245,6 +245,7 @@ pub(crate) enum Write {
     GroupMembers {
         group_id: String,
     },
+    ChangeGroup(crate::GroupChange),
     CreateAccessToken {
         description: String,
     },
@@ -400,6 +401,8 @@ impl Write {
             } => "turn off multi-factor authentication",
             Self::AccessTokens => "list your access tokens",
             Self::GroupMembers { .. } => "list a group's members",
+            Self::ChangeGroup(crate::GroupChange::Create { .. }) => "create a group",
+            Self::ChangeGroup(_) => "change a group",
             Self::CreateAccessToken { .. } => "create an access token",
             Self::SetAccessTokenActive { active: true, .. } => "turn on an access token",
             Self::SetAccessTokenActive { active: false, .. } => "turn off an access token",
@@ -451,6 +454,7 @@ impl Write {
             | Self::AccessTokens
             | Self::CreateAccessToken { .. } => user_id.to_owned(),
             Self::GroupMembers { group_id } => group_id.clone(),
+            Self::ChangeGroup(change) => change.group_id().unwrap_or_default().to_owned(),
             Self::SetAccessTokenActive { token_id, .. } | Self::RevokeAccessToken { token_id } => {
                 token_id.clone()
             }
@@ -1306,6 +1310,61 @@ pub(crate) async fn run(
                 created: None,
                 tokens: client.access_tokens(&user_id).await?,
             }),
+            Write::ChangeGroup(change) => {
+                use crate::GroupChange;
+                let archived = matches!(change, GroupChange::Archive { .. });
+                let group_id = match change {
+                    GroupChange::Create {
+                        name,
+                        display_name,
+                        user_ids,
+                    } => {
+                        client
+                            .create_group(&name, &display_name, &user_ids)
+                            .await?
+                            .id
+                    }
+                    GroupChange::Rename {
+                        group_id,
+                        name,
+                        display_name,
+                    } => {
+                        client.patch_group(&group_id, &name, &display_name).await?;
+                        group_id
+                    }
+                    GroupChange::AddMembers { group_id, user_ids } => {
+                        client.add_group_members(&group_id, &user_ids).await?;
+                        group_id
+                    }
+                    GroupChange::RemoveMembers { group_id, user_ids } => {
+                        client.remove_group_members(&group_id, &user_ids).await?;
+                        group_id
+                    }
+                    GroupChange::Archive { group_id } => {
+                        client.archive_group(&group_id).await?;
+                        group_id
+                    }
+                };
+                // The server also says so over the WebSocket, but the
+                // dialog that asked should not wait for it.
+                let (groups, mine) =
+                    tokio::try_join!(client.mentionable_groups(), client.user_groups(&user_id))?;
+                let _ = results.send(Loaded::Groups {
+                    groups,
+                    mine: mine.into_iter().map(|group| group.id).collect(),
+                });
+                // An archived group has no people left to show.
+                if archived {
+                    None
+                } else {
+                    let page = client.group_members(&group_id).await?;
+                    Some(Loaded::GroupMembers {
+                        group_id,
+                        members: page.members,
+                        total: page.total_member_count,
+                    })
+                }
+            }
             Write::GroupMembers { group_id } => {
                 let page = client.group_members(&group_id).await?;
                 Some(Loaded::GroupMembers {

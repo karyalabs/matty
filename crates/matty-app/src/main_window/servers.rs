@@ -544,6 +544,15 @@ impl MainWindow {
                     });
                 }
             }
+            TeamMembersEvent::EditGroup { group_id, people } => {
+                let group = crate::user_groups::UserGroups::read(cx)
+                    .iter()
+                    .find(|group| group.id == group_id.as_ref())
+                    .cloned();
+                if group.is_some() {
+                    self.edit_group(group, people.clone(), window, cx);
+                }
+            }
             TeamMembersEvent::Remove { team_id, user_id } => {
                 if let Some(live) = &self.live {
                     live.send(matty_sync::Command::RemoveFromTeam {

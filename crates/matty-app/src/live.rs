@@ -2788,6 +2788,22 @@ impl Live {
                 self.prefs.keys.groups = self.my_groups.clone();
                 update.groups = Some((groups.clone(), mine.clone()));
             }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
+                action: action @ ("create a group" | "change a group"),
+                error,
+                ..
+            }) => {
+                // The server's words without its id and status.
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said)
+                    .to_owned();
+                update.refused = Some(if *action == "create a group" {
+                    crate::t!("group-create-failed", error = said)
+                } else {
+                    crate::t!("group-change-failed", error = said)
+                });
+            }
             ChangeSet::GroupMembers {
                 group_id,
                 members,

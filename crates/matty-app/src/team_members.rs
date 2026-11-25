@@ -43,6 +43,11 @@ pub enum TeamMembersEvent {
         team_id: SharedString,
         user_id: SharedString,
     },
+    /// "Edit group" on a custom user group (#1068), with its people.
+    EditGroup {
+        group_id: SharedString,
+        people: Vec<UserProfile>,
+    },
 }
 
 pub struct TeamMembersView {
@@ -52,6 +57,8 @@ pub struct TeamMembersView {
     /// The `@name` and member count when the dialog shows a user group
     /// rather than a team.
     group: Option<(SharedString, i64)>,
+    /// The group is a custom one, which people can change.
+    editable: bool,
     people: Option<Vec<TeamPerson>>,
     search: Entity<InputState>,
     handle: DialogHandle,
@@ -84,6 +91,7 @@ impl TeamMembersView {
             team_name: SharedString::default(),
             manage: false,
             group: None,
+            editable: false,
             people: None,
             search,
             handle: DialogHandle::new(false),
@@ -113,6 +121,7 @@ impl TeamMembersView {
         self.team_name = team_name;
         self.manage = manage;
         self.group = None;
+        self.editable = false;
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
         self.handle.open(window, cx);
@@ -124,15 +133,20 @@ impl TeamMembersView {
     /// [`Self::set_people`] fills it with the group's id.
     pub fn open_group(
         &mut self,
-        group_id: SharedString,
-        display_name: SharedString,
-        name: SharedString,
-        member_count: i64,
+        group: &matty_api::models::Group,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open(group_id, display_name, false, window, cx);
-        self.group = Some((name, member_count));
+        self.open(
+            group.id.clone().into(),
+            group.display_name.clone().into(),
+            false,
+            window,
+            cx,
+        );
+        self.group = Some((group.name.clone().into(), group.member_count));
+        // Custom groups can be changed by people; synced ones (LDAP) can't.
+        self.editable = group.source == "custom";
     }
 
     /// The group's member count, once the server says it.
@@ -386,14 +400,38 @@ impl Render for TeamMembersView {
                     .children(rows),
             )
             .child(
-                div().flex().justify_end().child(
-                    Button::new("team-members.close")
-                        .variant(ButtonVariant::Outline)
-                        .label(t!("team-members-close"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.handle.close(window, cx);
-                        })),
-                ),
+                div()
+                    .flex()
+                    .gap(theme.space(2.))
+                    .when(self.editable && self.people.is_some(), |footer| {
+                        footer.child(
+                            Button::new("team-members.edit-group")
+                                .variant(ButtonVariant::Outline)
+                                .label(t!("team-members-edit-group"))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    let people = this
+                                        .people
+                                        .iter()
+                                        .flatten()
+                                        .map(|person| person.profile.clone())
+                                        .collect();
+                                    this.handle.close(window, cx);
+                                    cx.emit(TeamMembersEvent::EditGroup {
+                                        group_id: this.team_id.clone(),
+                                        people,
+                                    });
+                                })),
+                        )
+                    })
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("team-members.close")
+                            .variant(ButtonVariant::Outline)
+                            .label(t!("team-members-close"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.handle.close(window, cx);
+                            })),
+                    ),
             )
     }
 }

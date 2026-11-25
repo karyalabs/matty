@@ -180,6 +180,82 @@ impl Client {
         .await
     }
 
+    /// `POST groups`: a custom group `@name` mentions, with its first
+    /// people (#1068).
+    pub async fn create_group(
+        &self,
+        name: &str,
+        display_name: &str,
+        user_ids: &[String],
+    ) -> Result<Group, ApiError> {
+        self.post(
+            "groups",
+            &serde_json::json!({
+                "group": {
+                    "name": name,
+                    "display_name": display_name,
+                    "source": "custom",
+                    "allow_reference": true,
+                },
+                "user_ids": user_ids,
+            }),
+        )
+        .await
+    }
+
+    /// `PUT groups/{group_id}/patch`: renames a custom group or changes its
+    /// `@name`.
+    pub async fn patch_group(
+        &self,
+        group_id: &str,
+        name: &str,
+        display_name: &str,
+    ) -> Result<Group, ApiError> {
+        self.put(
+            &format!("groups/{group_id}/patch"),
+            &serde_json::json!({ "name": name, "display_name": display_name }),
+        )
+        .await
+    }
+
+    /// `POST groups/{group_id}/members`: adds people to a custom group.
+    pub async fn add_group_members(
+        &self,
+        group_id: &str,
+        user_ids: &[String],
+    ) -> Result<(), ApiError> {
+        let _: serde_json::Value = self
+            .post(
+                &format!("groups/{group_id}/members"),
+                &serde_json::json!({ "user_ids": user_ids }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// `DELETE groups/{group_id}/members`: takes people out of a custom
+    /// group.
+    pub async fn remove_group_members(
+        &self,
+        group_id: &str,
+        user_ids: &[String],
+    ) -> Result<(), ApiError> {
+        let _: serde_json::Value = self
+            .delete_with(
+                &format!("groups/{group_id}/members"),
+                &serde_json::json!({ "user_ids": user_ids }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// `DELETE groups/{group_id}`: archives a custom group, so `@name` no
+    /// longer mentions it.
+    pub async fn archive_group(&self, group_id: &str) -> Result<(), ApiError> {
+        let _: serde_json::Value = self.delete(&format!("groups/{group_id}")).await?;
+        Ok(())
+    }
+
     /// `POST emoji`: adds a custom emoji called `name` from an image file
     /// (#209). The server wants the image before the description.
     pub async fn create_emoji(

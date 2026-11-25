@@ -114,3 +114,32 @@ user-groups-members = { $count ->
 user-groups-none = This server has no groups yet.
 user-groups-none-mine = You're not in any groups.
 user-groups-none-match = No groups match “{ $query }”.
+user-groups-create = Create group
+group-editor-create-title = Create a group
+group-editor-edit-title = Edit { $name }
+group-editor-description = A group lets people mention everyone in it at once.
+group-editor-name = Name
+group-editor-name-placeholder = Design team
+group-editor-handle = Mention
+group-editor-handle-placeholder = design-team
+group-editor-handle-hint = People mention the group with @{ $handle }.
+group-editor-name-empty = Give the group a name.
+group-editor-handle-empty = Give the group a mention, like design-team.
+group-editor-too-long = Use { $max } characters or fewer.
+group-editor-handle-characters = Use lowercase letters, numbers, dots, dashes and underscores.
+group-editor-handle-taken = @{ $handle } is already taken.
+group-editor-people = { $count ->
+    [0] People
+    [one] People · 1 picked
+   *[other] People · { $count } picked
+}
+group-editor-nobody = Pick at least one person.
+group-editor-archive = Archive group
+group-editor-archive-confirm = Confirm archive
+group-editor-cancel = Cancel
+group-editor-save = Save
+group-editor-create = Create group
+team-members-edit-group = Edit group
+group-create-failed = Couldn't create the group: { $error }
+group-change-failed = Couldn't change the group: { $error }
+group-editor-archive-hint = Archiving the group stops its @mention from reaching anyone.
