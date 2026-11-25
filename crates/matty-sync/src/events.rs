@@ -25,6 +25,8 @@ pub(crate) enum Fetch {
     Categories(String),
     /// The server's config and license.
     Capabilities,
+    /// The user groups `@name` mentions and those the user is in.
+    Groups,
 }
 
 /// Applies one event. `me` is the signed-in user's id, once known.
@@ -308,6 +310,11 @@ pub(crate) fn apply(
         }
         WsEvent::ConfigChanged(_) | WsEvent::LicenseChanged(_) => {
             fetches.push(Fetch::Capabilities);
+        }
+        WsEvent::GroupsChanged => {
+            if !fetches.contains(&Fetch::Groups) {
+                fetches.push(Fetch::Groups);
+            }
         }
         WsEvent::DraftCreated(draft) | WsEvent::DraftUpdated(draft) => {
             posts::upsert_draft(conn, &draft)?;

@@ -353,6 +353,10 @@ pub enum WsEvent {
         /// The moved bookmarks with their new `sort_order`.
         bookmarks: Vec<ChannelBookmark>,
     },
+    /// A user group or its members changed: `received_group`,
+    /// `group_member_add`, `group_member_delete` and the team and channel
+    /// association events. Sync reloads the groups.
+    GroupsChanged,
     /// An event Matty does not know. Not an error: servers add events.
     Unknown(RawEvent),
     /// A known event whose data did not decode. The sync engine treats it
@@ -621,6 +625,13 @@ fn decode_known(raw: &RawEvent) -> Result<Option<WsEvent>, String> {
                 bookmarks,
             }
         }
+        "received_group"
+        | "received_group_associated_to_team"
+        | "received_group_not_associated_to_team"
+        | "received_group_associated_to_channel"
+        | "received_group_not_associated_to_channel"
+        | "group_member_add"
+        | "group_member_delete" => WsEvent::GroupsChanged,
         _ => return Ok(None),
     };
     Ok(Some(event))

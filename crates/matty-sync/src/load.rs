@@ -419,6 +419,14 @@ pub(crate) async fn fetch(
                 let capabilities = client.capabilities().await?;
                 let _ = results.send(Loaded::Capabilities(Box::new(capabilities)));
             }
+            Fetch::Groups => {
+                let (groups, mine) =
+                    tokio::try_join!(client.mentionable_groups(), client.user_groups(&user_id))?;
+                let _ = results.send(Loaded::Groups {
+                    groups,
+                    mine: mine.into_iter().map(|group| group.id).collect(),
+                });
+            }
         }
         Ok(())
     }

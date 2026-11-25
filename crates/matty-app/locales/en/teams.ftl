@@ -102,3 +102,15 @@ user-group-description = @{ $name } · { $count ->
     [one] 1 member
    *[other] { $count } members
 }
+user-groups-title = User groups
+user-groups-description = Mention everyone in a group at once with its @name.
+user-groups-all = All groups
+user-groups-mine = My groups
+user-groups-search = Search groups
+user-groups-members = { $count ->
+    [one] 1 member
+   *[other] { $count } members
+}
+user-groups-none = This server has no groups yet.
+user-groups-none-mine = You're not in any groups.
+user-groups-none-match = No groups match “{ $query }”.

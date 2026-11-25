@@ -59,6 +59,8 @@ pub enum AccountEvent {
     Security,
     /// "Custom emoji…" (#209).
     CustomEmoji,
+    /// "User groups…" (#1063), on a server with user groups.
+    UserGroups,
     /// "Turn off automatic replies", shown while Out of office.
     TurnOffAutoReply,
     SignOut,
@@ -360,9 +362,10 @@ impl AccountView {
         self.status.close(window, cx);
     }
 
-    /// The menu's items follow the account, so they are rebuilt when it
-    /// changes rather than on every frame.
-    fn refresh_items(&mut self, cx: &mut Context<Self>) {
+    /// The menu's items follow the account and whether the server has user
+    /// groups, so they are rebuilt when either changes rather than on every
+    /// frame.
+    pub fn refresh_items(&mut self, cx: &mut Context<Self>) {
         let view = cx.entity().downgrade();
         let account = self.account.clone();
         let mut items = vec![MenuItem::label(
@@ -443,6 +446,18 @@ impl AccountView {
                     .ok();
             }),
         );
+        if crate::user_groups::UserGroups::available(cx) {
+            let groups_view = view.clone();
+            items.push(
+                MenuItem::new("account.user-groups", t!("account-user-groups")).on_click(
+                    move |_, _, cx| {
+                        groups_view
+                            .update(cx, |_, cx| cx.emit(AccountEvent::UserGroups))
+                            .ok();
+                    },
+                ),
+            );
+        }
         items.push(
             MenuItem::new("account.preferences", t!("account-preferences")).on_click(
                 |_, window, cx| {

@@ -254,6 +254,7 @@ pub struct MainWindow {
     team_settings: Entity<crate::team_settings::TeamSettingsView>,
     file_preview: Entity<crate::file_preview::FilePreviewView>,
     team_members: Entity<crate::team_members::TeamMembersView>,
+    user_groups: Entity<crate::user_groups::UserGroupsView>,
     joining: Option<SharedString>,
     /// "Leave {team}?" from a team tab's menu, for the team in `leaving`.
     leave_team_dialog: DialogHandle,
@@ -527,6 +528,17 @@ impl MainWindow {
         let team_members = cx.new(|cx| crate::team_members::TeamMembersView::new(window, cx));
         cx.subscribe_in(&team_members, window, Self::on_team_members_event)
             .detach();
+        let user_groups = cx.new(|cx| crate::user_groups::UserGroupsView::new(window, cx));
+        cx.subscribe_in(
+            &user_groups,
+            window,
+            |this, _, event: &crate::user_groups::UserGroupsEvent, window, cx| match event {
+                crate::user_groups::UserGroupsEvent::Open(group) => {
+                    this.open_group(group.clone(), window, cx)
+                }
+            },
+        )
+        .detach();
         let new_message = cx.new(|cx| NewMessageView::new(window, cx));
         if crate::preview::enabled() {
             new_message.update(cx, |view, cx| {
@@ -676,6 +688,9 @@ impl MainWindow {
                 AccountEvent::EditProfile => this.edit_profile(window, cx),
                 AccountEvent::Security => this.open_security(window, cx),
                 AccountEvent::CustomEmoji => this.manage_emoji(window, cx),
+                AccountEvent::UserGroups => this
+                    .user_groups
+                    .update(cx, |view, cx| view.open(window, cx)),
                 AccountEvent::TurnOffAutoReply => this.set_auto_reply(false, cx),
                 AccountEvent::SignOut => this.sign_out(window, cx),
             },
@@ -1402,6 +1417,7 @@ impl MainWindow {
             team_settings,
             file_preview,
             team_members,
+            user_groups,
             joining: None,
             leave_team_dialog: DialogHandle::new(false),
             leaving: Default::default(),
@@ -2194,8 +2210,9 @@ impl MainWindow {
             self.team_members
                 .update(cx, |view, cx| view.set_people(&team_id, people, cx));
         }
-        if let Some(groups) = update.groups.take() {
-            crate::user_groups::UserGroups::set(&groups, cx);
+        if let Some((groups, mine)) = update.groups.take() {
+            crate::user_groups::UserGroups::set(&groups, mine, cx);
+            self.account.update(cx, |view, cx| view.refresh_items(cx));
         }
         if let Some((group_id, people, total)) = update.group_members.take() {
             let me = self
@@ -4965,22 +4982,31 @@ impl MainWindow {
     }
 
     /// `@name`: the direct message with them, found or started.
+    /// A user group's people, in the members dialog (#1057).
+    fn open_group(
+        &mut self,
+        group: matty_api::models::Group,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.team_members.update(cx, |view, cx| {
+            view.open_group(
+                group.id.clone().into(),
+                group.display_name.into(),
+                group.name.into(),
+                group.member_count,
+                window,
+                cx,
+            )
+        });
+        if let Some(live) = &self.live {
+            live.send(matty_sync::Command::GroupMembers { group_id: group.id });
+        }
+    }
+
     fn open_user(&mut self, username: String, window: &mut Window, cx: &mut Context<Self>) {
-        // A group's `@name` opens its people (#1057).
         if let Some(group) = crate::user_groups::UserGroups::named(cx, &username).cloned() {
-            self.team_members.update(cx, |view, cx| {
-                view.open_group(
-                    group.id.clone().into(),
-                    group.display_name.into(),
-                    group.name.into(),
-                    group.member_count,
-                    window,
-                    cx,
-                )
-            });
-            if let Some(live) = &self.live {
-                live.send(matty_sync::Command::GroupMembers { group_id: group.id });
-            }
+            self.open_group(group, window, cx);
             return;
         }
         let known = match &self.live {
@@ -5255,6 +5281,14 @@ impl MainWindow {
                 &join,
                 dialog_popup("join-team.popup", crate::t!("teams-join-title"), cx)
                     .child(self.join_team_view.clone()),
+                window,
+                cx,
+            ))
+            .child(dialog(
+                "user-groups",
+                &self.user_groups.read(cx).handle().clone(),
+                dialog_popup("user-groups.popup", crate::t!("user-groups-title"), cx)
+                    .child(self.user_groups.clone()),
                 window,
                 cx,
             ))

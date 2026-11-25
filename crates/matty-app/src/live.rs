@@ -253,6 +253,12 @@ pub struct AccessTokens {
     pub tokens: std::sync::Arc<[matty_api::AccessToken]>,
 }
 
+/// The groups `@name` mentions and the ids of those the user is in.
+pub type GroupsUpdate = (
+    std::sync::Arc<[matty_api::models::Group]>,
+    std::sync::Arc<[String]>,
+);
+
 /// What a change set means for the window.
 #[derive(Debug, Default, PartialEq)]
 pub struct Update {
@@ -299,7 +305,7 @@ pub struct Update {
     /// why the server refused a change to them.
     pub access_tokens: Option<Result<AccessTokens, SharedString>>,
     /// The user groups `@name` can mention, for the composer (#1057).
-    pub groups: Option<std::sync::Arc<[matty_api::models::Group]>>,
+    pub groups: Option<GroupsUpdate>,
     /// A group's people and how many it has, for the members dialog.
     pub group_members: Option<(String, Vec<UserProfile>, i64)>,
     /// Something the server or an App refused, for a toast (#226).
@@ -2780,7 +2786,7 @@ impl Live {
                     .map(|group| group.name.clone())
                     .collect();
                 self.prefs.keys.groups = self.my_groups.clone();
-                update.groups = Some(groups.clone());
+                update.groups = Some((groups.clone(), mine.clone()));
             }
             ChangeSet::GroupMembers {
                 group_id,

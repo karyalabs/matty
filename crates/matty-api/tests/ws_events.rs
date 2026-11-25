@@ -264,3 +264,23 @@ fn broken_known_events_are_undecodable() {
     };
     assert!(error.contains("post"), "{error}");
 }
+
+#[test]
+fn group_changes_decode_to_groups_changed() {
+    for name in [
+        "received_group",
+        "group_member_add",
+        "group_member_delete",
+        "received_group_associated_to_team",
+        "received_group_not_associated_to_channel",
+    ] {
+        let raw: RawEvent = serde_json::from_value(json!({
+            "event": name,
+            "data": {"group_member": "{\"group_id\":\"g1\",\"user_id\":\"u1\"}"},
+            "broadcast": {"omit_users": null, "user_id": "", "channel_id": "", "team_id": ""},
+            "seq": 7
+        }))
+        .unwrap();
+        assert_eq!(WsEvent::decode(&raw), WsEvent::GroupsChanged, "{name}");
+    }
+}
