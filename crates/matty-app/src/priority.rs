@@ -84,6 +84,11 @@ pub struct Features {
     /// Seconds after posting that the author may still edit
     /// (`PostEditTimeLimit`); `None` for no limit.
     pub edit_limit_secs: Option<u64>,
+    /// The server turned file attachments off (`EnableFileAttachments`):
+    /// the composers lose their attach button and refuse files.
+    pub no_attachments: bool,
+    /// The server turned custom statuses off (`EnableCustomUserStatuses`).
+    pub no_custom_status: bool,
 }
 
 impl Global for Features {}
@@ -118,6 +123,8 @@ impl Features {
             bot_accounts: capabilities.bot_accounts,
             public_links: capabilities.public_links,
             edit_limit_secs: capabilities.post_edit_time_limit,
+            no_attachments: !capabilities.file_attachments,
+            no_custom_status: !capabilities.custom_statuses,
         }
     }
 
@@ -149,6 +156,8 @@ impl Features {
             // Preview has no server to make the link.
             public_links: false,
             edit_limit_secs: None,
+            no_attachments: false,
+            no_custom_status: false,
         }
     }
 

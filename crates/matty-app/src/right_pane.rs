@@ -1501,6 +1501,11 @@ impl RightPaneView {
         if !self.has_thread() {
             return;
         }
+        if crate::priority::Features::read(cx).no_attachments {
+            self.tray.refuse_all();
+            cx.notify();
+            return;
+        }
         for upload in self.tray.add(sources) {
             cx.emit(RightPaneEvent::Upload {
                 id: upload.id,
@@ -3377,14 +3382,25 @@ impl RightPaneView {
                         Composer::new(&self.composer)
                             .max_height(self.composer_cap)
                             .rounded(theme.radius.lg)
-                            .child(style::tipped(
-                                "right-pane.attach.tip",
-                                actions::tooltip_text(&t!("pane-attach"), "Upload files"),
-                                tool("right-pane.attach", t!("pane-attach"), LucideIcon::Plus)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.choose_files(window, cx)
-                                    })),
-                            ))
+                            .when(
+                                !crate::priority::Features::read(cx).no_attachments,
+                                |composer| {
+                                    composer.child(style::tipped(
+                                        "right-pane.attach.tip",
+                                        actions::tooltip_text(&t!("pane-attach"), "Upload files"),
+                                        tool(
+                                            "right-pane.attach",
+                                            t!("pane-attach"),
+                                            LucideIcon::Plus,
+                                        )
+                                        .on_click(
+                                            cx.listener(|this, _, window, cx| {
+                                                this.choose_files(window, cx)
+                                            }),
+                                        ),
+                                    ))
+                                },
+                            )
                             // The channel composer's formats, so a reply
                             // writes the same way (#683).
                             .child(format_tool(

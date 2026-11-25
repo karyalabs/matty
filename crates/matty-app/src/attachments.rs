@@ -218,6 +218,11 @@ impl UploadTray {
         self.queued
     }
 
+    /// Refuses every file: the server turned attachments off.
+    pub fn refuse_all(&mut self) {
+        self.notice = Some(t!("attachments-off"));
+    }
+
     /// Adds picked, dropped or pasted files, refusing any over the size
     /// limit and any past the tenth. Returns the ones to upload.
     pub fn add(&mut self, sources: impl IntoIterator<Item = UploadSource>) -> Vec<Upload> {

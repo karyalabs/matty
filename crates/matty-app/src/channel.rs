@@ -3006,6 +3006,11 @@ impl ChannelView {
         sources: impl IntoIterator<Item = UploadSource>,
         cx: &mut Context<Self>,
     ) {
+        if crate::priority::Features::read(cx).no_attachments {
+            self.tray.refuse_all();
+            cx.notify();
+            return;
+        }
         for upload in self.tray.add(sources) {
             cx.emit(ChannelEvent::Upload {
                 id: upload.id,
@@ -5951,13 +5956,19 @@ impl ChannelView {
                 Composer::new(&self.composer)
                     .max_height(self.composer_cap)
                     .rounded(theme.radius.lg)
-                    .child(style::tipped(
-                        "composer.attach.tip",
-                        actions::tooltip_text(&t!("chan-attach"), "Upload files"),
-                        tool("composer.attach", t!("chan-attach"), LucideIcon::Plus).on_click(
-                            |_, window, cx| window.dispatch_action(Box::new(UploadFiles), cx),
-                        ),
-                    ))
+                    .when(
+                        !crate::priority::Features::read(cx).no_attachments,
+                        |composer| {
+                            composer.child(style::tipped(
+                                "composer.attach.tip",
+                                actions::tooltip_text(&t!("chan-attach"), "Upload files"),
+                                tool("composer.attach", t!("chan-attach"), LucideIcon::Plus)
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(UploadFiles), cx)
+                                    }),
+                            ))
+                        },
+                    )
                     .child(style::tipped(
                         "composer.bold.tip",
                         actions::tooltip_text(&t!("chan-bold"), "Bold"),

@@ -404,22 +404,24 @@ impl AccountView {
             );
         }
         items.push(MenuItem::separator());
-        let status_view = view.clone();
-        items.push(
-            MenuItem::new(
-                "account.status",
-                match &account.status {
-                    Some(status) => t!("account-status-item", status = status.label()),
-                    None => t!("account-set-status-item"),
-                },
-            )
-            .on_click(move |_, window, cx| {
-                status_view
-                    .update(cx, |this, cx| this.open_status(window, cx))
-                    .ok();
-            }),
-        );
-        items.push(MenuItem::separator());
+        if !crate::priority::Features::read(cx).no_custom_status {
+            let status_view = view.clone();
+            items.push(
+                MenuItem::new(
+                    "account.status",
+                    match &account.status {
+                        Some(status) => t!("account-status-item", status = status.label()),
+                        None => t!("account-set-status-item"),
+                    },
+                )
+                .on_click(move |_, window, cx| {
+                    status_view
+                        .update(cx, |this, cx| this.open_status(window, cx))
+                        .ok();
+                }),
+            );
+            items.push(MenuItem::separator());
+        }
         let profile_view = view.clone();
         items.push(
             MenuItem::new("account.profile", t!("account-edit-profile")).on_click(

@@ -7,6 +7,7 @@ attachments-too-big-one = { $name } is { $size }. Files must be under { $limit }
 attachments-too-big-many = { $count } files were not added. Files must be under { $limit }.
 attachments-too-many-one = { $name } was not added: a message can carry { $max } files.
 attachments-too-many-many = { $count } files were not added: a message can carry { $max } files.
+attachments-off = This server doesn't allow files in messages.
 attachments-upload-failed = Not sent: an upload failed. Retry it or remove it, then send.
 attachments-downloading-percent = Downloading… { $percent }%
 attachments-downloading-size = Downloading… { $size }

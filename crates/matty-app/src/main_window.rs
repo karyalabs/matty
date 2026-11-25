@@ -2685,6 +2685,8 @@ impl MainWindow {
             // The team menu offers Integrations only where the server has them.
             self.teams_model
                 .update(cx, |teams, cx| teams.refresh_menu(cx));
+            // ... and the account menu Set a status… only where it has those.
+            self.account.update(cx, |view, cx| view.refresh_items(cx));
         }
         if let Some(scheduled) = update.scheduled.take() {
             self.scheduled_changed(scheduled, cx);

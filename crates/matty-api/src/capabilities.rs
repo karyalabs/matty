@@ -208,6 +208,10 @@ pub struct ServerCapabilities {
     /// How long after posting a message can still be edited, in seconds
     /// (`PostEditTimeLimit`); `None` when there is no limit (-1).
     pub post_edit_time_limit: Option<u64>,
+    /// Messages can carry files (`EnableFileAttachments`).
+    pub file_attachments: bool,
+    /// Users can set a custom status (`EnableCustomUserStatuses`).
+    pub custom_statuses: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -251,6 +255,16 @@ fn flag(map: &OldFormat, key: &str) -> bool {
     match map.get(key) {
         Some(serde_json::Value::String(value)) => value.eq_ignore_ascii_case("true"),
         Some(serde_json::Value::Bool(value)) => *value,
+        _ => false,
+    }
+}
+
+/// True only when the server sends `key` as false, so a setting an older
+/// server does not send stays on.
+fn off(map: &OldFormat, key: &str) -> bool {
+    match map.get(key) {
+        Some(serde_json::Value::String(value)) => value.eq_ignore_ascii_case("false"),
+        Some(serde_json::Value::Bool(value)) => !*value,
         _ => false,
     }
 }
@@ -384,6 +398,9 @@ impl ServerCapabilities {
                 .filter(|banner| !banner.text.is_empty()),
             public_links: flag(config, "EnablePublicLink"),
             post_edit_time_limit: number(config, "PostEditTimeLimit").filter(|secs| *secs > 0),
+            // Servers before these settings allowed both.
+            file_attachments: !off(config, "EnableFileAttachments"),
+            custom_statuses: !off(config, "EnableCustomUserStatuses"),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -585,6 +602,13 @@ mod tests {
             Some(300)
         );
         assert_eq!(gate("PostEditTimeLimit", "-1").post_edit_time_limit, None);
+        assert!(!gate("EnableFileAttachments", "false").file_attachments);
+        assert!(!gate("EnableCustomUserStatuses", "false").custom_statuses);
+        let mut bare = base.clone();
+        bare.remove("EnableFileAttachments");
+        bare.remove("EnableCustomUserStatuses");
+        let bare = ServerCapabilities::from_old_format(&bare, &license).unwrap();
+        assert!(bare.file_attachments && bare.custom_statuses);
     }
 
     #[test]
