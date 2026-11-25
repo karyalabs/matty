@@ -21,8 +21,8 @@ const CHANNEL_FILES: u32 = 100;
 const LISTING_PAGE: u32 = 60;
 /// The unread digest's channels at most, and each one's first unread
 /// posts at most (#223).
-const DIGEST_CHANNELS: usize = 30;
-const DIGEST_POSTS: u32 = 5;
+pub(crate) const DIGEST_CHANNELS: usize = 30;
+pub(crate) const DIGEST_POSTS: u32 = 5;
 
 /// A password change; its `Debug` leaves the passwords out.
 pub(crate) struct PasswordChange {

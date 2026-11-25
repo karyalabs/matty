@@ -93,13 +93,13 @@ async fn offline_the_cache_answers_and_server_commands_are_refused() {
     };
     sync.send(Command::LoadListing(pinned.clone()));
     assert_eq!(ids(&next(&changes, listed(pinned)).await), ["p1"]);
-    // Mentions need the server's search: refused, not empty.
-    sync.send(Command::LoadListing(Listing::Mentions {
+    // Mentions are the cached posts that hold a mention key.
+    let mentions = Listing::Mentions {
         team_id: "t1".into(),
-        terms: "@me".into(),
-    }));
-    let change = next(&changes, |c| refused(c).is_some()).await;
-    assert_eq!(refused(&change), Some("load recent mentions"));
+        terms: "@me saved".into(),
+    };
+    sync.send(Command::LoadListing(mentions.clone()));
+    assert_eq!(ids(&next(&changes, listed(mentions)).await), ["p2"]);
 
     // Each command that needs the server says which it was, and changes
     // nothing here.
@@ -272,4 +272,81 @@ async fn the_demo_pages_older_posts_from_its_snapshot() {
         assert!(after > before, "each page adds older posts");
         before = after;
     }
+}
+
+/// Without a server, the unread digest comes from the cache: each unread
+/// channel's posts after the user last viewed it, instead of loading forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_demo_lists_unread_messages_from_its_snapshot() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../matty-web/demo/demo.sqlite");
+    let snapshot = std::fs::read(path).unwrap();
+    // A channel with posts the demo's user has not viewed yet.
+    let (channel_id, unread): (String, i64) = rusqlite::Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT p.channel_id, count(*) FROM posts p
+             JOIN channel_members m ON m.channel_id = p.channel_id
+             JOIN sync_cursors c ON c.key = 'me' AND c.value = m.user_id
+             WHERE p.create_at > m.last_viewed_at AND p.root_id = '' AND p.delete_at = 0
+             GROUP BY p.channel_id ORDER BY count(*) LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let (sync, _) = matty_sync::spawn_demo(&snapshot).unwrap().unwrap();
+    let changes = sync.subscribe();
+    let digest = Listing::Unreads {
+        channel_ids: vec![channel_id.clone()],
+        collapsed_threads: true,
+    };
+    sync.send(Command::LoadListing(digest.clone()));
+    let ChangeSet::Listing { posts, .. } = next(&changes, listed(digest)).await else {
+        unreachable!()
+    };
+    assert_eq!(posts.len() as i64, unread.min(5));
+    assert!(posts.iter().all(|post| post.channel_id == channel_id));
+    assert!(
+        posts
+            .windows(2)
+            .all(|pair| pair[0].create_at <= pair[1].create_at)
+    );
+}
+
+/// Without a server, Browse channels and New message list what the cache
+/// knows instead of nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_demo_browses_channels_and_people_from_its_snapshot() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../matty-web/demo/demo.sqlite");
+    let snapshot = std::fs::read(path).unwrap();
+    let db = rusqlite::Connection::open(path).unwrap();
+    let (team_id, public): (String, i64) = db
+        .query_row(
+            "SELECT team_id, count(*) FROM channels WHERE kind = 'O' GROUP BY team_id LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let people: i64 = db
+        .query_row("SELECT count(*) FROM users", [], |row| row.get(0))
+        .unwrap();
+    let (sync, _) = matty_sync::spawn_demo(&snapshot).unwrap().unwrap();
+    let changes = sync.subscribe();
+
+    sync.send(Command::Browse {
+        team_id: team_id.clone(),
+    });
+    let ChangeSet::Directory { channels, .. } =
+        next(&changes, |c| matches!(c, ChangeSet::Directory { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(channels.len() as i64, public);
+
+    sync.send(Command::FindPeople { team_id });
+    let ChangeSet::People { users, .. } =
+        next(&changes, |c| matches!(c, ChangeSet::People { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(users.len() as i64, people);
 }

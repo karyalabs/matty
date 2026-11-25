@@ -2665,7 +2665,18 @@ impl Engine {
                     });
                 }
                 Message::Command(Command::Browse { team_id }) => {
-                    writes.push(Write::Browse { team_id });
+                    if connected(self.session.as_ref()) {
+                        writes.push(Write::Browse { team_id });
+                    } else {
+                        // Offline, and in the web demo: the team's channels
+                        // this computer knows, without member counts.
+                        let channels = sidebar::public_channels(&tx, &team_id)?;
+                        dirty.direct.push(ChangeSet::Directory {
+                            team_id,
+                            channels: Arc::from(channels),
+                            members: Arc::default(),
+                        });
+                    }
                 }
                 Message::Command(Command::BrowseTeams) => writes.push(Write::BrowseTeams),
                 Message::Command(Command::JoinTeam { team_id }) => {
@@ -2985,7 +2996,17 @@ impl Engine {
                         .capabilities
                         .as_ref()
                         .is_none_or(|c| !c.dms_within_team);
-                    writes.push(Write::People { team_id, everyone });
+                    if connected(self.session.as_ref()) {
+                        writes.push(Write::People { team_id, everyone });
+                    } else {
+                        // Offline, and in the web demo: the people this
+                        // computer knows.
+                        let users = sidebar::all_users(&tx)?;
+                        dirty.direct.push(ChangeSet::People {
+                            team_id,
+                            users: Arc::from(users),
+                        });
+                    }
                 }
                 Message::Command(Command::RunPostAction {
                     post_id,
@@ -5601,7 +5622,8 @@ fn reaction_action(add: bool) -> &'static str {
 
 /// A listing answered from the cache, for when the server cannot be
 /// reached (#163): the saved posts and a channel's pins this computer
-/// holds, newest first. Recent mentions need the server's search.
+/// holds, newest first, the posts that mention the user, and the unread
+/// digest.
 fn cached_listing(conn: &Db, listing: crate::Listing) -> Result<ChangeSet, StoreError> {
     let mut found = match &listing {
         crate::Listing::Saved => {
@@ -5616,15 +5638,19 @@ fn cached_listing(conn: &Db, listing: crate::Listing) -> Result<ChangeSet, Store
             found
         }
         crate::Listing::Pinned { channel_id } => posts::pinned(conn, channel_id)?,
-        crate::Listing::Mentions { .. } => {
-            return Ok(ChangeSet::Failed(CommandError::Offline {
-                action: "load recent mentions",
-            }));
+        crate::Listing::Mentions { team_id, terms } => {
+            let terms: Vec<&str> = terms.split_whitespace().collect();
+            posts::mentioning(conn, team_id, &terms, CACHED_MENTIONS)?
         }
-        crate::Listing::Unreads { .. } => {
-            return Ok(ChangeSet::Failed(CommandError::Offline {
-                action: "load unread messages",
-            }));
+        crate::Listing::Unreads {
+            channel_ids,
+            collapsed_threads,
+        } => {
+            let posts = cached_unreads(conn, channel_ids, *collapsed_threads)?;
+            return Ok(ChangeSet::Listing {
+                listing,
+                posts: Arc::from(posts),
+            });
         }
         crate::Listing::EditHistory { .. } => {
             return Ok(ChangeSet::Failed(CommandError::Offline {
@@ -5637,6 +5663,38 @@ fn cached_listing(conn: &Db, listing: crate::Listing) -> Result<ChangeSet, Store
         listing,
         posts: Arc::from(found),
     })
+}
+
+/// How many recent mentions the cache lists, as a page of the server's
+/// search would.
+const CACHED_MENTIONS: usize = 60;
+
+/// The unread digest from the cache: channel by channel, in the digest's
+/// order, the first few posts after the user last viewed each one, oldest
+/// first, as [`crate::commands`] asks the server for them.
+fn cached_unreads(
+    conn: &Db,
+    channel_ids: &[String],
+    collapsed_threads: bool,
+) -> Result<Vec<matty_api::models::Post>, StoreError> {
+    let Some(user_id) = posts::cursor(conn, ME_KEY)? else {
+        return Ok(Vec::new());
+    };
+    let mut found = Vec::new();
+    for channel_id in channel_ids.iter().take(crate::commands::DIGEST_CHANNELS) {
+        let Some(member) = sidebar::channel_member(conn, channel_id, &user_id)? else {
+            continue;
+        };
+        let unread = posts::posts_window(
+            conn,
+            channel_id,
+            posts::Window::After(member.last_viewed_at),
+            crate::commands::DIGEST_POSTS as usize,
+            collapsed_threads,
+        )?;
+        found.extend(unread.into_iter().filter(|post| post.delete_at == 0));
+    }
+    Ok(found)
 }
 
 /// The preference category Mattermost keeps saved ("flagged") posts in.

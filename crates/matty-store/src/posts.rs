@@ -429,6 +429,65 @@ pub fn pinned(conn: &Connection, channel_id: &str) -> Result<Vec<Post>> {
     Ok(posts)
 }
 
+/// Live cached posts in `team_id`'s channels and in direct and group
+/// messages whose text holds any of `terms` as a whole word, ignoring case,
+/// newest first: Recent mentions offline. A term may start with `@`, which
+/// must then be there too.
+pub fn mentioning(
+    conn: &Connection,
+    team_id: &str,
+    terms: &[&str],
+    limit: usize,
+) -> Result<Vec<Post>> {
+    let terms: Vec<String> = terms
+        .iter()
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.trim_start_matches('@').is_empty())
+        .collect();
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut statement = conn.prepare_cached(&format!(
+        "SELECT {POST_COLUMNS} FROM posts
+         WHERE delete_at = 0 AND channel_id IN
+             (SELECT id FROM channels WHERE team_id = ?1 OR team_id = '')
+         ORDER BY create_at DESC"
+    ))?;
+    let mut found = Vec::new();
+    for post in statement.query_map([team_id], post_from_row)? {
+        let post = post?;
+        let text = post.message.to_lowercase();
+        if terms.iter().any(|term| mentions(&text, term)) {
+            found.push(post);
+            if found.len() == limit {
+                break;
+            }
+        }
+    }
+    attach(conn, &mut found)?;
+    Ok(found)
+}
+
+/// Whether lowercased `text` holds `term` with no word character either
+/// side of it.
+fn mentions(text: &str, term: &str) -> bool {
+    let word = |c: char| c.is_alphanumeric() || c == '_' || c == '-' || c == '.';
+    text.match_indices(term).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + term.len()..].chars().next();
+        // "@ada." ends a sentence; "@ada.lovelace" is someone else.
+        let after_word = after.is_some_and(|c| {
+            word(c)
+                && !(c == '.'
+                    && text[at + term.len() + 1..]
+                        .chars()
+                        .next()
+                        .is_none_or(|n| !word(n)))
+        });
+        !before.is_some_and(|c| word(c) || (c == '@' && !term.starts_with('@'))) && !after_word
+    })
+}
+
 /// Records a reaction (`reaction_added`); repeating it changes nothing.
 /// Ignored when the post is not cached.
 pub fn add_reaction(conn: &Connection, reaction: &Reaction) -> Result<()> {
@@ -928,4 +987,19 @@ pub fn newest_create_at(conn: &Connection, channel_id: &str) -> Result<i64> {
     Ok(conn
         .prepare_cached("SELECT COALESCE(MAX(create_at), 0) FROM posts WHERE channel_id = ?1")?
         .query_row([channel_id], |row| row.get(0))?)
+}
+
+#[cfg(test)]
+mod mention_tests {
+    use super::mentions;
+
+    #[test]
+    fn a_mention_is_a_whole_word() {
+        assert!(mentions("hey @ada, look", "@ada"));
+        assert!(mentions("thanks @ada.", "@ada"));
+        assert!(mentions("ada: the deploy is done", "ada"));
+        assert!(!mentions("hey @ada.lovelace", "@ada"));
+        assert!(!mentions("hey @adam", "@ada"));
+        assert!(!mentions("canada", "ada"));
+    }
 }

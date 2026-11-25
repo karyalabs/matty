@@ -45,7 +45,7 @@ offline-remove-your-picture = Couldn't remove your picture.
 
 # The right pane while offline, by what it lists.
 offline-empty-search = Search runs on the server. Try again when you're back online.
-offline-empty-mentions = Recent mentions load from the server when you're back online.
+offline-empty-mentions = None of the messages on this computer mention you. More load when you're back online.
 offline-empty-unreads = Unread messages load from the server when you're back online.
 offline-empty-saved = None of your saved messages are on this computer yet. They load when you're back online.
 offline-empty-files = A channel's files load from the server when you're back online.

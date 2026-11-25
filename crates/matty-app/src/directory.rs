@@ -265,13 +265,17 @@ impl BrowseView {
                                     .text_color(theme.colors.foreground)
                                     .child(channel.name.clone()),
                             )
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .type_style(style::META, &theme)
-                                    .text_color(muted)
-                                    .child(members),
-                            ),
+                            // No count is known offline; every channel has
+                            // at least one member.
+                            .when(channel.members > 0, |row| {
+                                row.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .type_style(style::META, &theme)
+                                        .text_color(muted)
+                                        .child(members),
+                                )
+                            }),
                     )
                     .children(channel.purpose.clone().map(|purpose| {
                         div()

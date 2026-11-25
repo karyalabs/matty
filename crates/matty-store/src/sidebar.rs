@@ -729,6 +729,34 @@ pub fn channel(conn: &Connection, channel_id: &str) -> Result<Option<Channel>> {
     Ok(channel)
 }
 
+/// A team's cached public channels, archived ones included, for browsing
+/// without the server.
+pub fn public_channels(conn: &Connection, team_id: &str) -> Result<Vec<Channel>> {
+    let ids: Vec<String> = conn
+        .prepare_cached("SELECT id FROM channels WHERE team_id = ?1 AND kind = 'O'")?
+        .query_map([team_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut channels = Vec::new();
+    for id in ids {
+        if let Some(channel) = channel(conn, &id)? {
+            channels.push(channel);
+        }
+    }
+    Ok(channels)
+}
+
+/// Every cached user, for finding people without the server.
+pub fn all_users(conn: &Connection) -> Result<Vec<User>> {
+    let data: Vec<String> = conn
+        .prepare_cached("SELECT data FROM users")?
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(data
+        .iter()
+        .filter_map(|data| serde_json::from_str(data).ok())
+        .collect())
+}
+
 /// A cached team's display name, for a notification's title.
 pub fn team_display_name(conn: &Connection, team_id: &str) -> Result<Option<String>> {
     Ok(conn

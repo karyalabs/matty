@@ -1366,7 +1366,13 @@ impl Live {
         Details {
             header: self.channel.as_ref().and_then(|c| text(&c.header)),
             purpose: self.channel.as_ref().and_then(|c| text(&c.purpose)),
-            members: self.stats.as_ref().map_or(0, |s| count(s.member_count)),
+            // With no server (`matty --offline` and the web demo) no counts
+            // come: the people the pane lists are the best count there is.
+            members: match &self.stats {
+                Some(stats) => count(stats.member_count),
+                None if crate::offline() => self.profiles().len(),
+                None => 0,
+            },
             pinned: self
                 .stats
                 .as_ref()
@@ -2760,6 +2766,9 @@ impl Live {
                 });
                 update.profiles = Some(self.profiles());
                 update.admins = Some(self.admins());
+                if self.stats.is_none() && crate::offline() {
+                    update.channel = self.channel_update();
+                }
             }
             ChangeSet::People { team_id, users } if self.team.as_ref() == Some(team_id) => {
                 for user in users.iter() {
@@ -3121,11 +3130,19 @@ impl Live {
             }
             ChangeSet::Failed(
                 matty_sync::CommandError::Server {
-                    action: "load saved messages" | "load pinned messages" | "load recent mentions",
+                    action:
+                        "load saved messages"
+                        | "load pinned messages"
+                        | "load recent mentions"
+                        | "load unread messages",
                     ..
                 }
                 | matty_sync::CommandError::Offline {
-                    action: "load saved messages" | "load pinned messages" | "load recent mentions",
+                    action:
+                        "load saved messages"
+                        | "load pinned messages"
+                        | "load recent mentions"
+                        | "load unread messages",
                 },
             ) => {
                 // Shown as an empty listing rather than loading forever.
