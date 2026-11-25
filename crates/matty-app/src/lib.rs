@@ -93,6 +93,7 @@ pub mod user_groups;
 pub mod watch;
 #[cfg(target_family = "wasm")]
 pub mod web_files;
+mod web_keys;
 #[cfg(target_family = "wasm")]
 pub mod web_storage;
 pub mod webhooks;
@@ -230,6 +231,7 @@ pub fn run_web(
         let _ = DEMO_CONNECT_URL.set(url);
     }
     gpui_kit::platform::web_init();
+    web_keys::mend_option_keys();
     let backend = if webgl {
         gpui_kit::platform::WebBackendPreference::WebGl
     } else {

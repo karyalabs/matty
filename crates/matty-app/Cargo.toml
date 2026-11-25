@@ -85,6 +85,8 @@ web-sys = { version = "0.3", features = [
     "FileList",
     "HtmlElement",
     "HtmlInputElement",
+    "KeyboardEvent",
+    "KeyboardEventInit",
     "BlobPropertyBag",
     "Location",
     "MediaQueryList",
