@@ -166,6 +166,8 @@ pub(crate) enum Write {
     Search {
         team_id: String,
         query: Box<SearchQuery>,
+        /// Every team the user is on, not just `team_id`.
+        all_teams: bool,
     },
     Listing(crate::Listing),
     Reminder {
@@ -1101,13 +1103,26 @@ pub(crate) async fn run(
                     .await?;
                 Some(channel_members(&client, channel_id).await?)
             }
-            Write::Search { team_id, query } => {
-                let results = client.search_posts(&team_id, &query).await?;
+            Write::Search {
+                team_id,
+                query,
+                all_teams,
+            } => {
+                let results = if all_teams {
+                    client.search_posts_everywhere(&query).await?
+                } else {
+                    client.search_posts(&team_id, &query).await?
+                };
                 let posts: Vec<_> = results.list.ordered().cloned().collect();
                 // The first page also finds files (#207); a server that
                 // cannot search them still answers with its posts.
                 let files = if query.page == 0 {
-                    match client.search_files(&team_id, &query).await {
+                    let found = if all_teams {
+                        client.search_files_everywhere(&query).await
+                    } else {
+                        client.search_files(&team_id, &query).await
+                    };
+                    match found {
                         Ok(found) => found
                             .ordered()
                             .filter(|file| file.delete_at == 0)

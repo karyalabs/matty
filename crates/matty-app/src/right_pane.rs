@@ -184,6 +184,9 @@ pub struct SearchModel {
     pub more: bool,
     /// The next page is on its way.
     pub loading_more: bool,
+    /// Whether the search covers every team, for someone on more than
+    /// one; `None` leaves the choice out.
+    pub all_teams: Option<bool>,
 }
 
 /// What search's `in:` and `from:` suggest: (handle, shown name) pairs.
@@ -370,6 +373,11 @@ pub enum RightPaneEvent {
     Search(SharedString),
     /// The user asked for the search's next page.
     SearchMore,
+    /// The user picked This team or All teams; `query` runs again.
+    SearchScope {
+        all: bool,
+        query: SharedString,
+    },
     /// The reply composer typed `@` and this much of a name; sync asks
     /// the server and [`RightPaneView::set_suggested`] takes the answer.
     SuggestPeople(SharedString),
@@ -3973,6 +3981,9 @@ impl RightPaneView {
             .get()
             .recent_searches
             .clone();
+        let scope = model
+            .all_teams
+            .map(|all| self.search_scope(all, model.query.clone(), cx));
         let body = if model.query.is_empty() && !recent.is_empty() {
             self.recent_searches(&recent, cx).into_any_element()
         } else if model.query.is_empty() {
@@ -4041,9 +4052,49 @@ impl RightPaneView {
                             .type_style(style::META, &theme)
                             .text_color(muted)
                             .child(t!("pane-search-hint")),
-                    ),
+                    )
+                    .children(scope),
             )
             .child(body)
+    }
+
+    /// This team or All teams, as the web app's search offers someone on
+    /// more than one team.
+    fn search_scope(
+        &self,
+        all: bool,
+        query: SharedString,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let view = cx.entity().downgrade();
+        crate::ui::toggle_group::ToggleGroup::new("right-pane.search.scope")
+            .aria_label(t!("pane-search-scope"))
+            .segmented(true)
+            .value([SharedString::from(if all { "all" } else { "team" })])
+            .item(
+                crate::ui::toggle_group::ToggleGroupItem::new(
+                    "right-pane.search.scope.team",
+                    "team",
+                )
+                .child(t!("pane-search-this-team")),
+            )
+            .item(
+                crate::ui::toggle_group::ToggleGroupItem::new("right-pane.search.scope.all", "all")
+                    .child(t!("pane-search-all-teams")),
+            )
+            .on_change({
+                move |next, _, cx| {
+                    let Some(value) = next.first() else {
+                        return;
+                    };
+                    let all = value.as_ref() == "all";
+                    let query = query.clone();
+                    view.update(cx, |_, cx| {
+                        cx.emit(RightPaneEvent::SearchScope { all, query })
+                    })
+                    .ok();
+                }
+            })
     }
 
     /// The people or channels the word being typed could name.

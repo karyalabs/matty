@@ -155,6 +155,23 @@ impl Client {
             .await
     }
 
+    /// `POST posts/search`: a search across every team the user is on,
+    /// as the web app's All teams.
+    pub async fn search_posts_everywhere(
+        &self,
+        query: &SearchQuery,
+    ) -> Result<SearchResults, ApiError> {
+        self.post("posts/search", query).await
+    }
+
+    /// `POST files/search`: files in every team the user is on.
+    pub async fn search_files_everywhere(
+        &self,
+        query: &SearchQuery,
+    ) -> Result<crate::models::FileInfoList, ApiError> {
+        self.post("files/search", query).await
+    }
+
     /// `GET users/{user_id}/posts/flagged`: saved posts, newest first,
     /// across all teams.
     pub async fn saved_posts(

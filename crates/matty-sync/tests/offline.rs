@@ -144,6 +144,7 @@ async fn offline_the_cache_answers_and_server_commands_are_refused() {
                 terms: "pinned".into(),
                 time_zone_offset: 0,
                 page: 0,
+                all_teams: false,
             },
             "search",
         ),

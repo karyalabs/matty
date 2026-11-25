@@ -1065,6 +1065,8 @@ pub enum Command {
         time_zone_offset: i32,
         /// Which page of results, from 0.
         page: u32,
+        /// Every team the user is on, not just `team_id`.
+        all_teams: bool,
     },
     /// Presses an interactive message's button, or picks `selected_option`
     /// from its menu (#211);
@@ -2930,6 +2932,7 @@ impl Engine {
                     terms,
                     time_zone_offset,
                     page,
+                    all_teams,
                 }) => {
                     let mut query = matty_api::SearchQuery::new(terms);
                     query.time_zone_offset = time_zone_offset;
@@ -2938,6 +2941,7 @@ impl Engine {
                     writes.push(Write::Search {
                         team_id,
                         query: Box::new(query),
+                        all_teams,
                     });
                 }
                 Message::Command(Command::FindPeople { team_id }) => {

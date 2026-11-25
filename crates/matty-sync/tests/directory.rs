@@ -140,6 +140,7 @@ async fn a_search_answers_with_its_posts_and_their_authors_first() {
         terms: "lunch from:ada".into(),
         time_zone_offset: 3600,
         page: 0,
+        all_teams: false,
     });
     let ChangeSet::Search { terms, posts, .. } =
         next(&changes, |c| matches!(c, ChangeSet::Search { .. })).await
@@ -155,6 +156,51 @@ async fn a_search_answers_with_its_posts_and_their_authors_first() {
         unreachable!()
     };
     assert_eq!(users[0].id, "ada");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_all_teams_search_asks_the_whole_server() {
+    let server = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/posts/search"))
+        .and(wiremock::matchers::body_partial_json(json!({"terms": "lunch"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "order": ["p1"],
+            "posts": {
+                "p1": {"id": "p1", "channel_id": "c9", "user_id": "ada", "create_at": 1, "message": "lunch?"}
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/files/search"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"order": [], "file_infos": {}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let sync = matty_sync::spawn(Store::open_in_memory().unwrap()).unwrap();
+    let changes = sync.subscribe();
+    sync.send(Command::Connect {
+        client: Client::new(server.uri()).unwrap().with_token("token"),
+    });
+    next(&changes, |c| matches!(c, ChangeSet::Sidebar { .. })).await;
+    sync.send(Command::Search {
+        team_id: "t1".into(),
+        terms: "lunch".into(),
+        time_zone_offset: 0,
+        page: 0,
+        all_teams: true,
+    });
+    let ChangeSet::Search { posts, .. } =
+        next(&changes, |c| matches!(c, ChangeSet::Search { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(posts[0].id, "p1");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -145,6 +145,8 @@ pub struct Live {
     search_page: (u32, bool, bool),
     /// The files the search on screen found (#207).
     search_files: Arc<[matty_api::models::FileInfo]>,
+    /// Searches cover every team the user is on, not just the shown one.
+    search_all_teams: bool,
     /// The channel Channel files lists, and its files once they came
     /// (#208).
     channel_files: Option<(String, Option<Arc<[matty_api::models::FileInfo]>>)>,
@@ -864,6 +866,7 @@ impl Live {
                 search: None,
                 search_page: (0, false, false),
                 search_files: Arc::from(Vec::new()),
+                search_all_teams: false,
                 channel_files: None,
                 listing: None,
                 saved: Default::default(),
@@ -1696,7 +1699,19 @@ impl Live {
             terms: terms.to_owned(),
             time_zone_offset: offset,
             page: 0,
+            all_teams: self.search_all_teams,
         });
+    }
+
+    /// This team or All teams, for someone on more than one team; `None`
+    /// for someone on one.
+    pub fn search_scope(&self) -> Option<bool> {
+        (self.teams.len() > 1).then_some(self.search_all_teams)
+    }
+
+    /// Searches every team from now on, or only the shown one.
+    pub fn set_search_all_teams(&mut self, all: bool) {
+        self.search_all_teams = all;
     }
 
     /// Asks for the search's next page; it comes as [`Update::search`]
@@ -1716,6 +1731,7 @@ impl Live {
             terms: terms.clone(),
             time_zone_offset: offset,
             page: page + 1,
+            all_teams: self.search_all_teams,
         });
         self.search_page = (page + 1, more, true);
         self.search_model()
@@ -2316,18 +2332,47 @@ impl Live {
             searching: posts.is_none(),
             more: self.search_page.1,
             loading_more: self.search_page.2,
+            all_teams: self.search_scope(),
             results: posts
                 .iter()
                 .flat_map(|posts| posts.iter())
                 .map(|post| crate::right_pane::ListedPost {
                     channel_id: post.channel_id.clone().into(),
-                    channel_name: self
-                        .channel_name(&post.channel_id)
-                        .unwrap_or_else(|| "Another channel".into()),
+                    channel_name: self.search_channel_name(&post.channel_id),
                     post: crate::transcript::listed_post(post, &self.users, &viewer),
                 })
                 .collect(),
         })
+    }
+
+    /// A search result's channel, with its team's name when an All teams
+    /// search found it in another team.
+    fn search_channel_name(&self, channel_id: &str) -> SharedString {
+        let name = self
+            .channel_name(channel_id)
+            .unwrap_or_else(|| "Another channel".into());
+        if !self.search_all_teams {
+            return name;
+        }
+        let team = self
+            .sections
+            .iter()
+            .find(|(_, sections)| {
+                sections
+                    .iter()
+                    .flat_map(|section| section.channels.iter())
+                    .any(|channel| {
+                        channel.id == channel_id && channel.dm_user.is_none() && channel.kind != "G"
+                    })
+            })
+            .map(|(team_id, _)| team_id);
+        match team
+            .filter(|team_id| Some(*team_id) != self.team.as_ref())
+            .and_then(|team_id| self.teams.iter().find(|team| &team.id == team_id))
+        {
+            Some(team) => format!("{name} · {}", team.display_name).into(),
+            None => name,
+        }
     }
 
     /// A channel's name in any team's sidebar.

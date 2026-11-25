@@ -3704,6 +3704,12 @@ impl MainWindow {
             }
             RightPaneEvent::ToggleExpand => self.toggle_right_pane_expanded(cx),
             RightPaneEvent::Search(query) => self.search(query.clone(), window, cx),
+            RightPaneEvent::SearchScope { all, query } => {
+                if let Some(live) = self.live.as_mut() {
+                    live.set_search_all_teams(*all);
+                }
+                self.search(query.clone(), window, cx);
+            }
             RightPaneEvent::PopOut(root) => self.pop_out_pane_thread(pane, root, cx),
             RightPaneEvent::CopyLink(post) => self.copy_link(post, cx),
             RightPaneEvent::SetSaved { post, saved } => {
@@ -4023,6 +4029,7 @@ impl MainWindow {
                 vec![]
             },
             searching: !preview && !offline && !query.is_empty(),
+            all_teams: self.live.as_ref().and_then(|live| live.search_scope()),
             query,
         };
         self.threads_open = false;
