@@ -2979,6 +2979,13 @@ impl Engine {
                     page,
                     all_teams,
                 }) => {
+                    if !connected(self.session.as_ref()) {
+                        // `matty --offline` and the web demo: the cache
+                        // answers, the way the server would.
+                        let team = (!all_teams).then_some(team_id.as_str());
+                        dirty.direct.push(cached_search(&tx, team, terms, page)?);
+                        continue;
+                    }
                     let mut query = matty_api::SearchQuery::new(terms);
                     query.time_zone_offset = time_zone_offset;
                     query.page = page;
@@ -5662,6 +5669,98 @@ fn cached_listing(conn: &Db, listing: crate::Listing) -> Result<ChangeSet, Store
     Ok(ChangeSet::Listing {
         listing,
         posts: Arc::from(found),
+    })
+}
+
+/// A message search answered from the cache: every word (as the start of
+/// a word) and "quoted phrase" must be in the post, `-word`
+/// must not be, and `from:` and `in:` narrow it to a person or a channel.
+/// Dates are left to the server.
+fn cached_search(
+    conn: &Db,
+    team_id: Option<&str>,
+    terms: String,
+    page: u32,
+) -> Result<ChangeSet, StoreError> {
+    let mut words = Vec::new();
+    let mut without = Vec::new();
+    let mut from = None;
+    let mut channel = None;
+    let mut rest = terms.as_str();
+    while let Some(start) = rest.find(|c: char| !c.is_whitespace()) {
+        rest = &rest[start..];
+        let (token, quoted) = if let Some(open) = rest.strip_prefix('"') {
+            let end = open.find('"').unwrap_or(open.len());
+            let token = &open[..end];
+            rest = open.get(end + 1..).unwrap_or("");
+            (token, true)
+        } else {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let token = &rest[..end];
+            rest = &rest[end..];
+            (token, false)
+        };
+        let token = token.to_lowercase();
+        if quoted {
+            words.push(token);
+        } else if let Some(name) = token.strip_prefix("from:") {
+            from = Some(
+                sidebar::user_by_username(conn, name.trim_start_matches('@'))?
+                    .map(|user| user.id)
+                    .unwrap_or_default(),
+            );
+        } else if let Some(name) = token.strip_prefix("in:") {
+            let name = name.trim_start_matches('~');
+            let found = match team_id {
+                Some(team_id) => sidebar::channel_by_name(conn, team_id, name)?,
+                None => None,
+            };
+            channel = Some(found.map(|channel| channel.id).unwrap_or_default());
+        } else if ["on:", "before:", "after:"]
+            .iter()
+            .any(|key| token.starts_with(key))
+        {
+            continue;
+        } else if let Some(word) = token.strip_prefix('-').filter(|word| !word.is_empty()) {
+            without.push(word.to_owned());
+        } else if !token.is_empty() {
+            words.push(token);
+        }
+    }
+    // A word matches the start of a word, so "screenshot" finds
+    // "screenshots" as the server's stemming does; a phrase matches as is.
+    let holds = |text: &str, word: &str| {
+        if word.contains(' ') {
+            return text.contains(word);
+        }
+        let prefix = word.trim_end_matches('*');
+        !prefix.is_empty()
+            && text.match_indices(prefix).any(|(at, _)| {
+                !text[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            })
+    };
+    let searched = !words.is_empty() || from.is_some() || channel.is_some();
+    let per_page = SEARCH_PAGE as usize;
+    let found = if searched {
+        posts::find(conn, team_id, page as usize * per_page, per_page, |post| {
+            let text = post.message.to_lowercase();
+            from.as_ref().is_none_or(|id| post.user_id == *id)
+                && channel.as_ref().is_none_or(|id| post.channel_id == *id)
+                && words.iter().all(|word| holds(&text, word))
+                && !without.iter().any(|word| holds(&text, word))
+        })?
+    } else {
+        Vec::new()
+    };
+    Ok(ChangeSet::Search {
+        terms,
+        page,
+        more: found.len() == per_page,
+        posts: Arc::from(found),
+        files: Arc::default(),
     })
 }
 

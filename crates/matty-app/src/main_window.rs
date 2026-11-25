@@ -4043,8 +4043,10 @@ impl MainWindow {
                 store.update(cx, |settings| settings.remember_search(&query))
             });
         }
-        // Offline, search does not run: the pane says it needs the server.
-        let offline = self.connection == ConnectionState::Offline;
+        // With the network gone, search does not run: the pane says it
+        // needs the server. With no server at all (`matty --offline`, the
+        // web demo) the cache answers it.
+        let offline = self.connection == ConnectionState::Offline && !crate::offline();
         if let Some(live) = self.live.as_mut()
             && !query.is_empty()
             && !offline

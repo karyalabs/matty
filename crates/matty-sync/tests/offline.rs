@@ -39,9 +39,9 @@ async fn cached_server() -> MockServer {
 
 fn ids(change: &ChangeSet) -> Vec<&str> {
     match change {
-        ChangeSet::Listing { posts, .. } | ChangeSet::Posts { posts, .. } => {
-            posts.iter().map(|post| post.id.as_str()).collect()
-        }
+        ChangeSet::Listing { posts, .. }
+        | ChangeSet::Posts { posts, .. }
+        | ChangeSet::Search { posts, .. } => posts.iter().map(|post| post.id.as_str()).collect(),
         _ => Vec::new(),
     }
 }
@@ -101,6 +101,17 @@ async fn offline_the_cache_answers_and_server_commands_are_refused() {
     sync.send(Command::LoadListing(mentions.clone()));
     assert_eq!(ids(&next(&changes, listed(mentions)).await), ["p2"]);
 
+    // Search is answered from the cache.
+    sync.send(Command::Search {
+        team_id: "t1".into(),
+        terms: "pinned".into(),
+        time_zone_offset: 0,
+        page: 0,
+        all_teams: true,
+    });
+    let found = next(&changes, |c| matches!(c, ChangeSet::Search { .. })).await;
+    assert_eq!(ids(&found), ["p1"]);
+
     // Each command that needs the server says which it was, and changes
     // nothing here.
     let commands = [
@@ -137,16 +148,6 @@ async fn offline_the_cache_answers_and_server_commands_are_refused() {
                 post_id: "p2".into(),
             },
             "delete",
-        ),
-        (
-            Command::Search {
-                team_id: "t1".into(),
-                terms: "pinned".into(),
-                time_zone_offset: 0,
-                page: 0,
-                all_teams: false,
-            },
-            "search",
         ),
     ];
     for (command, action) in commands {
@@ -349,4 +350,44 @@ async fn the_demo_browses_channels_and_people_from_its_snapshot() {
         unreachable!()
     };
     assert_eq!(users.len() as i64, people);
+}
+
+/// Without a server, search answers from the cache: words match the start
+/// of a word, and `from:` and `-word` narrow the results.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_demo_searches_its_snapshot() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../matty-web/demo/demo.sqlite");
+    let snapshot = std::fs::read(path).unwrap();
+    let (sync, _) = matty_sync::spawn_demo(&snapshot).unwrap().unwrap();
+    let changes = sync.subscribe();
+    for (terms, want) in [
+        ("screenshot", 22),
+        ("screenshot from:aiko", 6),
+        ("screenshot -store", 4),
+        ("\"final store screenshots\"", 2),
+        ("on:2026-01-01", 0),
+    ] {
+        sync.send(Command::Search {
+            team_id: String::new(),
+            terms: terms.into(),
+            time_zone_offset: 0,
+            page: 0,
+            all_teams: true,
+        });
+        let found = next(
+            &changes,
+            |c| matches!(c, ChangeSet::Search { terms: asked, .. } if asked == terms),
+        )
+        .await;
+        let ChangeSet::Search { posts, more, .. } = found else {
+            unreachable!()
+        };
+        assert_eq!(posts.len(), want, "{terms}");
+        assert!(!more, "{terms}");
+        assert!(
+            posts
+                .windows(2)
+                .all(|pair| pair[0].create_at >= pair[1].create_at)
+        );
+    }
 }

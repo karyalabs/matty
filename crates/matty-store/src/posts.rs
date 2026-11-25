@@ -468,6 +468,42 @@ pub fn mentioning(
     Ok(found)
 }
 
+/// Live cached posts in `team_id`'s channels and in direct and group
+/// messages (every team's with `team_id` `None`) for which `matches` holds,
+/// newest first, skipping the first `skip`: search without the server.
+pub fn find(
+    conn: &Connection,
+    team_id: Option<&str>,
+    skip: usize,
+    limit: usize,
+    mut matches: impl FnMut(&Post) -> bool,
+) -> Result<Vec<Post>> {
+    let mut statement = conn.prepare_cached(&format!(
+        "SELECT {POST_COLUMNS} FROM posts
+         WHERE delete_at = 0 AND channel_id IN
+             (SELECT id FROM channels WHERE ?1 IS NULL OR team_id = ?1 OR team_id = '')
+         ORDER BY create_at DESC"
+    ))?;
+    let mut found = Vec::new();
+    let mut skipped = 0;
+    for post in statement.query_map([team_id], post_from_row)? {
+        let post = post?;
+        if !matches(&post) {
+            continue;
+        }
+        if skipped < skip {
+            skipped += 1;
+            continue;
+        }
+        found.push(post);
+        if found.len() == limit {
+            break;
+        }
+    }
+    attach(conn, &mut found)?;
+    Ok(found)
+}
+
 /// Whether lowercased `text` holds `term` with no word character either
 /// side of it.
 fn mentions(text: &str, term: &str) -> bool {
