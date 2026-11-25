@@ -104,6 +104,9 @@ pub struct Features {
     /// (`ExperimentalViewArchivedChannels`): Browse has no Archived list,
     /// as in the web app.
     pub no_archived_channels: bool,
+    /// How many different emoji a post can carry
+    /// (`UniqueEmojiReactionLimitPerPost`).
+    pub reaction_limit: Option<u64>,
     /// Invite people takes email addresses (`EnableEmailInvitations`).
     pub email_invites: bool,
     /// Direct messages stay within a team (`RestrictDirectMessage`).
@@ -154,6 +157,7 @@ impl Features {
             names_locked: capabilities.teammate_name_display_locked,
             no_emoji_picker: !capabilities.emoji_picker,
             no_archived_channels: !capabilities.view_archived_channels,
+            reaction_limit: capabilities.reaction_limit,
             email_invites: capabilities.email_invitations,
             dms_within_team: capabilities.dms_within_team,
             password: capabilities.password_rules,
@@ -195,10 +199,21 @@ impl Features {
             names_locked: false,
             no_emoji_picker: false,
             no_archived_channels: false,
+            reaction_limit: None,
             email_invites: true,
             dms_within_team: false,
             password: matty_api::PasswordRules::default(),
         }
+    }
+
+    /// Whether a post that already has `unique` different emoji can take
+    /// a new one: the picker is on and the post is under the server's
+    /// limit, as the web app hides Add reaction once a post reaches it.
+    pub fn can_react_anew(&self, unique: usize) -> bool {
+        !self.no_emoji_picker
+            && self
+                .reaction_limit
+                .is_none_or(|limit| (unique as u64) < limit)
     }
 
     /// The features in force; all off until the server's config is read.

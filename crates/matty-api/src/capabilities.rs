@@ -226,6 +226,9 @@ pub struct ServerCapabilities {
     /// Archived channels can be browsed and read
     /// (`ExperimentalViewArchivedChannels`).
     pub view_archived_channels: bool,
+    /// How many different emoji a post can carry
+    /// (`UniqueEmojiReactionLimitPerPost`); `None` for no limit (0).
+    pub reaction_limit: Option<u64>,
     /// People can be invited to a team by email (`EnableEmailInvitations`).
     pub email_invitations: bool,
     /// Typing notices go out (`EnableUserTypingMessages`).
@@ -516,6 +519,8 @@ impl ServerCapabilities {
             teammate_name_display_locked: flag(config, "LockTeammateNameDisplay"),
             emoji_picker: !off(config, "EnableEmojiPicker"),
             view_archived_channels: !off(config, "ExperimentalViewArchivedChannels"),
+            reaction_limit: number(config, "UniqueEmojiReactionLimitPerPost")
+                .filter(|limit| *limit > 0),
             email_invitations: flag(config, "EnableEmailInvitations"),
             typing: !off(config, "EnableUserTypingMessages"),
             dms_within_team: text(config, "RestrictDirectMessage") == Some("team"),
@@ -738,6 +743,14 @@ mod tests {
         assert!(!gate("EnableCustomUserStatuses", "false").custom_statuses);
         assert!(!gate("EnableEmojiPicker", "false").emoji_picker);
         assert!(!gate("ExperimentalViewArchivedChannels", "false").view_archived_channels);
+        assert_eq!(
+            gate("UniqueEmojiReactionLimitPerPost", "3").reaction_limit,
+            Some(3)
+        );
+        assert_eq!(
+            gate("UniqueEmojiReactionLimitPerPost", "0").reaction_limit,
+            None
+        );
         assert!(!gate("EnableUserTypingMessages", "false").typing);
         assert!(gate("RestrictDirectMessage", "team").dms_within_team);
         let rules = gate("PasswordRequireSymbol", "true").password_rules;

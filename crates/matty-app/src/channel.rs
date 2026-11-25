@@ -4283,7 +4283,7 @@ impl ChannelView {
                 }),
             ),
         ];
-        if !crate::priority::Features::read(cx).no_emoji_picker {
+        if crate::priority::Features::read(cx).can_react_anew(post.reactions.len()) {
             // The picker opens where the menu was, not at the composer.
             let view = view.clone();
             items.push(

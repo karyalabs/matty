@@ -2664,21 +2664,22 @@ impl RightPaneView {
         let body = post.body.clone();
         let markdown_body = post.body.clone();
         // The server does not have an unsent reply yet: nothing to react to.
-        let mut items = if post.status == PostStatus::Sent && !features.no_emoji_picker {
-            let (view, id) = (view.clone(), post.id.clone());
-            vec![
-                MenuItem::new("thread.context.react", t!("pane-add-reaction-menu")).on_click(
-                    move |event, _, cx| {
-                        let (id, at) = (id.clone(), crate::post_row::pointer(event));
-                        view.update(cx, |this, cx| this.pick_reaction(id, at, cx))
-                            .ok();
-                    },
-                ),
-                MenuItem::separator(),
-            ]
-        } else {
-            Vec::new()
-        };
+        let mut items =
+            if post.status == PostStatus::Sent && features.can_react_anew(post.reactions.len()) {
+                let (view, id) = (view.clone(), post.id.clone());
+                vec![
+                    MenuItem::new("thread.context.react", t!("pane-add-reaction-menu")).on_click(
+                        move |event, _, cx| {
+                            let (id, at) = (id.clone(), crate::post_row::pointer(event));
+                            view.update(cx, |this, cx| this.pick_reaction(id, at, cx))
+                                .ok();
+                        },
+                    ),
+                    MenuItem::separator(),
+                ]
+            } else {
+                Vec::new()
+            };
         let copy_items = [
             MenuItem::new("thread.context.copy", t!("pane-copy-text")).on_click(move |_, _, cx| {
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(plain_text(&body)))

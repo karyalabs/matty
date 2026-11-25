@@ -243,8 +243,8 @@ pub(crate) fn post_message<H: PostHost>(
         }),
         cx,
     ));
-    let no_picker = crate::priority::Features::read(cx).no_emoji_picker;
-    if parts.reactable && !post.reactions.is_empty() && !no_picker {
+    let can_react = crate::priority::Features::read(cx).can_react_anew(post.reactions.len());
+    if parts.reactable && !post.reactions.is_empty() && can_react {
         // The chip row gets an add button; posts without reactions use the
         // hover toolbar, so the transcript stays quiet.
         let (view, id) = (view.clone(), id.clone());
@@ -466,9 +466,10 @@ pub(crate) fn hover_actions<H: PostHost>(
         );
         let (react_view, react_id) = (view.clone(), id.clone());
         let selector = format!("{}.{id}.react", H::PREFIX);
-        let picker = !crate::priority::Features::read(cx).no_emoji_picker;
+        let picker = crate::priority::Features::read(cx).can_react_anew(post.reactions.len());
         actions = actions
-            .children(quick)
+            // Quick reactions add emoji the post may not have yet.
+            .when(picker, |actions| actions.children(quick))
             .when(picker, |actions| {
                 actions.child(
                     style::tipped_when(
