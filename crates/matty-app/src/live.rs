@@ -5564,7 +5564,7 @@ mod tests {
     fn shown(id: &str, body: &str) -> Post {
         Post {
             webhook: None,
-            auto_reply: false,
+            tag: None,
             created_ms: 0,
             id: id.into(),
             author: "a".into(),

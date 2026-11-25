@@ -556,10 +556,10 @@ pub struct Post {
     pub priority: Option<crate::priority::Shown>,
     /// The webhook it came from, whose icon it shows.
     pub webhook: Option<crate::webhooks::Webhook>,
-    /// The server's out-of-office reply for its author
-    /// (`system_auto_responder`), tagged "Automatic reply" as in
-    /// Mattermost.
-    pub auto_reply: bool,
+    /// The tag beside its author's name, as in Mattermost: "Automatic
+    /// reply" on the server's out-of-office reply for them
+    /// (`system_auto_responder`), "Bot" for a bot or webhook, "Guest".
+    pub tag: Option<crate::profile::AuthorTag>,
 }
 
 /// When "Remind me" brings a post back, as the webapp offers it.
@@ -3511,7 +3511,7 @@ impl ChannelView {
         let last = model.posts.last();
         let post = Post {
             webhook: None,
-            auto_reply: false,
+            tag: None,
             created_ms: 0,
             id: format!("pending-{}", self.pending_seq).into(),
             author: self.me.clone(),
@@ -5160,11 +5160,7 @@ impl ChannelView {
             );
         }
         let profile = profile.cloned()?;
-        let tag = if post.auto_reply {
-            Some(crate::profile::AuthorTag::AutoReply)
-        } else {
-            profile.tag
-        };
+        let tag = post.tag.or(profile.tag);
         let name = post.author.clone();
         let colorize = message_density(cx) == MessageDensity::Compact
             && SettingsStore::global(cx).read(cx).get().colorize_names;
@@ -7084,7 +7080,7 @@ mod tests {
     fn post(id: &str, day: &str) -> Post {
         Post {
             webhook: None,
-            auto_reply: false,
+            tag: None,
             created_ms: 0,
             id: id.into(),
             author: "a".into(),

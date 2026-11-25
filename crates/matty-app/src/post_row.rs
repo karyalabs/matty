@@ -171,18 +171,16 @@ pub(crate) fn post_message<H: PostHost>(
     .author(post.author.clone())
     .when_some(
         parts.author.or_else(|| {
-            // Where the host draws no name of its own (the thread pane),
-            // the out-of-office reply still carries its tag.
-            post.auto_reply.then(|| {
+            // Where the host draws no name of its own (the thread pane and
+            // listings), a bot, guest or out-of-office reply still carries
+            // its tag.
+            post.tag.map(|tag| {
                 gpui_kit::div()
                     .flex()
                     .items_center()
                     .gap(theme.space(1.5))
                     .child(post.author.clone())
-                    .child(crate::profile::author_tag(
-                        crate::profile::AuthorTag::AutoReply,
-                        cx,
-                    ))
+                    .child(crate::profile::author_tag(tag, cx))
                     .into_any_element()
             })
         }),

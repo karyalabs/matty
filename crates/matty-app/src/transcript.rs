@@ -345,7 +345,15 @@ fn display_post(
     };
     Post {
         webhook: crate::webhooks::Webhook::of(post),
-        auto_reply: post.kind == "system_auto_responder",
+        tag: if post.kind == "system_auto_responder" {
+            Some(crate::profile::AuthorTag::AutoReply)
+        } else if webhook_name(post).is_some() {
+            Some(crate::profile::AuthorTag::Bot)
+        } else if from_system {
+            None
+        } else {
+            known.and_then(crate::profile::AuthorTag::of)
+        },
         created_ms: post.create_at,
         id: post.id.clone().into(),
         author: author.into(),
@@ -440,7 +448,7 @@ fn system_post(
 ) -> Post {
     Post {
         webhook: None,
-        auto_reply: false,
+        tag: None,
         created_ms: 0,
         id: post.id.clone().into(),
         author: SharedString::default(),
@@ -918,6 +926,35 @@ mod tests {
         assert_eq!(model.posts[3].status, PostStatus::Sent);
         assert_eq!(model.max_post_size, 4000);
         assert!(!model.loading);
+    }
+
+    #[test]
+    fn listed_posts_carry_their_authors_tag() {
+        let zone = TimeZone::UTC;
+        let users = HashMap::from([(
+            "bot".to_string(),
+            User {
+                id: "bot".into(),
+                username: "system-bot".into(),
+                is_bot: true,
+                ..User::default()
+            },
+        )]);
+        let from_bot = post("p1", "bot", NOON, "a reminder");
+        let mut away = post("p2", "ghost", NOON, "away until Monday");
+        away.kind = "system_auto_responder".into();
+        let tags: Vec<_> = [from_bot, away, post("p3", "ghost", NOON, "hi")]
+            .iter()
+            .map(|post| listed_post(post, &users, &viewer(&zone)).tag)
+            .collect();
+        assert_eq!(
+            tags,
+            [
+                Some(crate::profile::AuthorTag::Bot),
+                Some(crate::profile::AuthorTag::AutoReply),
+                None
+            ]
+        );
     }
 
     #[test]
