@@ -1043,6 +1043,9 @@ pub enum AddMembersEvent {
         people: Vec<UserProfile>,
         emails: Vec<String>,
     },
+    /// A user group was picked (#1069): its people, once the server says
+    /// who they are, get ticked.
+    GroupMembers(String),
 }
 
 /// What Invite people knows about the team it adds to (#962).
@@ -1066,6 +1069,8 @@ pub struct AddMembersView {
     focus_search: bool,
     /// Set while the dialog invites people to a team instead.
     team: Option<TeamInvite>,
+    /// The user group whose people are on their way (#1069).
+    group_pending: Option<String>,
     _subscription: gpui_kit::Subscription,
     _emails_subscription: Option<gpui_kit::Subscription>,
 }
@@ -1099,6 +1104,7 @@ impl AddMembersView {
             handle: DialogHandle::new(false),
             focus_search: false,
             team: None,
+            group_pending: None,
             _subscription: subscription,
             _emails_subscription: None,
         }
@@ -1169,6 +1175,7 @@ impl AddMembersView {
         self.loading = profiles.is_none();
         self.profiles = profiles.unwrap_or_default();
         self.selected.clear();
+        self.group_pending = None;
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
         self.handle.open(window, cx);
@@ -1181,6 +1188,103 @@ impl AddMembersView {
         self.profiles = profiles;
         self.loading = false;
         cx.notify();
+    }
+
+    /// Ticks the people of the group the user picked who can still be
+    /// added; the others are in the channel already, or not on the team.
+    pub fn set_group_members(
+        &mut self,
+        group_id: &str,
+        user_ids: &[SharedString],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.group_pending.as_deref() != Some(group_id) {
+            return;
+        }
+        self.group_pending = None;
+        for profile in &self.profiles {
+            if user_ids.contains(&profile.user_id) && !self.selected.contains(&profile.user_id) {
+                self.selected.push(profile.user_id.clone());
+            }
+        }
+        self.search
+            .update(cx, |search, cx| search.set_value("", window, cx));
+        cx.notify();
+    }
+
+    fn pick_group(&mut self, group_id: String, cx: &mut Context<Self>) {
+        self.group_pending = Some(group_id.clone());
+        cx.emit(AddMembersEvent::GroupMembers(group_id));
+        cx.notify();
+    }
+
+    fn group_row(
+        &self,
+        group: &matty_api::models::Group,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let group_id = group.id.clone();
+        let pending = self.group_pending.as_deref() == Some(group.id.as_str());
+        div()
+            .id(gpui_kit::ElementId::Name(
+                format!("add-members.group.{}", group.name).into(),
+            ))
+            .role(gpui_kit::Role::Button)
+            .aria_label(t!("add-members-group", name = group.display_name.clone()))
+            .h(scaled(&theme, metrics::ROW_HEIGHT + 8.))
+            .px(theme.space(2.))
+            .mx(theme.space(-2.))
+            .rounded(theme.radius.md)
+            .flex()
+            .items_center()
+            .gap(theme.space(3.))
+            .cursor_pointer()
+            .hover(|style| style.bg(theme.colors.accent))
+            .on_click(cx.listener(move |this, _, _, cx| this.pick_group(group_id.clone(), cx)))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .size(scaled(&theme, 24.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        lucide(LucideIcon::Users)
+                            .size(scaled(&theme, 14.))
+                            .text_color(theme.colors.muted_foreground),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .max_w(scaled(&theme, 180.))
+                    .truncate()
+                    .type_style(style::UI, &theme)
+                    .text_color(theme.colors.foreground)
+                    .child(group.display_name.clone()),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .type_style(style::META, &theme)
+                    .text_color(theme.colors.muted_foreground)
+                    .child(format!("@{}", group.name)),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .type_style(style::META, &theme)
+                    .text_color(theme.colors.muted_foreground)
+                    .child(if pending {
+                        t!("add-members-group-finding")
+                    } else {
+                        t!("add-members-group-pick", count = group.member_count)
+                    }),
+            )
     }
 
     fn toggle(&mut self, user_id: SharedString, cx: &mut Context<Self>) {
@@ -1292,6 +1396,25 @@ impl Render for AddMembersView {
             window.on_next_frame(move |window, cx| window.focus(&focus, cx));
         }
         let query = self.search.read(cx).value().trim().to_lowercase();
+        // A channel's Add members offers the user groups too (#1069).
+        let group_query = query.trim_start_matches('@');
+        let groups: Vec<_> = if self.team.is_none() && !query.is_empty() {
+            crate::user_groups::UserGroups::read(cx)
+                .iter()
+                .filter(|group| {
+                    group.name.to_lowercase().starts_with(group_query)
+                        || group.display_name.to_lowercase().contains(group_query)
+                })
+                .take(3)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let group_rows: Vec<_> = groups
+            .iter()
+            .map(|group| self.group_row(group, cx).into_any_element())
+            .collect();
         let rows: Vec<_> = self
             .profiles
             .iter()
@@ -1345,7 +1468,8 @@ impl Render for AddMembersView {
                     .flex()
                     .flex_col()
                     .gap(theme.space(0.5))
-                    .when(rows.is_empty(), |list| {
+                    .children(group_rows)
+                    .when(rows.is_empty() && groups.is_empty(), |list| {
                         list.child(
                             div()
                                 .w_full()

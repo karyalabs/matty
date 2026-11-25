@@ -1287,6 +1287,8 @@ pub enum ChannelEvent {
     /// The user added these people from the Add members dialog; the view
     /// already counts them.
     AddMembers(Vec<UserProfile>),
+    /// Add members wants a user group's people (#1069).
+    GroupMembers(String),
     /// "Add members" on a group message, whose members are fixed: the
     /// window opens New message with these, the other members, ticked, so
     /// the user starts a bigger group, as the web app does.
@@ -1879,6 +1881,10 @@ impl ChannelView {
                 this.apply_edit(*field, value.clone(), cx);
             }),
             cx.subscribe(&add_members, |this, _, event: &AddMembersEvent, cx| {
+                if let AddMembersEvent::GroupMembers(group_id) = event {
+                    cx.emit(ChannelEvent::GroupMembers(group_id.clone()));
+                    return;
+                }
                 let AddMembersEvent::Add(people) = event else {
                     return;
                 };
@@ -4452,6 +4458,19 @@ impl ChannelView {
     pub fn set_addable(&mut self, people: Vec<UserProfile>, cx: &mut Context<Self>) {
         self.add_members
             .update(cx, |view, cx| view.set_profiles(people, cx));
+    }
+
+    /// A user group's people, for an Add members that picked the group.
+    pub fn set_group_members(
+        &mut self,
+        group_id: &str,
+        user_ids: &[SharedString],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.add_members.update(cx, |view, cx| {
+            view.set_group_members(group_id, user_ids, window, cx)
+        });
     }
 
     fn add_members_dialog(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

@@ -993,6 +993,13 @@ impl MainWindow {
                         live.find_non_members();
                     }
                 }
+                ChannelEvent::GroupMembers(group_id) => {
+                    if let Some(live) = &this.live {
+                        live.send(matty_sync::Command::GroupMembers {
+                            group_id: group_id.clone(),
+                        });
+                    }
+                }
                 ChannelEvent::AddMembers(people) => {
                     if let (Some(live), Some(id)) = (&this.live, &this.selected_channel) {
                         live.send(matty_sync::Command::AddMembers {
@@ -2240,7 +2247,7 @@ impl MainWindow {
                 .and_then(|live| live.me_user())
                 .map(|user| user.id.clone())
                 .unwrap_or_default();
-            let people = people
+            let people: Vec<crate::team_members::TeamPerson> = people
                 .into_iter()
                 .map(|profile| crate::team_members::TeamPerson {
                     me: profile.user_id.as_ref() == me,
@@ -2248,6 +2255,13 @@ impl MainWindow {
                     admin: false,
                 })
                 .collect();
+            let user_ids: Vec<SharedString> = people
+                .iter()
+                .map(|person| person.profile.user_id.clone())
+                .collect();
+            self.channel.update(cx, |view, cx| {
+                view.set_group_members(&group_id, &user_ids, window, cx)
+            });
             self.team_members.update(cx, |view, cx| {
                 view.set_group_total(&group_id, total, cx);
                 view.set_people(&group_id, people, cx);

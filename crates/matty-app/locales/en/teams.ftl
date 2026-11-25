@@ -143,3 +143,9 @@ team-members-edit-group = Edit group
 group-create-failed = Couldn't create the group: { $error }
 group-change-failed = Couldn't change the group: { $error }
 group-editor-archive-hint = Archiving the group stops its @mention from reaching anyone.
+add-members-group = Add everyone in { $name }
+add-members-group-pick = { $count ->
+    [one] Add its 1 member
+   *[other] Add its { $count } members
+}
+add-members-group-finding = Finding its people…
