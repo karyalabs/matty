@@ -94,6 +94,8 @@ pub mod watch;
 #[cfg(target_family = "wasm")]
 pub mod web_files;
 mod web_keys;
+#[cfg_attr(not(target_family = "wasm"), allow(dead_code))]
+mod web_route;
 #[cfg(target_family = "wasm")]
 pub mod web_storage;
 pub mod webhooks;

@@ -403,6 +403,9 @@ pub struct MainWindow {
     link_asked: Option<(matty_sync::LinkQuery, Option<SharedString>)>,
     /// A link to a server being added, opened once signed in (#206).
     pending_page: Option<crate::server_links::PendingPage>,
+    /// The web build's address named a channel at load or on Back: it
+    /// opens once the server's teams are known.
+    web_path: Option<String>,
     /// The join prompt for a link to a public channel the user is not in.
     link_join: DialogHandle,
     /// "Forward to …" with an optional comment, once the switcher picked
@@ -504,6 +507,23 @@ impl MainWindow {
                         }
                     });
                     if added.is_err() {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            // Back, Forward or an edited address open the channel it names.
+            let changes = crate::web_route::changes();
+            cx.spawn_in(window, async move |this, cx| {
+                while let Ok(path) = changes.recv().await {
+                    let opened = this.update_in(cx, |this, window, cx| {
+                        this.web_path = Some(path);
+                        this.open_pending_page(window, cx);
+                    });
+                    if opened.is_err() {
                         break;
                     }
                 }
@@ -1601,6 +1621,10 @@ impl MainWindow {
             triage_on_load: None,
             link_asked: None,
             pending_page: None,
+            #[cfg(target_family = "wasm")]
+            web_path: crate::web_route::initial(),
+            #[cfg(not(target_family = "wasm"))]
+            web_path: None,
             link_join: DialogHandle::new(false),
             forward,
             link_join_offer: None,
@@ -4653,6 +4677,18 @@ impl MainWindow {
         // The tab's icon gets the web app's dot too; the page's own icon
         // comes back when nothing waits.
         let icon = crate::badge::favicon(self.badge).unwrap_or_else(|| "favicon.svg".to_owned());
+        // The address follows the open channel, once a channel the address
+        // named at load has opened.
+        if self.web_path.is_none()
+            && let Some(live) = &self.live
+            && let Some(hash) = sidebar
+                .selected
+                .as_ref()
+                .and_then(|selected| live.channel_link(selected))
+                .and_then(|link| crate::web_route::hash_for(&link, live.server()))
+        {
+            crate::web_route::show(&hash);
+        }
         if let Ok(Some(link)) = document.query_selector("link[rel='icon']")
             && link.get_attribute("href").as_deref() != Some(icon.as_str())
             && let Err(error) = link.set_attribute("href", &icon)

@@ -120,7 +120,28 @@ impl MainWindow {
         let Some(live) = &self.live else {
             return;
         };
-        if self.pending_page.is_none() || self.login.is_some() || live.team_names().is_empty() {
+        if self.login.is_some() || live.team_names().is_empty() {
+            return;
+        }
+        // A channel the web build's address names, on the server shown,
+        // once the sidebar knows the user's channels: before that, a
+        // channel they are in reads as one to join.
+        let channels_known = self
+            .sidebar
+            .read(cx)
+            .model()
+            .categories
+            .iter()
+            .any(|category| !category.rows.is_empty());
+        if self.web_path.is_some() && !channels_known {
+            return;
+        }
+        if let Some(path) = self.web_path.take() {
+            let url = format!("{}{path}", live.server().trim_end_matches('/'));
+            self.go_to_link(&url, false, window, cx);
+            return;
+        }
+        if self.pending_page.is_none() {
             return;
         }
         let Some(page) = self.pending_page.take() else {
