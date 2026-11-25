@@ -156,6 +156,36 @@ pub fn queued(post: &Post, away: bool) -> bool {
 
 /// Whether the user may delete the post: their own, sent or waiting to
 /// send, or anyone's sent post when `delete_others` (#106).
+/// Whether the user may still edit their sent `post` at `now_ms`: the
+/// server's `PostEditTimeLimit` refuses an edit once it passes, so the web
+/// app stops offering one.
+pub(crate) fn editable(post: &Post, limit_secs: Option<u64>, now_ms: i64) -> bool {
+    if !post.mine {
+        return false;
+    }
+    match limit_secs {
+        Some(limit) if post.created_ms > 0 => {
+            let limit_ms = i64::try_from(limit.saturating_mul(1000)).unwrap_or(i64::MAX);
+            now_ms.saturating_sub(post.created_ms) < limit_ms
+        }
+        _ => true,
+    }
+}
+
+/// Now, in Unix milliseconds, for [`editable`].
+pub(crate) fn now_ms() -> i64 {
+    jiff::Timestamp::now().as_millisecond()
+}
+
+/// [`editable`] under the server's limit, now.
+pub(crate) fn editable_now(post: &Post, cx: &App) -> bool {
+    editable(
+        post,
+        crate::priority::Features::read(cx).edit_limit_secs,
+        now_ms(),
+    )
+}
+
 pub(crate) fn deletable(post: &Post, away: bool, delete_others: bool) -> bool {
     if post.mine {
         return post.status == PostStatus::Sent || waiting_to_send(post, away);
@@ -500,6 +530,9 @@ pub struct Post {
     pub continues: bool,
     /// Written by the current user: Edit and Delete appear in its menu.
     pub mine: bool,
+    /// When it was posted, in Unix milliseconds, for the server's edit
+    /// time limit; 0 while unknown or still sending.
+    pub created_ms: i64,
     pub saved: bool,
     pub pinned: bool,
     pub status: PostStatus,
@@ -3435,6 +3468,7 @@ impl ChannelView {
         let last = model.posts.last();
         let post = Post {
             webhook: None,
+            created_ms: 0,
             id: format!("pending-{}", self.pending_seq).into(),
             author: self.me.clone(),
             author_id: own_id(&model.posts),
@@ -3520,7 +3554,8 @@ impl ChannelView {
                 post.id == id
                     && post.mine
                     && post.kind == PostKind::Regular
-                    && (post.status == PostStatus::Sent || waiting_to_send(post, self.away))
+                    && ((post.status == PostStatus::Sent && editable_now(post, cx))
+                        || waiting_to_send(post, self.away))
             })
         }) else {
             return;
@@ -4145,7 +4180,7 @@ impl ChannelView {
             cx,
         ));
         items.push(MenuItem::separator());
-        if post.mine {
+        if editable_now(post, cx) {
             let edit_id = id.clone();
             items.push(act(
                 "edit",
@@ -5740,7 +5775,7 @@ impl ChannelView {
         let id = post.id.clone();
         match keystroke.key.as_str() {
             "r" => cx.emit(ChannelEvent::OpenThread(post.thread_root())),
-            "e" if post.mine => {
+            "e" if editable_now(&post, cx) => {
                 self.selection = None;
                 self.start_edit(id, window, cx);
             }
@@ -6985,6 +7020,7 @@ mod tests {
     fn post(id: &str, day: &str) -> Post {
         Post {
             webhook: None,
+            created_ms: 0,
             id: id.into(),
             author: "a".into(),
             author_id: SharedString::default(),
@@ -7645,6 +7681,21 @@ mod tests {
             channel.last_message().map(|post| post.id.as_ref()),
             Some("1")
         );
+    }
+
+    #[test]
+    fn edit_stops_at_the_servers_time_limit() {
+        let mut own = post("p1", "Today");
+        own.mine = true;
+        own.created_ms = 1_000_000;
+        assert!(editable(&own, None, i64::MAX));
+        assert!(editable(&own, Some(300), 1_000_000 + 299_999));
+        assert!(!editable(&own, Some(300), 1_000_000 + 300_000));
+        // A post with no time yet (still sending) is not held to it.
+        own.created_ms = 0;
+        assert!(editable(&own, Some(300), i64::MAX));
+        own.mine = false;
+        assert!(!editable(&own, None, 0));
     }
 
     #[test]

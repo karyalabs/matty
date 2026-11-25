@@ -733,6 +733,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         .find(|row| row.id.as_ref() == id)?;
     let post = |id: &str, author: &str, time: &str, day: &str, body: &str| Post {
         webhook: None,
+        created_ms: 0,
         kind: crate::channel::PostKind::Regular,
         id: id.into(),
         author: author.into(),
@@ -862,6 +863,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
                 },
             )],
             webhook: Some(crate::webhooks::Webhook::default()),
+            created_ms: 0,
             ..post("p3b", "Build Bot", "09:20", "Yesterday", "")
         },
         // Build Bot's answer to Approve, which only the viewer sees (#211).
@@ -1458,6 +1460,7 @@ pub fn incoming(channel_id: &str) -> Vec<Post> {
     }
     let post = |id: &str, author: &str, time: &str, body: &str| Post {
         webhook: None,
+        created_ms: 0,
         kind: crate::channel::PostKind::Regular,
         id: id.into(),
         author: author.into(),
@@ -1973,6 +1976,7 @@ pub fn thread(channel_id: &str, post_id: &str) -> Option<ThreadModel> {
         .clone();
     let reply = |id: &str, author: &str, time: &str, body: &str, continues: bool| Post {
         webhook: None,
+        created_ms: 0,
         kind: crate::channel::PostKind::Regular,
         id: format!("{}-{id}", root.id).into(),
         author: author.into(),
@@ -2034,6 +2038,7 @@ pub fn thread(channel_id: &str, post_id: &str) -> Option<ThreadModel> {
                     // Posted through the deploy webhook: its glyph, not
                     // its creator's picture.
                     webhook: Some(crate::webhooks::Webhook::default()),
+                    created_ms: 0,
                     ..reply(
                         "r2",
                         "Build Bot",

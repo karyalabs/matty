@@ -205,6 +205,9 @@ pub struct ServerCapabilities {
     pub announcement: Option<Announcement>,
     /// Files can be shared by a public link (`EnablePublicLink`).
     pub public_links: bool,
+    /// How long after posting a message can still be edited, in seconds
+    /// (`PostEditTimeLimit`); `None` when there is no limit (-1).
+    pub post_edit_time_limit: Option<u64>,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -380,6 +383,7 @@ impl ServerCapabilities {
                 })
                 .filter(|banner| !banner.text.is_empty()),
             public_links: flag(config, "EnablePublicLink"),
+            post_edit_time_limit: number(config, "PostEditTimeLimit").filter(|secs| *secs > 0),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -576,6 +580,11 @@ mod tests {
         );
         assert_eq!(gate("MaxPostSize", "4000").max_post_size, 4000);
         assert_eq!(gate("MaxFileSize", "52428800").max_file_size, 52_428_800);
+        assert_eq!(
+            gate("PostEditTimeLimit", "300").post_edit_time_limit,
+            Some(300)
+        );
+        assert_eq!(gate("PostEditTimeLimit", "-1").post_edit_time_limit, None);
     }
 
     #[test]

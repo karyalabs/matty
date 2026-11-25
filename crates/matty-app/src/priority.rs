@@ -81,6 +81,9 @@ pub struct Features {
     pub bot_accounts: bool,
     /// Files can be shared by a public link (`EnablePublicLink`).
     pub public_links: bool,
+    /// Seconds after posting that the author may still edit
+    /// (`PostEditTimeLimit`); `None` for no limit.
+    pub edit_limit_secs: Option<u64>,
 }
 
 impl Global for Features {}
@@ -114,6 +117,7 @@ impl Features {
             custom_commands: capabilities.custom_commands,
             bot_accounts: capabilities.bot_accounts,
             public_links: capabilities.public_links,
+            edit_limit_secs: capabilities.post_edit_time_limit,
         }
     }
 
@@ -144,6 +148,7 @@ impl Features {
             bot_accounts: true,
             // Preview has no server to make the link.
             public_links: false,
+            edit_limit_secs: None,
         }
     }
 

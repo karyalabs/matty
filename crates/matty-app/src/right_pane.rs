@@ -731,7 +731,13 @@ impl PostHost for RightPaneView {
             Some(RightPaneContent::Thread(thread)) => thread.root.id != post.id,
             _ => false,
         };
-        let items = Self::thread_items_for(&cx.entity().downgrade(), post, self.away, reply);
+        let items = Self::thread_items_for(
+            &cx.entity().downgrade(),
+            post,
+            self.away,
+            reply,
+            crate::priority::Features::read(cx).edit_limit_secs,
+        );
         self.open_menu(items, at, window, cx);
     }
 
@@ -756,7 +762,13 @@ impl PostHost for RightPaneView {
         };
         let view = cx.entity().downgrade();
         let mut items = crate::post_row::link_items(&view, &url);
-        items.extend(Self::thread_items_for(&view, &post, self.away, reply));
+        items.extend(Self::thread_items_for(
+            &view,
+            &post,
+            self.away,
+            reply,
+            crate::priority::Features::read(cx).edit_limit_secs,
+        ));
         self.select_post(&id, window, cx);
         self.open_menu(items, at, window, cx);
     }
@@ -1393,6 +1405,7 @@ impl RightPaneView {
         );
         let reply = Post {
             webhook: None,
+            created_ms: 0,
             id: format!("{root}-pending-{seq}").into(),
             author: me.clone(),
             author_id: own,
@@ -1754,7 +1767,8 @@ impl RightPaneView {
         let Some(post) = self.reply_post(&id).filter(|post| {
             post.mine
                 && post.kind == PostKind::Regular
-                && (post.status == PostStatus::Sent || waiting_to_send(post, self.away))
+                && ((post.status == PostStatus::Sent && crate::channel::editable_now(post, cx))
+                    || waiting_to_send(post, self.away))
         }) else {
             return;
         };
@@ -2430,7 +2444,10 @@ impl RightPaneView {
         let id = post.id.clone();
         match keystroke.key.as_str() {
             "r" => self.select_row(None, window, cx),
-            "e" if own && (sent || waiting_to_send(&post, self.away)) => {
+            "e" if own
+                && ((sent && crate::channel::editable_now(&post, cx))
+                    || waiting_to_send(&post, self.away)) =>
+            {
                 self.selection = None;
                 self.start_edit(id, window, cx);
             }
@@ -2572,6 +2589,7 @@ impl RightPaneView {
         post: &Post,
         away: bool,
         reply: bool,
+        edit_limit: Option<u64>,
     ) -> Vec<MenuItem> {
         let body = post.body.clone();
         let markdown_body = post.body.clone();
@@ -2731,7 +2749,7 @@ impl RightPaneView {
         // the channel (#117, #118); the root is the channel's to change.
         let own_sent =
             reply && post.mine && post.kind == PostKind::Regular && post.status == PostStatus::Sent;
-        if own_sent {
+        if own_sent && crate::channel::editable(post, edit_limit, crate::channel::now_ms()) {
             let (edit_view, edit_id) = (view.clone(), post.id.clone());
             items.push(
                 MenuItem::new("thread.context.edit", t!("pane-edit")).on_click(
@@ -3065,7 +3083,13 @@ impl RightPaneView {
             .on_mouse_up(
                 gpui_kit::MouseButton::Right,
                 move |event: &gpui_kit::MouseUpEvent, window, cx| {
-                    let items = Self::thread_items_for(&menu_view, &menu_post, away, !root);
+                    let items = Self::thread_items_for(
+                        &menu_view,
+                        &menu_post,
+                        away,
+                        !root,
+                        crate::priority::Features::read(cx).edit_limit_secs,
+                    );
                     menu_view
                         .update(cx, |this, cx| {
                             this.select_post(&id, window, cx);
@@ -4839,6 +4863,7 @@ mod tests {
     fn post(id: &str) -> Post {
         Post {
             webhook: None,
+            created_ms: 0,
             id: id.to_string().into(),
             author: "Ada".into(),
             author_id: SharedString::default(),

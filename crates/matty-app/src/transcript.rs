@@ -345,6 +345,7 @@ fn display_post(
     };
     Post {
         webhook: crate::webhooks::Webhook::of(post),
+        created_ms: post.create_at,
         id: post.id.clone().into(),
         author: author.into(),
         author_id: if from_system {
@@ -438,6 +439,7 @@ fn system_post(
 ) -> Post {
     Post {
         webhook: None,
+        created_ms: 0,
         id: post.id.clone().into(),
         author: SharedString::default(),
         author_id: SharedString::default(),
