@@ -1125,7 +1125,10 @@ impl AddMembersView {
             Some(cx.subscribe(&emails, |_, _, _: &InputEvent, cx| cx.notify()));
         self.open(team, profiles, window, cx);
         self.team = Some(TeamInvite {
-            emails: Some(emails),
+            // Without email invitations the server refuses every address.
+            emails: crate::priority::Features::read(cx)
+                .email_invites
+                .then_some(emails),
             ..TeamInvite::default()
         });
     }

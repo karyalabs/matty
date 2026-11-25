@@ -100,6 +100,8 @@ pub struct Features {
     /// The server turned the emoji picker off (`EnableEmojiPicker`): no
     /// picker in the composers and no Add reaction, as in the web app.
     pub no_emoji_picker: bool,
+    /// Invite people takes email addresses (`EnableEmailInvitations`).
+    pub email_invites: bool,
 }
 
 impl Global for Features {}
@@ -143,6 +145,7 @@ impl Features {
                 .and_then(crate::settings::NameFormat::from_server),
             names_locked: capabilities.teammate_name_display_locked,
             no_emoji_picker: !capabilities.emoji_picker,
+            email_invites: capabilities.email_invitations,
         }
     }
 
@@ -180,6 +183,7 @@ impl Features {
             names: None,
             names_locked: false,
             no_emoji_picker: false,
+            email_invites: true,
         }
     }
 

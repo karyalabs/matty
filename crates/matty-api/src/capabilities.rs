@@ -223,6 +223,10 @@ pub struct ServerCapabilities {
     pub teammate_name_display_locked: bool,
     /// The emoji picker is on (`EnableEmojiPicker`).
     pub emoji_picker: bool,
+    /// People can be invited to a team by email (`EnableEmailInvitations`).
+    pub email_invitations: bool,
+    /// Typing notices go out (`EnableUserTypingMessages`).
+    pub typing: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -416,6 +420,8 @@ impl ServerCapabilities {
             teammate_name_display: text(config, "TeammateNameDisplay").map(str::to_owned),
             teammate_name_display_locked: flag(config, "LockTeammateNameDisplay"),
             emoji_picker: !off(config, "EnableEmojiPicker"),
+            email_invitations: flag(config, "EnableEmailInvitations"),
+            typing: !off(config, "EnableUserTypingMessages"),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -578,7 +584,7 @@ mod tests {
             ServerCapabilities::from_old_format(&config, &license).unwrap()
         };
         type Gate = fn(&ServerCapabilities) -> bool;
-        let cases: [(&str, Gate); 18] = [
+        let cases: [(&str, Gate); 19] = [
             ("EnableBotAccountCreation", |c| c.bot_accounts),
             ("EnableOutgoingWebhooks", |c| c.outgoing_webhooks),
             ("EnableIncomingWebhooks", |c| c.incoming_webhooks),
@@ -599,6 +605,7 @@ mod tests {
             ("LockTeammateNameDisplay", |c| {
                 c.teammate_name_display_locked
             }),
+            ("EnableEmailInvitations", |c| c.email_invitations),
         ];
         for (key, read) in cases {
             assert!(read(&gate(key, "true")), "{key} on");
@@ -624,6 +631,7 @@ mod tests {
         assert!(!gate("EnableFileAttachments", "false").file_attachments);
         assert!(!gate("EnableCustomUserStatuses", "false").custom_statuses);
         assert!(!gate("EnableEmojiPicker", "false").emoji_picker);
+        assert!(!gate("EnableUserTypingMessages", "false").typing);
         let mut bare = base.clone();
         bare.remove("EnableFileAttachments");
         bare.remove("EnableCustomUserStatuses");

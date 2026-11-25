@@ -2471,7 +2471,9 @@ impl Engine {
                     parent_id,
                 }) => {
                     let connection = self.session.as_ref().and_then(|s| s.socket.connection());
+                    let typing_on = self.capabilities.as_ref().is_none_or(|c| c.typing);
                     if let Some(connection) = connection
+                        && typing_on
                         && self.typing.allow(&channel_id, &parent_id, Instant::now())
                     {
                         matty_api::rt::spawn(async move {
