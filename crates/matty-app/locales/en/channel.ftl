@@ -114,6 +114,7 @@ chan-retry = Retry
 chan-start-of = This is the start of { $name }.
 author-tag-bot = BOT
 author-tag-guest = GUEST
+author-tag-auto-reply = AUTOMATIC REPLY
 chan-intro-set-header = Set a header
 chan-intro-notifications = Notification preferences
 chan-new-messages = New messages

@@ -506,10 +506,7 @@ impl ThreadsView {
         let id_for_badge = id.clone();
         let (menu_id, context_id) = (id.clone(), id.clone());
         let initial: String = root.author.chars().take(1).collect();
-        let channel = match row.thread.channel_name.as_ref() {
-            name if name.contains(' ') => name.to_string(),
-            name => format!("#{name}"),
-        };
+        let channel = row.thread.place().to_string();
         let replies = replies_label(&row.summary);
         let unread = row.summary.unread();
         let mentions = row.summary.unread_mentions;

@@ -733,6 +733,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
         .find(|row| row.id.as_ref() == id)?;
     let post = |id: &str, author: &str, time: &str, day: &str, body: &str| Post {
         webhook: None,
+        auto_reply: false,
         created_ms: 0,
         kind: crate::channel::PostKind::Regular,
         id: id.into(),
@@ -1461,6 +1462,7 @@ pub fn incoming(channel_id: &str) -> Vec<Post> {
     }
     let post = |id: &str, author: &str, time: &str, body: &str| Post {
         webhook: None,
+        auto_reply: false,
         created_ms: 0,
         kind: crate::channel::PostKind::Regular,
         id: id.into(),
@@ -1977,6 +1979,7 @@ pub fn thread(channel_id: &str, post_id: &str) -> Option<ThreadModel> {
         .clone();
     let reply = |id: &str, author: &str, time: &str, body: &str, continues: bool| Post {
         webhook: None,
+        auto_reply: false,
         created_ms: 0,
         kind: crate::channel::PostKind::Regular,
         id: format!("{}-{id}", root.id).into(),
@@ -2009,6 +2012,8 @@ pub fn thread(channel_id: &str, post_id: &str) -> Option<ThreadModel> {
         return Some(ThreadModel {
             channel_id: channel.id.clone(),
             channel_name: channel.name.clone(),
+            direct: false,
+            closed: None,
             replies: vec![
                 reply(
                     "r1",
@@ -2072,6 +2077,8 @@ pub fn thread(channel_id: &str, post_id: &str) -> Option<ThreadModel> {
     Some(ThreadModel {
         channel_id: channel.id.clone(),
         channel_name: channel.name.clone(),
+        direct: false,
+        closed: None,
         replies: vec![
             reply(
                 "r1",

@@ -345,6 +345,7 @@ fn display_post(
     };
     Post {
         webhook: crate::webhooks::Webhook::of(post),
+        auto_reply: post.kind == "system_auto_responder",
         created_ms: post.create_at,
         id: post.id.clone().into(),
         author: author.into(),
@@ -439,6 +440,7 @@ fn system_post(
 ) -> Post {
     Post {
         webhook: None,
+        auto_reply: false,
         created_ms: 0,
         id: post.id.clone().into(),
         author: SharedString::default(),
@@ -712,6 +714,8 @@ pub fn thread_row(
         thread: crate::right_pane::ThreadModel {
             channel_id: root.channel_id.clone().into(),
             channel_name,
+            direct: false,
+            closed: None,
             root: listed_post(root, users, viewer),
             replies: Vec::new(),
             following: true,

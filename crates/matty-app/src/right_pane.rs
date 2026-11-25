@@ -58,6 +58,12 @@ pub struct ThreadModel {
     /// The thread's channel, where its reply draft belongs.
     pub channel_id: SharedString,
     pub channel_name: SharedString,
+    /// The channel is a direct or group message: its name shows as a
+    /// person's, without `#`.
+    pub direct: bool,
+    /// Why no reply can be posted (an archived channel, or a deactivated
+    /// person's direct message), shown in place of the composer.
+    pub closed: Option<SharedString>,
     pub root: Post,
     pub replies: Vec<Post>,
     pub following: bool,
@@ -68,6 +74,17 @@ pub struct ThreadModel {
     pub older: bool,
     /// The last older page failed; that row offers Retry.
     pub failed_older: bool,
+}
+
+impl ThreadModel {
+    /// Where the thread is, as its header names it: `#channel`, or a
+    /// direct or group message's people as they are.
+    pub fn place(&self) -> SharedString {
+        match self.channel_name.as_ref() {
+            name if self.direct || name.contains(' ') => self.channel_name.clone(),
+            name => format!("#{name}").into(),
+        }
+    }
 }
 
 /// A post listed outside its channel: saved, pinned or a mention.
@@ -1445,6 +1462,7 @@ impl RightPaneView {
         );
         let reply = Post {
             webhook: None,
+            auto_reply: false,
             created_ms: 0,
             id: format!("{root}-pending-{seq}").into(),
             author: me.clone(),
@@ -1919,7 +1937,7 @@ impl RightPaneView {
                 .is_none_or(|post| post.status != PostStatus::Sent)
         });
         let place: SharedString = thread
-            .map(|thread| format!("#{}", thread.channel_name).into())
+            .map(|thread| thread.place())
             .unwrap_or_else(|| t!("pane-discard-place"));
         let popup = delete_popup("thread.discard", unsent, &place, 0, cx);
         let view = cx.entity().downgrade();
@@ -3418,133 +3436,145 @@ impl RightPaneView {
                 this.add_sources(paths.paths().iter().cloned().map(UploadSource::Path), cx)
             }))
             .child(div().flex_1().min_h_0().child(transcript))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .on_action(cx.listener(|this, _: &UploadFiles, window, cx| {
-                        this.choose_files(window, cx)
-                    }))
-                    .on_action(cx.listener(|this, _: &actions::TogglePreview, _, cx| {
-                        this.previewing = !this.previewing;
-                        cx.notify();
-                    }))
-                    .px(theme.space(4.))
-                    .pt(theme.space(1.))
-                    .children(self.link.preview(
-                        "right-pane.link-preview",
-                        cx,
-                        cx.listener(|this, _, _, cx| {
-                            this.link.remove();
+            .map(|pane| match &thread.closed {
+                // An archived channel, or a deactivated person's direct
+                // message, takes no replies: a note stands in for the
+                // composer, as in the channel.
+                Some(note) => pane.child(closed_note(note.clone(), &theme)),
+                None => pane.child(
+                    div()
+                        .flex_shrink_0()
+                        .on_action(cx.listener(|this, _: &UploadFiles, window, cx| {
+                            this.choose_files(window, cx)
+                        }))
+                        .on_action(cx.listener(|this, _: &actions::TogglePreview, _, cx| {
+                            this.previewing = !this.previewing;
                             cx.notify();
-                        }),
-                    ))
-                    .children(tray)
-                    .children(crate::channel::format_bar::format_row(&self.composer, cx))
-                    .children(crate::channel::format_bar::preview_box(
-                        "right-pane.preview",
-                        self.previewing,
-                        &self.composer,
-                        cx,
-                    ))
-                    .children(crate::slash::error_line(
-                        "right-pane.command-error",
-                        self.slash.error(),
-                        cx,
-                    ))
-                    .child(
-                        Composer::new(&self.composer)
-                            .max_height(self.composer_cap)
-                            .rounded(theme.radius.lg)
-                            .when(
-                                !crate::priority::Features::read(cx).no_attachments,
-                                |composer| {
-                                    composer.child(style::tipped(
-                                        "right-pane.attach.tip",
-                                        actions::tooltip_text(&t!("pane-attach"), "Upload files"),
-                                        tool(
-                                            "right-pane.attach",
-                                            t!("pane-attach"),
-                                            LucideIcon::Plus,
-                                        )
-                                        .on_click(
-                                            cx.listener(|this, _, window, cx| {
-                                                this.choose_files(window, cx)
-                                            }),
-                                        ),
-                                    ))
-                                },
-                            )
-                            // The channel composer's formats, so a reply
-                            // writes the same way (#683).
-                            .child(format_tool(
-                                "right-pane.bold",
-                                t!("chan-bold"),
-                                "Bold", // i18n-ignore: the shortcut table's action name
-                                LucideIcon::Bold,
-                                ("**", "**"),
-                            ))
-                            .child(format_tool(
-                                "right-pane.italic",
-                                t!("chan-italic"),
-                                "Italic", // i18n-ignore: the shortcut table's action name
-                                LucideIcon::Italic,
-                                ("_", "_"),
-                            ))
-                            .child(format_tool(
-                                "right-pane.code",
-                                t!("chan-code"),
-                                "Inline code", // i18n-ignore: the shortcut table's action name
-                                LucideIcon::Code,
-                                ("`", "`"),
-                            ))
-                            .child(style::tipped(
-                                "right-pane.formatting.tip",
-                                if format_bar {
-                                    t!("chan-hide-formatting")
-                                } else {
-                                    t!("chan-show-formatting")
-                                },
-                                tool(
-                                    "right-pane.formatting",
+                        }))
+                        .px(theme.space(4.))
+                        .pt(theme.space(1.))
+                        .children(self.link.preview(
+                            "right-pane.link-preview",
+                            cx,
+                            cx.listener(|this, _, _, cx| {
+                                this.link.remove();
+                                cx.notify();
+                            }),
+                        ))
+                        .children(tray)
+                        .children(crate::channel::format_bar::format_row(&self.composer, cx))
+                        .children(crate::channel::format_bar::preview_box(
+                            "right-pane.preview",
+                            self.previewing,
+                            &self.composer,
+                            cx,
+                        ))
+                        .children(crate::slash::error_line(
+                            "right-pane.command-error",
+                            self.slash.error(),
+                            cx,
+                        ))
+                        .child(
+                            Composer::new(&self.composer)
+                                .max_height(self.composer_cap)
+                                .rounded(theme.radius.lg)
+                                .when(
+                                    !crate::priority::Features::read(cx).no_attachments,
+                                    |composer| {
+                                        composer.child(style::tipped(
+                                            "right-pane.attach.tip",
+                                            actions::tooltip_text(
+                                                &t!("pane-attach"),
+                                                "Upload files", // i18n-ignore: the shortcut table's action name
+                                            ),
+                                            tool(
+                                                "right-pane.attach",
+                                                t!("pane-attach"),
+                                                LucideIcon::Plus,
+                                            )
+                                            .on_click(
+                                                cx.listener(|this, _, window, cx| {
+                                                    this.choose_files(window, cx)
+                                                }),
+                                            ),
+                                        ))
+                                    },
+                                )
+                                // The channel composer's formats, so a reply
+                                // writes the same way (#683).
+                                .child(format_tool(
+                                    "right-pane.bold",
+                                    t!("chan-bold"),
+                                    "Bold", // i18n-ignore: the shortcut table's action name
+                                    LucideIcon::Bold,
+                                    ("**", "**"),
+                                ))
+                                .child(format_tool(
+                                    "right-pane.italic",
+                                    t!("chan-italic"),
+                                    "Italic", // i18n-ignore: the shortcut table's action name
+                                    LucideIcon::Italic,
+                                    ("_", "_"),
+                                ))
+                                .child(format_tool(
+                                    "right-pane.code",
+                                    t!("chan-code"),
+                                    "Inline code", // i18n-ignore: the shortcut table's action name
+                                    LucideIcon::Code,
+                                    ("`", "`"),
+                                ))
+                                .child(style::tipped(
+                                    "right-pane.formatting.tip",
                                     if format_bar {
                                         t!("chan-hide-formatting")
                                     } else {
                                         t!("chan-show-formatting")
                                     },
-                                    LucideIcon::Type,
-                                )
-                                .variant(if format_bar {
-                                    ButtonVariant::Secondary
-                                } else {
-                                    ButtonVariant::Ghost
-                                })
-                                .on_click(|_, _, cx| {
-                                    crate::channel::format_bar::toggle_format_bar(cx)
-                                }),
-                            ))
-                            .child(style::tipped(
-                                "right-pane.preview.tip",
-                                actions::tooltip_text(&t!("chan-preview"), "Preview message"),
-                                tool("right-pane.preview", t!("chan-preview"), LucideIcon::Eye)
-                                    .variant(if self.previewing {
+                                    tool(
+                                        "right-pane.formatting",
+                                        if format_bar {
+                                            t!("chan-hide-formatting")
+                                        } else {
+                                            t!("chan-show-formatting")
+                                        },
+                                        LucideIcon::Type,
+                                    )
+                                    .variant(if format_bar {
                                         ButtonVariant::Secondary
                                     } else {
                                         ButtonVariant::Ghost
                                     })
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(Box::new(actions::TogglePreview), cx)
+                                    .on_click(|_, _, cx| {
+                                        crate::channel::format_bar::toggle_format_bar(cx)
                                     }),
-                            ))
-                            .when(show_emoji, |row| row.child(emoji_popover))
-                            .child(div().flex_1())
-                            .children(self.schedule_button(cx))
-                            .child(style::tipped(
-                                "right-pane.send.tip",
-                                actions::send_tooltip(&t!("pane-reply"), send_on),
-                                send,
-                            )),
-                    ),
-            )
+                                ))
+                                .child(style::tipped(
+                                    "right-pane.preview.tip",
+                                    actions::tooltip_text(&t!("chan-preview"), "Preview message"),
+                                    tool("right-pane.preview", t!("chan-preview"), LucideIcon::Eye)
+                                        .variant(if self.previewing {
+                                            ButtonVariant::Secondary
+                                        } else {
+                                            ButtonVariant::Ghost
+                                        })
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(
+                                                Box::new(actions::TogglePreview),
+                                                cx,
+                                            )
+                                        }),
+                                ))
+                                .when(show_emoji, |row| row.child(emoji_popover))
+                                .child(div().flex_1())
+                                .children(self.schedule_button(cx))
+                                .child(style::tipped(
+                                    "right-pane.send.tip",
+                                    actions::send_tooltip(&t!("pane-reply"), send_on),
+                                    send,
+                                )),
+                        ),
+                ),
+            })
             .child(crate::channel::typing_line(&self.typing, cx))
             .children(overlay)
     }
@@ -4766,15 +4796,7 @@ impl Render for RightPaneView {
         }
         match self.content.clone() {
             Some(RightPaneContent::Thread(thread)) => root
-                .child(self.chromed_header(
-                    window,
-                    t!("pane-thread"),
-                    Some(match thread.channel_name.as_ref() {
-                        name if name.contains(' ') => name.to_string().into(),
-                        name => format!("#{name}").into(),
-                    }),
-                    cx,
-                ))
+                .child(self.chromed_header(window, t!("pane-thread"), Some(thread.place()), cx))
                 .child(div().flex_1().min_h_0().child(self.thread(&thread, cx))),
             Some(RightPaneContent::ChannelInfo(channel)) => root
                 .child(self.chromed_header(window, t!("pane-channel-info"), None, cx))
@@ -4912,6 +4934,24 @@ impl Render for RightPaneView {
     }
 }
 
+/// The note a thread shows in place of its composer when no reply can be
+/// posted.
+fn closed_note(note: SharedString, theme: &UiTheme) -> impl IntoElement + use<> {
+    div()
+        .flex_shrink_0()
+        .mx(theme.space(4.))
+        .mb(theme.space(4.))
+        .px(theme.space(4.))
+        .py(theme.space(3.))
+        .rounded(theme.radius.lg)
+        .border_1()
+        .border_color(theme.colors.border)
+        .bg(theme.colors.muted)
+        .type_style(style::UI, theme)
+        .text_color(theme.colors.foreground)
+        .child(note)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4995,6 +5035,7 @@ mod tests {
     fn post(id: &str) -> Post {
         Post {
             webhook: None,
+            auto_reply: false,
             created_ms: 0,
             id: id.to_string().into(),
             author: "Ada".into(),
@@ -5028,6 +5069,8 @@ mod tests {
         ThreadModel {
             channel_id: "c-town".into(),
             channel_name: "town".into(),
+            direct: false,
+            closed: None,
             root: Post {
                 root_id: SharedString::default(),
                 ..post("root")
@@ -5361,6 +5404,8 @@ mod tests {
         let thread = ThreadModel {
             channel_id: "c-town".into(),
             channel_name: "town".into(),
+            direct: false,
+            closed: None,
             root: post("root"),
             replies: vec![Post {
                 mine: true,
@@ -5435,6 +5480,8 @@ mod tests {
         let thread = ThreadModel {
             channel_id: "c-town".into(),
             channel_name: "town".into(),
+            direct: false,
+            closed: None,
             root: Post {
                 mine: true,
                 ..post("root")
@@ -5510,6 +5557,8 @@ mod tests {
         let thread = ThreadModel {
             channel_id: "c-town".into(),
             channel_name: "town".into(),
+            direct: false,
+            closed: None,
             root: post("root"),
             replies: vec![
                 waiting("me:1", "First."),

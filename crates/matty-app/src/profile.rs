@@ -49,6 +49,8 @@ pub struct UserProfile {
 pub enum AuthorTag {
     Bot,
     Guest,
+    /// On the server's out-of-office reply.
+    AutoReply,
 }
 
 impl AuthorTag {
@@ -70,6 +72,7 @@ impl AuthorTag {
         match self {
             Self::Bot => t!("author-tag-bot"),
             Self::Guest => t!("author-tag-guest"),
+            Self::AutoReply => t!("author-tag-auto-reply"),
         }
     }
 }

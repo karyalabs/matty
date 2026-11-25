@@ -2153,13 +2153,10 @@ impl Live {
             .filter_map(|thread| {
                 let root = roots.iter().find(|root| root.id == thread.id)?;
                 let channel = self.channel_name(&root.channel_id).unwrap_or_default();
-                Some(crate::transcript::thread_row(
-                    thread,
-                    root,
-                    channel,
-                    &self.users,
-                    &viewer,
-                ))
+                let mut row =
+                    crate::transcript::thread_row(thread, root, channel, &self.users, &viewer);
+                row.thread.direct = self.is_direct(&root.channel_id);
+                Some(row)
             })
             .collect();
         crate::threads::ThreadsModel {
@@ -2192,13 +2189,17 @@ impl Live {
         let mut model = crate::right_pane::ThreadModel {
             channel_id: root.channel_id.clone().into(),
             channel_name: self.channel_name(&root.channel_id).unwrap_or_default(),
+            direct: self.is_direct(&root.channel_id),
+            closed: self.closed_note(&root.channel_id),
             root: shown(root),
             replies: replies
                 .iter()
                 .filter(|post| post.delete_at == 0)
                 .map(shown)
                 .collect(),
-            following: false,
+            // The server marks a root the user follows; the Follow button
+            // starts from it.
+            following: root.is_following.unwrap_or(false),
             reply_count: usize::try_from(root.reply_count).unwrap_or(0),
             older: self.thread_pages.0,
             failed_older: self.thread_pages.1,
@@ -2406,6 +2407,43 @@ impl Live {
             .flat_map(|section| section.channels.iter())
             .find(|channel| channel.id == channel_id)
             .map(|channel| self.sidebar_name(channel).into())
+    }
+
+    /// Why `channel_id` takes no new posts, as the note that stands in for
+    /// a composer says: it is archived, or it is a direct message with a
+    /// deactivated person.
+    fn closed_note(&self, channel_id: &str) -> Option<SharedString> {
+        let archived = match self.channel.as_ref().filter(|open| open.id == channel_id) {
+            Some(open) => open.delete_at != 0,
+            None => self.archived.contains_key(channel_id),
+        };
+        if archived {
+            return Some(crate::t!("chan-archived-note"));
+        }
+        let deactivated = self
+            .sections
+            .values()
+            .flat_map(|sections| sections.iter())
+            .flat_map(|section| section.channels.iter())
+            .find(|channel| channel.id == channel_id)
+            .and_then(|channel| channel.dm_user.as_ref())
+            .is_some_and(|person| {
+                self.users
+                    .get(&person.id)
+                    .map_or(person.delete_at, |user| user.delete_at)
+                    != 0
+            });
+        deactivated.then(|| crate::t!("chan-deactivated-note"))
+    }
+
+    /// Whether `channel_id` is a direct or group message in the sidebar.
+    fn is_direct(&self, channel_id: &str) -> bool {
+        self.sections
+            .values()
+            .flat_map(|sections| sections.iter())
+            .flat_map(|section| section.channels.iter())
+            .find(|channel| channel.id == channel_id)
+            .is_some_and(|channel| matches!(channel.kind.as_str(), "D" | "G"))
     }
 
     /// A sidebar channel's name: a direct message's in the user's name
@@ -5445,6 +5483,7 @@ mod tests {
     fn shown(id: &str, body: &str) -> Post {
         Post {
             webhook: None,
+            auto_reply: false,
             created_ms: 0,
             id: id.into(),
             author: "a".into(),

@@ -169,7 +169,25 @@ pub(crate) fn post_message<H: PostHost>(
         format!("{}.{id}", H::PREFIX).into(),
     ))
     .author(post.author.clone())
-    .when_some(parts.author, |row, name| row.author_element(name))
+    .when_some(
+        parts.author.or_else(|| {
+            // Where the host draws no name of its own (the thread pane),
+            // the out-of-office reply still carries its tag.
+            post.auto_reply.then(|| {
+                gpui_kit::div()
+                    .flex()
+                    .items_center()
+                    .gap(theme.space(1.5))
+                    .child(post.author.clone())
+                    .child(crate::profile::author_tag(
+                        crate::profile::AuthorTag::AutoReply,
+                        cx,
+                    ))
+                    .into_any_element()
+            })
+        }),
+        |row, name| row.author_element(name),
+    )
     .timestamp(time.clone())
     .gutter_time(time.clone())
     .copy_prefix(copy_prefix(post, cx))

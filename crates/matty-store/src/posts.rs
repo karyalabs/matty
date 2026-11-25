@@ -412,6 +412,8 @@ pub fn thread(conn: &Connection, root_id: &str) -> Result<Vec<Post>> {
         return Ok(Vec::new());
     }
     attach(conn, &mut posts)?;
+    // The root's Follow state, as the Threads list knows it.
+    followed_threads(conn, &mut posts[..1])?;
     Ok(posts)
 }
 

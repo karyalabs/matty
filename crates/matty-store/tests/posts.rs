@@ -460,6 +460,32 @@ fn threads_in_direct_messages_are_in_every_teams_list() {
 }
 
 #[test]
+fn an_open_thread_knows_the_user_follows_it() {
+    let store = Store::open_in_memory().unwrap();
+    let conn = store.conn();
+    let mut root = post("root", "c", 1);
+    root.reply_count = 1;
+    let mut reply = post("reply", "c", 2);
+    reply.root_id = "root".into();
+    posts::upsert_threads(
+        conn,
+        "t",
+        &[UserThread {
+            id: "root".into(),
+            reply_count: 1,
+            post: root,
+            ..UserThread::default()
+        }],
+    )
+    .unwrap();
+    posts::insert_posts(conn, &[reply]).unwrap();
+    let following = || posts::thread(conn, "root").unwrap()[0].is_following;
+    assert_eq!(following(), Some(true));
+    posts::set_following(conn, "root", false).unwrap();
+    assert_eq!(following(), Some(false));
+}
+
+#[test]
 fn cursors_are_kept_and_since_only_moves_forward() {
     let store = Store::open_in_memory().unwrap();
     let conn = store.conn();
