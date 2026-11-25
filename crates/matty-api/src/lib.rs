@@ -18,7 +18,7 @@ pub mod rt;
 mod tls;
 pub mod ws;
 
-pub use capabilities::{PasswordRules, ServerCapabilities, UnsupportedVersion, Version};
+pub use capabilities::{HelpLinks, PasswordRules, ServerCapabilities, UnsupportedVersion, Version};
 pub use client::{
     Client, ClientBuilder, Fetched, MAX_OUTSIDE_IMAGE, RateLimit, Sleeper, TokioSleeper, USER_AGENT,
 };

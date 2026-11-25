@@ -2699,6 +2699,10 @@ impl MainWindow {
             self.announcement = announcement;
             cx.notify();
         }
+        if let Some(links) = update.help_links.take() {
+            cx.set_global(crate::account::ServerHelp(links));
+            self.account.update(cx, |view, cx| view.refresh_items(cx));
+        }
         if let Some(features) = update.features {
             crate::priority::Features::set(features, cx);
             // The team menu offers Integrations only where the server has them.

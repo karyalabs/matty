@@ -232,6 +232,8 @@ pub struct ServerCapabilities {
     /// Direct messages stay within a team (`RestrictDirectMessage` =
     /// `team`); by default anyone on the server can message anyone.
     pub dms_within_team: bool,
+    /// Help pages the admin pointed at their own (#1105).
+    pub help_links: HelpLinks,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -306,6 +308,48 @@ pub struct Announcement {
     pub text_color: String,
     /// Whether people may close it (`AllowBannerDismissal`).
     pub dismissible: bool,
+}
+
+/// The help pages a server links to: `HelpLink`, `ReportAProblemLink`,
+/// `TermsOfServiceLink` and `PrivacyPolicyLink`. Each is kept only where
+/// the admin changed it: Mattermost's defaults lead to mattermost.com's
+/// pages about its own apps, not to anyone who can help with Matty or
+/// this server.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HelpLinks {
+    /// Help resources.
+    pub help: Option<String>,
+    /// Where to report a problem.
+    pub report_problem: Option<String>,
+    /// Terms of use.
+    pub terms: Option<String>,
+    /// Privacy policy.
+    pub privacy: Option<String>,
+}
+
+impl HelpLinks {
+    fn of(config: &OldFormat) -> Self {
+        let custom = |key: &str| {
+            text(config, key)
+                .map(str::trim)
+                .filter(|link| !link.is_empty() && !link.starts_with("https://mattermost.com/"))
+                .map(str::to_owned)
+        };
+        Self {
+            help: custom("HelpLink"),
+            report_problem: custom("ReportAProblemLink"),
+            terms: custom("TermsOfServiceLink"),
+            privacy: custom("PrivacyPolicyLink"),
+        }
+    }
+
+    /// Whether any link is set.
+    pub fn any(&self) -> bool {
+        self.help.is_some()
+            || self.report_problem.is_some()
+            || self.terms.is_some()
+            || self.privacy.is_some()
+    }
 }
 
 fn text<'a>(map: &'a OldFormat, key: &str) -> Option<&'a str> {
@@ -479,6 +523,7 @@ impl ServerCapabilities {
                 number: flag(config, "PasswordRequireNumber"),
                 symbol: flag(config, "PasswordRequireSymbol"),
             },
+            help_links: HelpLinks::of(config),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -728,6 +773,33 @@ mod tests {
         assert_eq!(off.giphy_key, None);
         let keyless = caps(&[("EnableGifPicker", "true"), ("GiphySdkKey", "")]);
         assert_eq!(keyless.giphy_key, None);
+    }
+
+    #[test]
+    fn help_links_keep_only_what_the_admin_changed() {
+        let license = load("license_client_unlicensed.json");
+        let mut config = load("config_client_team.json");
+        assert_eq!(
+            ServerCapabilities::from_old_format(&config, &license)
+                .unwrap()
+                .help_links,
+            HelpLinks::default(),
+            "the fixture keeps Mattermost's defaults"
+        );
+        config.insert(
+            "ReportAProblemLink".into(),
+            "https://it.example.com/ticket".into(),
+        );
+        config.insert("HelpLink".into(), " ".into());
+        let links = ServerCapabilities::from_old_format(&config, &license)
+            .unwrap()
+            .help_links;
+        assert_eq!(
+            links.report_problem.as_deref(),
+            Some("https://it.example.com/ticket")
+        );
+        assert_eq!(links.help, None);
+        assert!(links.any());
     }
 
     #[test]

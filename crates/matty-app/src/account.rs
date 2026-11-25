@@ -477,11 +477,7 @@ impl AccountView {
         );
         // Help left the sidebar footer for this menu
         // (docs/specs/sidebar-places-and-switching.md §5).
-        items.push(
-            MenuItem::new("account.help", t!("account-help")).on_click(|_, window, cx| {
-                window.dispatch_action(Box::new(crate::actions::ShowShortcuts), cx);
-            }),
-        );
+        items.push(help_item(cx));
         let sign_out = self.sign_out.clone();
         items.push(
             MenuItem::new("account.sign-out", t!("account-sign-out-item"))
@@ -998,4 +994,56 @@ mod tests {
         let account = shown(Presence::Away, None);
         assert_eq!(server_dnd_end(&account, Presence::Dnd, None), None);
     }
+}
+
+/// The help pages the signed-in server links to (#1105).
+#[derive(Clone, Default)]
+pub struct ServerHelp(pub matty_api::HelpLinks);
+
+impl gpui_kit::Global for ServerHelp {}
+
+/// Help: the keyboard shortcuts, and where the server's admin set them,
+/// its own help, problem report, terms and privacy pages, as the official
+/// client's Help menu offers them.
+fn help_item(cx: &App) -> MenuItem {
+    let shortcuts = |id: &'static str, label: SharedString| {
+        MenuItem::new(id, label).on_click(|_, window, cx| {
+            window.dispatch_action(Box::new(crate::actions::ShowShortcuts), cx);
+        })
+    };
+    let links = cx
+        .try_global::<ServerHelp>()
+        .map(|help| help.0.clone())
+        .unwrap_or_default();
+    if !links.any() {
+        return shortcuts("account.help", t!("account-help"));
+    }
+    let mut items = vec![shortcuts(
+        "account.help.shortcuts",
+        t!("account-help-shortcuts"),
+    )];
+    items.push(MenuItem::separator());
+    for (id, label, link) in [
+        (
+            "account.help.resources",
+            t!("account-help-resources"),
+            links.help,
+        ),
+        (
+            "account.help.report",
+            t!("account-help-report"),
+            links.report_problem,
+        ),
+        ("account.help.terms", t!("account-help-terms"), links.terms),
+        (
+            "account.help.privacy",
+            t!("account-help-privacy"),
+            links.privacy,
+        ),
+    ] {
+        if let Some(link) = link {
+            items.push(MenuItem::new(id, label).on_click(move |_, _, cx| cx.open_url(&link)));
+        }
+    }
+    MenuItem::submenu("account.help", t!("account-help-menu"), items)
 }

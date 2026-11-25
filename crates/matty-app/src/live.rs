@@ -411,6 +411,8 @@ pub struct Update {
     /// What the server allows of message priority, acknowledgements and
     /// scheduling (#220).
     pub features: Option<crate::priority::Features>,
+    /// The help pages the server links to, when the config arrived.
+    pub help_links: Option<matty_api::HelpLinks>,
     /// The system console's announcement banner, when the config arrived:
     /// `Some(None)` once an admin turned it off.
     pub announcement: Option<Option<matty_api::capabilities::Announcement>>,
@@ -3595,6 +3597,7 @@ impl Live {
                 self.max_post_size = Some(capabilities.max_post_size);
                 update.max_file_size = Some(capabilities.max_file_size);
                 update.features = Some(crate::priority::Features::of(capabilities));
+                update.help_links = Some(capabilities.help_links.clone());
                 update.announcement = Some(capabilities.announcement.clone());
                 self.threads_choice = Some(matches!(
                     capabilities.collapsed_threads,
