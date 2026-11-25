@@ -1,16 +1,16 @@
-//! Team settings for a team admin (#987): the team's name, description,
+//! Team settings for a team admin (#987): the team's icon, name, description,
 //! whether anyone on the server may join, which email domains may, and
 //! its invite link.
 
 use gpui_kit::{
     App, AppContext as _, Context, Entity, EventEmitter, Focusable as _, IntoElement,
-    ParentElement as _, Render, SharedString, Styled as _, Window, div,
+    ParentElement as _, Render, SharedString, Styled as _, StyledImage as _, Window, div,
 };
 
 use crate::style::{self, TypeStyleExt as _};
 use crate::t;
 use crate::ui::{
-    button::{Button, ButtonVariant},
+    button::{Button, ButtonSize, ButtonVariant},
     dialog::{DialogHandle, dialog_description, dialog_title},
     field::Field,
     input::{InputEvent, InputState},
@@ -33,6 +33,8 @@ pub struct TeamSettings {
     /// Email domains a person must have to join, as the server keeps
     /// them; empty for any.
     pub domains: SharedString,
+    /// The team's `last_team_icon_update`; 0 when it has no icon.
+    pub icon: i64,
     /// The invite link, when the server gave its id.
     pub link: Option<SharedString>,
 }
@@ -50,6 +52,11 @@ pub enum TeamSettingsEvent {
     RegenerateInvite {
         team_id: SharedString,
     },
+    /// A new icon (its bytes and file name), or `None` to remove it.
+    Icon {
+        team_id: SharedString,
+        icon: Option<(Vec<u8>, String)>,
+    },
 }
 
 pub struct TeamSettingsView {
@@ -59,6 +66,8 @@ pub struct TeamSettingsView {
     domains: Entity<InputState>,
     open: bool,
     copied: bool,
+    /// Why the last picked icon was refused.
+    icon_error: Option<SharedString>,
     handle: DialogHandle,
     focus_name: bool,
     _subscriptions: Vec<gpui_kit::Subscription>,
@@ -94,6 +103,7 @@ impl TeamSettingsView {
             domains,
             open: false,
             copied: false,
+            icon_error: None,
             handle: DialogHandle::new(false),
             focus_name: false,
             _subscriptions: subscriptions,
@@ -115,6 +125,7 @@ impl TeamSettingsView {
         self.fill(&team, window, cx);
         self.team = Some(team);
         self.copied = false;
+        self.icon_error = None;
         self.handle.open(window, cx);
         self.focus_name = true;
         cx.notify();
@@ -205,6 +216,147 @@ impl TeamSettingsView {
         };
         self.handle.close(window, cx);
         cx.emit(event);
+    }
+
+    /// Asks for an image and sends it as the team's icon straight away,
+    /// as the web app does; the dialog's Save is for the text fields.
+    fn pick_icon(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id().cloned() else {
+            return;
+        };
+        let receiver = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(t!("team-settings-icon-prompt")),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            if crate::profile_editor::picture_problem(&path).is_some() {
+                this.update(cx, |this, cx| {
+                    this.icon_error = Some(t!("team-settings-icon-type"));
+                    cx.notify();
+                })
+                .ok();
+                return;
+            }
+            let read = path.clone();
+            let bytes = cx
+                .background_executor()
+                .spawn(async move { std::fs::read(read) })
+                .await;
+            this.update(cx, |this, cx| {
+                match bytes {
+                    Ok(bytes) => {
+                        let name = path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "icon".into());
+                        this.icon_error = None;
+                        cx.emit(TeamSettingsEvent::Icon {
+                            team_id,
+                            icon: Some((bytes, name)),
+                        });
+                    }
+                    Err(_) => this.icon_error = Some(t!("profile-picture-unreadable")),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn remove_icon(&mut self, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id().cloned() else {
+            return;
+        };
+        self.icon_error = None;
+        cx.emit(TeamSettingsEvent::Icon {
+            team_id,
+            icon: None,
+        });
+        cx.notify();
+    }
+
+    /// The team's icon, or its initials, beside Upload and Remove.
+    fn icon_row(&self, theme: &UiTheme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let (id, name, version) = self
+            .team
+            .as_ref()
+            .map(|team| (team.id.clone(), team.name.clone(), team.icon))
+            .unwrap_or_default();
+        let team = crate::teams::Team::new(id, name).icon(version);
+        let square = div()
+            .size(gpui_kit::px(48.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(theme.radius.lg)
+            .bg(theme.colors.secondary)
+            .text_color(theme.colors.secondary_foreground)
+            .text_size(theme.text(18.))
+            .font_weight(gpui_kit::FontWeight::SEMIBOLD);
+        let square = match team.icon_image(cx) {
+            Some(image) => square.child(
+                gpui_kit::img(image)
+                    .size_full()
+                    .rounded(theme.radius.lg)
+                    .object_fit(gpui_kit::ObjectFit::Cover),
+            ),
+            None => square.child(team.initials().to_uppercase()),
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(theme.space(3.))
+            .child(square)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(theme.space(1.))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(theme.space(2.))
+                            .child(
+                                Button::new("team-settings.icon")
+                                    .variant(ButtonVariant::Outline)
+                                    .size(ButtonSize::Sm)
+                                    .label(t!("team-settings-icon-upload"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.pick_icon(window, cx)
+                                    })),
+                            )
+                            .children((version > 0).then(|| {
+                                Button::new("team-settings.icon.remove")
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .label(t!("team-settings-icon-remove"))
+                                    .on_click(cx.listener(|this, _, _, cx| this.remove_icon(cx)))
+                            })),
+                    )
+                    .child(
+                        div()
+                            .type_style(style::META, theme)
+                            .text_color(match self.icon_error {
+                                Some(_) => theme.colors.destructive,
+                                None => theme.colors.muted_foreground,
+                            })
+                            .child(
+                                self.icon_error
+                                    .clone()
+                                    .unwrap_or_else(|| t!("team-settings-icon-hint")),
+                            ),
+                    ),
+            )
     }
 
     fn copy_link(&mut self, cx: &mut Context<Self>) {
@@ -325,6 +477,7 @@ impl Render for TeamSettingsView {
                             .child(t!("team-settings-detail")),
                     ),
             )
+            .child(self.icon_row(&theme, cx))
             .child(name)
             .child(description)
             .child(

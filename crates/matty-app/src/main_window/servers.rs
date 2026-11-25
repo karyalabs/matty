@@ -504,14 +504,16 @@ impl MainWindow {
             .teams()
             .iter()
             .find(|team| team.id == id)
-            .map(|team| team.name.clone())
+            .map(|team| (team.name.clone(), team.icon))
             .unwrap_or_default();
+        let (name, icon) = name;
         let team = crate::team_settings::TeamSettings {
             id: id.clone(),
             name,
             description: gpui_kit::SharedString::default(),
             open: false,
             domains: gpui_kit::SharedString::default(),
+            icon,
             link: None,
         };
         self.team_settings
@@ -613,6 +615,12 @@ impl MainWindow {
                     allowed_domains: domains.clone(),
                 },
             }),
+            crate::team_settings::TeamSettingsEvent::Icon { team_id, icon } => {
+                live.send(matty_sync::Command::SetTeamIcon {
+                    team_id: team_id.to_string(),
+                    icon: icon.clone(),
+                })
+            }
             crate::team_settings::TeamSettingsEvent::RegenerateInvite { team_id } => {
                 live.send(matty_sync::Command::RegenerateInvite {
                     team_id: team_id.to_string(),

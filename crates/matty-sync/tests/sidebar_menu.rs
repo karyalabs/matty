@@ -413,6 +413,55 @@ async fn a_new_picture_uploads_and_a_removed_one_resets() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_team_icon_uploads_and_a_removed_one_goes() {
+    let server = server().await;
+    for verb in ["POST", "DELETE"] {
+        Mock::given(method(verb))
+            .and(path("/api/v4/teams/t1/image"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "OK"})))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v4/teams/t1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"id": "t1", "name": "t1", "display_name": "Team", "last_team_icon_update": 42}),
+        ))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+
+    sync.send(Command::SetTeamIcon {
+        team_id: "t1".into(),
+        icon: Some((b"\x89PNG fake".to_vec(), "team.png".into())),
+    });
+    next(&changes, |c| {
+        matches!(c, ChangeSet::TeamSettings(team)
+            if team.id == "t1" && team.last_team_icon_update == 42)
+    })
+    .await;
+    sync.send(Command::SetTeamIcon {
+        team_id: "t1".into(),
+        icon: None,
+    });
+    next(&changes, |c| matches!(c, ChangeSet::TeamSettings(_))).await;
+
+    let requests = server.received_requests().await.unwrap_or_default();
+    let image = |verb: &str| {
+        requests
+            .iter()
+            .find(|r| r.method.as_str() == verb && r.url.path() == "/api/v4/teams/t1/image")
+            .cloned()
+    };
+    let upload = image("POST").expect("the icon was uploaded");
+    let body = String::from_utf8_lossy(&upload.body);
+    assert!(body.contains("name=\"image\""), "{body}");
+    assert!(body.contains("filename=\"team.png\""), "{body}");
+    assert!(image("DELETE").is_some(), "the icon was removed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn categories_and_channels_move_up_and_down() {
     let server = server().await;
     Mock::given(method("GET"))

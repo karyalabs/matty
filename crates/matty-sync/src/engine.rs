@@ -887,6 +887,15 @@ pub enum Command {
         /// The team.
         team_id: String,
     },
+    /// Sets a team's icon from an image file's bytes and name, or with
+    /// `None` removes it; the team comes back in
+    /// [`ChangeSet::TeamSettings`](crate::ChangeSet::TeamSettings).
+    SetTeamIcon {
+        /// The team.
+        team_id: String,
+        /// The image's bytes and file name, or `None` to remove it.
+        icon: Option<(Vec<u8>, String)>,
+    },
     /// The user's signed-in sessions (#964);
     /// [`ChangeSet::Sessions`](crate::ChangeSet::Sessions) answers.
     Sessions,
@@ -1554,6 +1563,11 @@ impl std::fmt::Debug for Command {
             Self::RegenerateInvite { team_id } => f
                 .debug_struct("RegenerateInvite")
                 .field("team_id", team_id)
+                .finish(),
+            Self::SetTeamIcon { team_id, icon } => f
+                .debug_struct("SetTeamIcon")
+                .field("team_id", team_id)
+                .field("icon", &icon.as_ref().map(|(_, name)| name))
                 .finish(),
             Self::Sessions => f.write_str("Sessions"),
             Self::RevokeSession { session_id } => f
@@ -2812,6 +2826,9 @@ impl Engine {
                 }
                 Message::Command(Command::RegenerateInvite { team_id }) => {
                     writes.push(Write::RegenerateInvite { team_id });
+                }
+                Message::Command(Command::SetTeamIcon { team_id, icon }) => {
+                    writes.push(Write::TeamIcon { team_id, icon });
                 }
                 Message::Command(Command::Sessions) => writes.push(Write::Sessions),
                 Message::Command(Command::RevokeSession { session_id }) => {

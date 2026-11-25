@@ -231,6 +231,10 @@ pub(crate) enum Write {
     RegenerateInvite {
         team_id: String,
     },
+    TeamIcon {
+        team_id: String,
+        icon: Option<(Vec<u8>, String)>,
+    },
     Sessions,
     RevokeSession {
         session_id: String,
@@ -398,6 +402,8 @@ impl Write {
             Self::RemoveFromTeam { .. } => "remove from team",
             Self::PatchTeam { .. } => "change team settings",
             Self::RegenerateInvite { .. } => "regenerate the invite link",
+            Self::TeamIcon { icon: Some(_), .. } => "change the team icon",
+            Self::TeamIcon { icon: None, .. } => "remove the team icon",
             Self::Sessions => "list your sessions",
             Self::RevokeSession { .. } => "sign out a session",
             Self::Password(_) => "change your password",
@@ -523,6 +529,7 @@ impl Write {
             | Self::RemoveFromTeam { team_id, .. }
             | Self::PatchTeam { team_id, .. }
             | Self::RegenerateInvite { team_id }
+            | Self::TeamIcon { team_id, .. }
             | Self::AddTeamMembers { team_id, .. }
             | Self::InviteByEmail { team_id, .. } => team_id.clone(),
             Self::Join { channel_id }
@@ -1332,6 +1339,16 @@ pub(crate) async fn run(
             Write::PatchTeam { team_id, patch } => Some(Loaded::TeamSettings(Box::new(
                 client.patch_team(&team_id, &patch).await?,
             ))),
+            Write::TeamIcon { team_id, icon } => {
+                match icon {
+                    Some((bytes, file_name)) => {
+                        client.set_team_icon(&team_id, bytes, file_name).await?
+                    }
+                    None => client.remove_team_icon(&team_id).await?,
+                }
+                // The new `last_team_icon_update` refetches the icon.
+                Some(Loaded::TeamSettings(Box::new(client.team(&team_id).await?)))
+            }
             Write::RegenerateInvite { team_id } => Some(Loaded::TeamSettings(Box::new(
                 client.regenerate_invite_id(&team_id).await?,
             ))),

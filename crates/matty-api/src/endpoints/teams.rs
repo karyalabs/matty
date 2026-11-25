@@ -122,6 +122,28 @@ impl Client {
             .await
     }
 
+    /// `POST teams/{team_id}/image`: sets the team's icon from an image
+    /// file (JPEG, PNG, GIF or BMP).
+    pub async fn set_team_icon(
+        &self,
+        team_id: &str,
+        bytes: Vec<u8>,
+        file_name: String,
+    ) -> Result<(), ApiError> {
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name);
+        let form = reqwest::multipart::Form::new().part("image", part);
+        self.send_multipart(&format!("teams/{team_id}/image"), form)
+            .await
+            .map(|_| ())
+    }
+
+    /// `DELETE teams/{team_id}/image`: goes back to the team's initials.
+    pub async fn remove_team_icon(&self, team_id: &str) -> Result<(), ApiError> {
+        self.delete::<Value>(&format!("teams/{team_id}/image"))
+            .await
+            .map(|_| ())
+    }
+
     /// `POST teams/{team_id}/invite/email`: emails an invite to each address.
     pub async fn invite_by_email(&self, team_id: &str, emails: &[String]) -> Result<(), ApiError> {
         self.post::<_, Value>(&format!("teams/{team_id}/invite/email"), &emails)

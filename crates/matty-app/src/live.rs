@@ -3333,6 +3333,7 @@ impl Live {
                     description: team.description.clone().into(),
                     open: team.allow_open_invite,
                     domains: team.allowed_domains.clone().into(),
+                    icon: team.last_team_icon_update,
                     link: self.invite_link(&team.invite_id),
                 });
             }
