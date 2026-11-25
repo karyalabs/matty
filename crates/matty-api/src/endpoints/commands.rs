@@ -4,7 +4,7 @@
 use crate::{
     ApiError, Client,
     models::{
-        CommandResponse, CommandSuggestion, CustomCommand, ExecuteCommand, IncomingWebhook,
+        Bot, CommandResponse, CommandSuggestion, CustomCommand, ExecuteCommand, IncomingWebhook,
         OutgoingWebhook, SlashCommand,
     },
 };
@@ -79,6 +79,60 @@ impl Client {
     pub async fn delete_outgoing_webhook(&self, hook_id: &str) -> Result<(), ApiError> {
         let _: serde_json::Value = self.delete(&format!("hooks/outgoing/{hook_id}")).await?;
         Ok(())
+    }
+
+    /// `GET bots?include_deleted=true`: the bot accounts the user may see,
+    /// disabled ones too.
+    pub async fn bots(&self) -> Result<Vec<Bot>, ApiError> {
+        let bots: Option<Vec<Bot>> = self
+            .get_query(
+                "bots",
+                &[
+                    ("include_deleted", "true".to_owned()),
+                    ("page", "0".to_owned()),
+                    ("per_page", "200".to_owned()),
+                ],
+            )
+            .await?;
+        Ok(bots.unwrap_or_default())
+    }
+
+    /// `POST bots`.
+    pub async fn create_bot(
+        &self,
+        username: &str,
+        display_name: &str,
+        description: &str,
+    ) -> Result<Bot, ApiError> {
+        self.post(
+            "bots",
+            &serde_json::json!({
+                "username": username,
+                "display_name": display_name,
+                "description": description,
+            }),
+        )
+        .await
+    }
+
+    /// `PUT bots/{user_id}`: a new `@name`, name or description.
+    pub async fn patch_bot(&self, bot: &Bot) -> Result<Bot, ApiError> {
+        self.put(
+            &format!("bots/{}", bot.user_id),
+            &serde_json::json!({
+                "username": bot.username,
+                "display_name": bot.display_name,
+                "description": bot.description,
+            }),
+        )
+        .await
+    }
+
+    /// `POST bots/{user_id}/enable` or `/disable`.
+    pub async fn set_bot_active(&self, user_id: &str, active: bool) -> Result<Bot, ApiError> {
+        let verb = if active { "enable" } else { "disable" };
+        self.post(&format!("bots/{user_id}/{verb}"), &serde_json::json!({}))
+            .await
     }
 
     /// `DELETE commands/{command_id}`.

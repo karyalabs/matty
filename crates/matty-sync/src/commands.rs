@@ -435,6 +435,14 @@ impl Write {
             Self::ChangeIntegration(crate::IntegrationChange::DeleteOutgoing { .. }) => {
                 "delete an outgoing webhook"
             }
+            Self::ChangeIntegration(crate::IntegrationChange::CreateBot { .. }) => "create a bot",
+            Self::ChangeIntegration(
+                crate::IntegrationChange::UpdateBot { .. }
+                | crate::IntegrationChange::SetBotActive { .. },
+            ) => "change a bot",
+            Self::ChangeIntegration(crate::IntegrationChange::BotToken { .. }) => {
+                "create a bot token"
+            }
             Self::CreateAccessToken { .. } => "create an access token",
             Self::SetAccessTokenActive { active: true, .. } => "turn on an access token",
             Self::SetAccessTokenActive { active: false, .. } => "turn off an access token",
@@ -1445,6 +1453,39 @@ pub(crate) async fn run(
                         client.delete_outgoing_webhook(&hook_id).await?;
                         None
                     }
+                    IntegrationChange::CreateBot {
+                        username,
+                        display_name,
+                        description,
+                        ..
+                    } => Some(
+                        client
+                            .create_bot(&username, &display_name, &description)
+                            .await?
+                            .user_id,
+                    ),
+                    IntegrationChange::UpdateBot { bot, .. } => {
+                        client.patch_bot(&bot).await?;
+                        None
+                    }
+                    IntegrationChange::SetBotActive {
+                        user_id, active, ..
+                    } => {
+                        client.set_bot_active(&user_id, active).await?;
+                        None
+                    }
+                    IntegrationChange::BotToken {
+                        user_id,
+                        description,
+                        ..
+                    } => {
+                        let token = client.create_access_token(&user_id, &description).await?;
+                        let mut loaded = integrations(&client, team_id, None).await?;
+                        if let Loaded::Integrations { secret, .. } = &mut loaded {
+                            *secret = Some(token.token);
+                        }
+                        return Ok(Some(loaded));
+                    }
                 };
                 Some(integrations(&client, team_id, created).await?)
             }
@@ -1753,13 +1794,14 @@ async fn integrations(
     team_id: String,
     created: Option<String>,
 ) -> Result<Loaded, ApiError> {
-    let (hooks, commands, outgoing) = tokio::join!(
+    let (hooks, commands, outgoing, bots) = tokio::join!(
         client.incoming_webhooks(&team_id),
         client.custom_commands(&team_id),
-        client.outgoing_webhooks(&team_id)
+        client.outgoing_webhooks(&team_id),
+        client.bots()
     );
-    let hooks = match (hooks, &commands, &outgoing) {
-        (Err(error), Err(_), Err(_)) => return Err(error),
+    let hooks = match (hooks, &commands, &outgoing, &bots) {
+        (Err(error), Err(_), Err(_), Err(_)) => return Err(error),
         (hooks, ..) => hooks.unwrap_or_default(),
     };
     Ok(Loaded::Integrations {
@@ -1767,7 +1809,9 @@ async fn integrations(
         hooks,
         commands: commands.unwrap_or_default(),
         outgoing: outgoing.unwrap_or_default(),
+        bots: bots.unwrap_or_default(),
         created,
+        secret: None,
     })
 }
 

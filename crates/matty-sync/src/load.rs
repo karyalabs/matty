@@ -79,7 +79,9 @@ pub(crate) enum Loaded {
         hooks: Vec<matty_api::models::IncomingWebhook>,
         commands: Vec<matty_api::models::CustomCommand>,
         outgoing: Vec<matty_api::models::OutgoingWebhook>,
+        bots: Vec<matty_api::models::Bot>,
         created: Option<String>,
+        secret: Option<String>,
     },
     /// The first page of a group's people.
     GroupMembers {

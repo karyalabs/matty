@@ -10,7 +10,7 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _,
 };
-use matty_api::models::{CustomCommand, IncomingWebhook, OutgoingWebhook};
+use matty_api::models::{Bot, CustomCommand, IncomingWebhook, OutgoingWebhook};
 use matty_sync::IntegrationChange;
 
 use crate::priority::Features;
@@ -34,8 +34,11 @@ pub struct Integrations {
     pub hooks: Arc<[IncomingWebhook]>,
     pub commands: Arc<[CustomCommand]>,
     pub outgoing: Arc<[OutgoingWebhook]>,
-    /// The webhook or command just made.
+    pub bots: Arc<[Bot]>,
+    /// The webhook, command or bot just made.
     pub created: Option<String>,
+    /// A bot token just made.
+    pub secret: Option<String>,
 }
 
 /// What the dialog asks of sync.
@@ -49,6 +52,7 @@ enum Kind {
     Webhooks,
     Outgoing,
     Commands,
+    Bots,
 }
 
 impl Kind {
@@ -57,6 +61,7 @@ impl Kind {
             Self::Webhooks => "hooks",
             Self::Outgoing => "outgoing",
             Self::Commands => "commands",
+            Self::Bots => "bots",
         }
     }
 
@@ -67,6 +72,7 @@ impl Kind {
             (Self::Webhooks, features.incoming_webhooks),
             (Self::Outgoing, features.outgoing_webhooks),
             (Self::Commands, features.custom_commands),
+            (Self::Bots, features.bot_accounts),
         ]
         .into_iter()
         .filter_map(|(kind, on)| on.then_some(kind))
@@ -83,6 +89,8 @@ enum Mode {
     Saving,
     /// Made: its URL or token shows once here.
     Created(String),
+    /// A bot's new access token, shown once (#1075).
+    Secret(String),
 }
 
 /// The server's limits on a command's trigger.
@@ -113,6 +121,21 @@ fn url_problem(url: &str) -> Option<SharedString> {
         Some(host) if !host.is_empty() => None,
         _ => Some(t!("integrations-url-invalid")),
     }
+}
+
+/// What is wrong with a bot's `@name`, if anything: the server's rule of
+/// 3 to 22 lowercase letters, digits, `.`, `-` or `_`, starting with a
+/// letter.
+fn username_problem(username: &str) -> Option<SharedString> {
+    let plain = username
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'));
+    let starts = username
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase());
+    (!(3..=22).contains(&username.chars().count()) || !plain || !starts)
+        .then(|| t!("integrations-username-invalid"))
 }
 
 /// Words or URLs typed into one field, split on commas and spaces.
@@ -159,6 +182,9 @@ pub struct IntegrationsView {
     when: Entity<SelectState>,
     callbacks: Entity<InputState>,
     content_type: Entity<SelectState>,
+    username: Entity<InputState>,
+    /// The pending save is a bot token, so a refusal goes back to the list.
+    making_token: bool,
     handle: DialogHandle,
     focus_first: bool,
     /// The dialog itself, focused when the focused control goes away (a
@@ -182,6 +208,7 @@ impl IntegrationsView {
         let hint = input(t!("integrations-hint-placeholder"), window, cx);
         let words = input(t!("integrations-words-placeholder"), window, cx);
         let callbacks = input(t!("integrations-callbacks-placeholder"), window, cx);
+        let username = input(t!("integrations-username-placeholder"), window, cx);
         let select =
             |items: Vec<SelectItem>, first: &str, window: &mut Window, cx: &mut Context<Self>| {
                 let first: SharedString = first.to_owned().into();
@@ -234,6 +261,7 @@ impl IntegrationsView {
             &hint,
             &words,
             &callbacks,
+            &username,
         ] {
             subscriptions.push(cx.subscribe_in(
                 field,
@@ -275,6 +303,8 @@ impl IntegrationsView {
             when,
             callbacks,
             content_type,
+            username,
+            making_token: false,
             handle: DialogHandle::new(false),
             focus_first: false,
             focus: cx.focus_handle(),
@@ -344,12 +374,11 @@ impl IntegrationsView {
                 }
                 if self.mode == Mode::Saving {
                     self.refocus = true;
-                    self.mode = match &integrations.created {
-                        Some(created) => {
-                            self.copied = false;
-                            Mode::Created(created.clone())
-                        }
-                        None => Mode::List,
+                    self.copied = false;
+                    self.mode = match (&integrations.secret, &integrations.created) {
+                        (Some(secret), _) => Mode::Secret(secret.clone()),
+                        (None, Some(created)) => Mode::Created(created.clone()),
+                        (None, None) => Mode::List,
                     };
                 }
                 self.error = None;
@@ -357,7 +386,11 @@ impl IntegrationsView {
             }
             Err(error) => {
                 if self.mode == Mode::Saving {
-                    self.mode = Mode::Form;
+                    self.mode = if self.making_token {
+                        Mode::List
+                    } else {
+                        Mode::Form
+                    };
                 }
                 self.error = Some(error);
             }
@@ -393,11 +426,18 @@ impl IntegrationsView {
             .and_then(|id| loaded.outgoing.iter().find(|hook| &hook.id == id))
             .cloned()
             .unwrap_or_default();
+        let bot = id
+            .as_ref()
+            .and_then(|id| loaded.bots.iter().find(|bot| &bot.user_id == id))
+            .cloned()
+            .unwrap_or_default();
         let (name, description) = match self.kind {
             Kind::Webhooks => (hook.display_name.clone(), hook.description.clone()),
             Kind::Commands => (command.display_name.clone(), command.description.clone()),
             Kind::Outgoing => (outgoing.display_name.clone(), outgoing.description.clone()),
+            Kind::Bots => (bot.display_name.clone(), bot.description.clone()),
         };
+        self.set_text(&self.username, &bot.username, window, cx);
         self.set_text(&self.name, &name, window, cx);
         self.set_text(&self.description, &description, window, cx);
         self.set_text(&self.trigger, &command.trigger, window, cx);
@@ -480,7 +520,38 @@ impl IntegrationsView {
                 self.words_problem(cx).is_some()
                     || callbacks_problem(&split_list(&Self::value(&self.callbacks, cx))).is_some()
             }
+            Kind::Bots => username_problem(&Self::value(&self.username, cx)).is_some(),
         }
+    }
+
+    /// Asks for a new token for the bot with `user_id`.
+    fn make_token(&mut self, user_id: String, cx: &mut Context<Self>) {
+        let username = self
+            .loaded
+            .as_ref()
+            .and_then(|loaded| loaded.bots.iter().find(|bot| bot.user_id == user_id))
+            .map(|bot| bot.username.clone())
+            .unwrap_or_default();
+        self.mode = Mode::Saving;
+        self.making_token = true;
+        self.error = None;
+        self.refocus = true;
+        cx.emit(IntegrationsEvent::Change(IntegrationChange::BotToken {
+            team_id: self.team_id.clone(),
+            user_id,
+            description: t!("integrations-token-description", username = username).to_string(),
+        }));
+        cx.notify();
+    }
+
+    fn set_bot_active(&mut self, user_id: String, active: bool, cx: &mut Context<Self>) {
+        self.refocus = true;
+        cx.emit(IntegrationsEvent::Change(IntegrationChange::SetBotActive {
+            team_id: self.team_id.clone(),
+            user_id,
+            active,
+        }));
+        cx.notify();
     }
 
     fn save(&mut self, _: &mut Window, cx: &mut Context<Self>) {
@@ -580,7 +651,30 @@ impl IntegrationsView {
                     IntegrationChange::CreateOutgoing(hook)
                 }
             }
+            Kind::Bots => {
+                let username = Self::value(&self.username, cx);
+                match editing
+                    .and_then(|id| loaded.bots.iter().find(|bot| bot.user_id == id).cloned())
+                {
+                    Some(bot) => IntegrationChange::UpdateBot {
+                        team_id: self.team_id.clone(),
+                        bot: Box::new(Bot {
+                            username,
+                            display_name,
+                            description,
+                            ..bot
+                        }),
+                    },
+                    None => IntegrationChange::CreateBot {
+                        team_id: self.team_id.clone(),
+                        username,
+                        display_name,
+                        description,
+                    },
+                }
+            }
         };
+        self.making_token = false;
         self.mode = Mode::Saving;
         self.error = None;
         cx.emit(IntegrationsEvent::Change(change));
@@ -609,6 +703,12 @@ impl IntegrationsView {
                 team_id,
                 command_id: id,
             },
+            // A bot is disabled, not deleted, as in the webapp.
+            Kind::Bots => IntegrationChange::SetBotActive {
+                team_id,
+                user_id: id,
+                active: false,
+            },
         }));
         cx.notify();
     }
@@ -632,12 +732,16 @@ impl IntegrationsView {
         id: String,
         title: SharedString,
         detail: SharedString,
+        disabled: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let confirming = self.confirm_delete.as_deref() == Some(id.as_str());
+        let bot = self.kind == Kind::Bots;
         let deleted = id.clone();
         let edited = id.clone();
+        let tokened = id.clone();
+        let enabled = id.clone();
         div()
             .id(gpui_kit::ElementId::Name(
                 format!("integrations.row.{id}").into(),
@@ -661,6 +765,7 @@ impl IntegrationsView {
                             Kind::Webhooks => LucideIcon::Webhook,
                             Kind::Outgoing => LucideIcon::Send,
                             Kind::Commands => LucideIcon::SquareSlash,
+                            Kind::Bots => LucideIcon::Bot,
                         })
                         .size(scaled(&theme, 15.))
                         .text_color(theme.colors.muted_foreground),
@@ -687,7 +792,33 @@ impl IntegrationsView {
                             .child(detail),
                     ),
             )
-            .when(!confirming, |row| {
+            .when(disabled, |row| {
+                row.child(
+                    Button::new(gpui_kit::ElementId::Name(
+                        format!("integrations.enable.{id}").into(),
+                    ))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .label(t!("integrations-enable"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_bot_active(enabled.clone(), true, cx)
+                    })),
+                )
+            })
+            .when(bot && !disabled && !confirming, |row| {
+                row.child(
+                    Button::new(gpui_kit::ElementId::Name(
+                        format!("integrations.token.{id}").into(),
+                    ))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .label(t!("integrations-add-token"))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.make_token(tokened.clone(), cx)),
+                    ),
+                )
+            })
+            .when(!disabled && !confirming, |row| {
                 row.child(
                     Button::new(gpui_kit::ElementId::Name(
                         format!("integrations.edit.{id}").into(),
@@ -714,23 +845,26 @@ impl IntegrationsView {
                     })),
                 )
             })
-            .child(
-                Button::new(gpui_kit::ElementId::Name(
-                    format!("integrations.delete.{id}").into(),
-                ))
-                .variant(if confirming {
-                    ButtonVariant::Destructive
-                } else {
-                    ButtonVariant::Ghost
-                })
-                .size(ButtonSize::Sm)
-                .label(if confirming {
-                    t!("integrations-delete-confirm")
-                } else {
-                    t!("integrations-delete")
-                })
-                .on_click(cx.listener(move |this, _, _, cx| this.delete(deleted.clone(), cx))),
-            )
+            .when(!disabled, |row| {
+                row.child(
+                    Button::new(gpui_kit::ElementId::Name(
+                        format!("integrations.delete.{id}").into(),
+                    ))
+                    .variant(if confirming {
+                        ButtonVariant::Destructive
+                    } else {
+                        ButtonVariant::Ghost
+                    })
+                    .size(ButtonSize::Sm)
+                    .label(match (confirming, bot) {
+                        (true, true) => t!("integrations-disable-confirm"),
+                        (true, false) => t!("integrations-delete-confirm"),
+                        (false, true) => t!("integrations-disable"),
+                        (false, false) => t!("integrations-delete"),
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.delete(deleted.clone(), cx))),
+                )
+            })
     }
 
     fn list(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
@@ -757,7 +891,7 @@ impl IntegrationsView {
                             description = hook.description.clone()
                         )
                     };
-                    self.row(hook.id.clone(), title, detail, cx)
+                    self.row(hook.id.clone(), title, detail, false, cx)
                         .into_any_element()
                 })
                 .collect(),
@@ -784,7 +918,7 @@ impl IntegrationsView {
                             words = words
                         ),
                     };
-                    self.row(hook.id.clone(), title, detail, cx)
+                    self.row(hook.id.clone(), title, detail, false, cx)
                         .into_any_element()
                 })
                 .collect(),
@@ -803,10 +937,32 @@ impl IntegrationsView {
                     } else {
                         command.description.clone().into()
                     };
-                    self.row(command.id.clone(), title, detail, cx)
+                    self.row(command.id.clone(), title, detail, false, cx)
                         .into_any_element()
                 })
                 .collect(),
+            (Some(loaded), Kind::Bots) => {
+                // Enabled bots first, as the webapp lists them.
+                let mut bots: Vec<&Bot> = loaded.bots.iter().collect();
+                bots.sort_by_key(|bot| (bot.delete_at != 0, bot.username.clone()));
+                bots.into_iter()
+                    .map(|bot| {
+                        let title: SharedString = if bot.display_name.is_empty() {
+                            format!("@{}", bot.username).into()
+                        } else {
+                            format!("{} · @{}", bot.display_name, bot.username).into()
+                        };
+                        let disabled = bot.delete_at != 0;
+                        let detail: SharedString = match (disabled, bot.description.is_empty()) {
+                            (true, _) => t!("integrations-bot-disabled"),
+                            (false, true) => t!("integrations-bot-detail"),
+                            (false, false) => bot.description.clone().into(),
+                        };
+                        self.row(bot.user_id.clone(), title, detail, disabled, cx)
+                            .into_any_element()
+                    })
+                    .collect()
+            }
         };
         let empty = match (&self.loaded, rows.is_empty(), self.kind) {
             (None, ..) if self.error.is_none() => Some(t!("integrations-loading")),
@@ -814,6 +970,7 @@ impl IntegrationsView {
             (Some(_), true, Kind::Webhooks) => Some(t!("integrations-no-hooks")),
             (Some(_), true, Kind::Outgoing) => Some(t!("integrations-no-outgoing")),
             (Some(_), true, Kind::Commands) => Some(t!("integrations-no-commands")),
+            (Some(_), true, Kind::Bots) => Some(t!("integrations-no-bots")),
         };
         div()
             .id("integrations.list")
@@ -898,6 +1055,21 @@ impl IntegrationsView {
                     .child(content_type)
                     .into_any_element()
             }
+            Kind::Bots => {
+                let username_now = Self::value(&self.username, cx);
+                let mut username = Field::new("integrations.username", &self.username)
+                    .label(t!("integrations-username"));
+                username = match username_problem(&username_now)
+                    .filter(|_| self.tried || !username_now.is_empty())
+                {
+                    Some(problem) => username.error(problem),
+                    None => username.description(t!("integrations-username-hint")),
+                };
+                body.child(username)
+                    .child(name)
+                    .child(description)
+                    .into_any_element()
+            }
             Kind::Commands => {
                 let trigger_now = Self::value(&self.trigger, cx);
                 let url_now = Self::value(&self.url, cx);
@@ -963,7 +1135,38 @@ impl IntegrationsView {
     fn created(&self, id: &str, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = UiTheme::read(cx).clone();
         let loaded = self.loaded.clone().unwrap_or_default();
+        if self.kind == Kind::Bots {
+            let username = loaded
+                .bots
+                .iter()
+                .find(|bot| bot.user_id == id)
+                .map(|bot| bot.username.clone())
+                .unwrap_or_default();
+            let user_id = id.to_owned();
+            return div()
+                .flex()
+                .flex_col()
+                .gap(theme.space(3.))
+                .child(
+                    div()
+                        .type_style(style::UI, &theme)
+                        .text_color(theme.colors.foreground)
+                        .child(t!("integrations-bot-created", username = username)),
+                )
+                .child(
+                    div().flex().child(
+                        Button::new("integrations.bot-token")
+                            .variant(ButtonVariant::Outline)
+                            .label(t!("integrations-add-token"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.make_token(user_id.clone(), cx)
+                            })),
+                    ),
+                )
+                .into_any_element();
+        }
         let (note, secret) = match self.kind {
+            Kind::Bots => (SharedString::default(), String::new()),
             Kind::Webhooks => (t!("integrations-hook-created"), self.hook_url(id)),
             Kind::Commands => (
                 t!("integrations-command-created"),
@@ -984,6 +1187,16 @@ impl IntegrationsView {
                     .unwrap_or_default(),
             ),
         };
+        self.secret_view(note, secret, cx)
+    }
+
+    fn secret_view(
+        &self,
+        note: SharedString,
+        secret: String,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let theme = UiTheme::read(cx).clone();
         let copy = secret.clone();
         div()
             .flex()
@@ -1069,6 +1282,21 @@ impl IntegrationsView {
                 t!("integrations-add-command"),
                 t!("integrations-command-created-text"),
             ),
+            (Mode::Form | Mode::Saving, Kind::Bots) if self.making_token => {
+                (t!("integrations-add-token"), t!("integrations-token-text"))
+            }
+            (Mode::Form | Mode::Saving, Kind::Bots) => (
+                if editing {
+                    t!("integrations-edit-bot")
+                } else {
+                    t!("integrations-add-bot")
+                },
+                t!("integrations-add-bot-text"),
+            ),
+            (Mode::Created(_), Kind::Bots) => {
+                (t!("integrations-add-bot"), t!("integrations-add-bot-text"))
+            }
+            (Mode::Secret(_), _) => (t!("integrations-add-token"), t!("integrations-token-text")),
         }
     }
 }
@@ -1081,6 +1309,7 @@ impl Render for IntegrationsView {
             let first = match self.kind {
                 Kind::Webhooks | Kind::Outgoing => &self.name,
                 Kind::Commands => &self.trigger,
+                Kind::Bots => &self.username,
             };
             let focus = first.read(cx).focus_handle(cx);
             window.on_next_frame(move |window, cx| window.focus(&focus, cx));
@@ -1093,10 +1322,19 @@ impl Render for IntegrationsView {
         let view = cx.entity().downgrade();
         let body = match &self.mode {
             Mode::List => self.list(cx),
+            Mode::Saving if self.making_token => div()
+                .type_style(style::UI, &theme)
+                .text_color(theme.colors.muted_foreground)
+                .child(t!("integrations-loading"))
+                .into_any_element(),
             Mode::Form | Mode::Saving => self.form(cx),
             Mode::Created(id) => {
                 let id = id.clone();
                 self.created(&id, cx)
+            }
+            Mode::Secret(token) => {
+                let token = token.clone();
+                self.secret_view(t!("integrations-token-created"), token, cx)
             }
         };
         let footer = div().flex().items_center().gap(theme.space(2.));
@@ -1109,6 +1347,7 @@ impl Render for IntegrationsView {
                             Kind::Webhooks => t!("integrations-add-hook"),
                             Kind::Outgoing => t!("integrations-add-outgoing"),
                             Kind::Commands => t!("integrations-add-command"),
+                            Kind::Bots => t!("integrations-add-bot"),
                         })
                         .on_click(
                             cx.listener(|this, _, window, cx| this.start_form(None, window, cx)),
@@ -1140,7 +1379,7 @@ impl Render for IntegrationsView {
                         .label(t!("integrations-save"))
                         .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
                 ),
-            Mode::Created(_) => footer.child(div().flex_1()).child(
+            Mode::Created(_) | Mode::Secret(_) => footer.child(div().flex_1()).child(
                 Button::new("integrations.done")
                     .label(t!("integrations-done"))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1162,6 +1401,7 @@ impl Render for IntegrationsView {
                         Kind::Webhooks => t!("integrations-hooks"),
                         Kind::Outgoing => t!("integrations-outgoing"),
                         Kind::Commands => t!("integrations-commands"),
+                        Kind::Bots => t!("integrations-bots"),
                     },
                 ))
             },
@@ -1184,6 +1424,7 @@ impl Render for IntegrationsView {
                     view.update(cx, |this, cx| {
                         this.kind = match value.as_ref() {
                             "commands" => Kind::Commands,
+                            "bots" => Kind::Bots,
                             "outgoing" => Kind::Outgoing,
                             _ => Kind::Webhooks,
                         };

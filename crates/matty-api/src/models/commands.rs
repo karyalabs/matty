@@ -143,6 +143,29 @@ pub struct OutgoingWebhook {
     pub delete_at: i64,
 }
 
+/// A bot account (#1075): a user that integrations sign in as.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct Bot {
+    /// The bot's user id.
+    pub user_id: String,
+    /// Its `@name`.
+    pub username: String,
+    /// Name shown in lists.
+    #[serde(deserialize_with = "null_as_default")]
+    pub display_name: String,
+    /// What it is for.
+    #[serde(deserialize_with = "null_as_default")]
+    pub description: String,
+    /// Who made it.
+    #[serde(deserialize_with = "null_as_default")]
+    pub owner_id: String,
+    /// Created, in epoch milliseconds.
+    pub create_at: i64,
+    /// Disabled, in epoch milliseconds, or 0.
+    pub delete_at: i64,
+}
+
 /// One row of `teams/{team_id}/commands/autocomplete_suggestions`: a
 /// command, a subcommand or an argument value. The server spells these
 /// fields with capitals.

@@ -114,6 +114,42 @@ pub enum IntegrationChange {
     CreateOutgoing(Box<matty_api::models::OutgoingWebhook>),
     /// An outgoing webhook as changed (#1073).
     UpdateOutgoing(Box<matty_api::models::OutgoingWebhook>),
+    /// A new bot account (#1075).
+    CreateBot {
+        /// The team whose lists come back.
+        team_id: String,
+        /// Its `@name`.
+        username: String,
+        /// What it is called.
+        display_name: String,
+        /// What it is for.
+        description: String,
+    },
+    /// A bot's new `@name`, name or description (#1075).
+    UpdateBot {
+        /// The team whose lists come back.
+        team_id: String,
+        /// The bot as changed.
+        bot: Box<matty_api::models::Bot>,
+    },
+    /// Turns a bot on or off (#1075).
+    SetBotActive {
+        /// The team whose lists come back.
+        team_id: String,
+        /// The bot's user id.
+        user_id: String,
+        /// On or off.
+        active: bool,
+    },
+    /// A new access token for a bot, shown once (#1075).
+    BotToken {
+        /// The team whose lists come back.
+        team_id: String,
+        /// The bot's user id.
+        user_id: String,
+        /// What the token is for.
+        description: String,
+    },
     /// An outgoing webhook goes away (#1073).
     DeleteOutgoing {
         /// The team.
@@ -137,7 +173,11 @@ impl IntegrationChange {
             Self::CreateWebhook { team_id, .. }
             | Self::DeleteWebhook { team_id, .. }
             | Self::DeleteCommand { team_id, .. }
-            | Self::DeleteOutgoing { team_id, .. } => team_id,
+            | Self::DeleteOutgoing { team_id, .. }
+            | Self::CreateBot { team_id, .. }
+            | Self::UpdateBot { team_id, .. }
+            | Self::SetBotActive { team_id, .. }
+            | Self::BotToken { team_id, .. } => team_id,
             Self::UpdateWebhook(hook) => &hook.team_id,
             Self::CreateCommand(command) | Self::UpdateCommand(command) => &command.team_id,
             Self::CreateOutgoing(hook) | Self::UpdateOutgoing(hook) => &hook.team_id,
@@ -4167,14 +4207,18 @@ impl Engine {
                 hooks,
                 commands,
                 outgoing,
+                bots,
                 created,
+                secret,
             } => {
                 dirty.direct.push(ChangeSet::Integrations {
                     team_id,
                     hooks: Arc::from(hooks),
                     commands: Arc::from(commands),
                     outgoing: Arc::from(outgoing),
+                    bots: Arc::from(bots),
                     created,
+                    secret,
                 });
             }
             Loaded::GroupMembers {

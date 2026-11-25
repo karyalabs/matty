@@ -77,6 +77,8 @@ pub struct Features {
     pub outgoing_webhooks: bool,
     /// Custom slash commands are on (#1071).
     pub custom_commands: bool,
+    /// Bot accounts can be made (#1075).
+    pub bot_accounts: bool,
 }
 
 impl Global for Features {}
@@ -103,10 +105,12 @@ impl Features {
             gifs: capabilities.giphy_key.is_some(),
             integrations: capabilities.incoming_webhooks
                 || capabilities.custom_commands
-                || capabilities.outgoing_webhooks,
+                || capabilities.outgoing_webhooks
+                || capabilities.bot_accounts,
             incoming_webhooks: capabilities.incoming_webhooks,
             outgoing_webhooks: capabilities.outgoing_webhooks,
             custom_commands: capabilities.custom_commands,
+            bot_accounts: capabilities.bot_accounts,
         }
     }
 
@@ -134,6 +138,7 @@ impl Features {
             incoming_webhooks: true,
             outgoing_webhooks: true,
             custom_commands: true,
+            bot_accounts: true,
         }
     }
 

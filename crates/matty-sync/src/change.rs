@@ -311,9 +311,13 @@ pub enum ChangeSet {
         commands: Arc<[matty_api::models::CustomCommand]>,
         /// Its outgoing webhooks, oldest first (#1073).
         outgoing: Arc<[matty_api::models::OutgoingWebhook]>,
+        /// The bot accounts the user may see, disabled ones too (#1075).
+        bots: Arc<[matty_api::models::Bot]>,
         /// The id of the webhook or command just made, so its URL or
         /// token can be shown.
         created: Option<String>,
+        /// A bot token just made, shown once (#1075).
+        secret: Option<String>,
     },
     /// A group's people, the answer to
     /// [`Command::GroupMembers`](crate::Command::GroupMembers).
