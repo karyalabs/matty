@@ -5279,6 +5279,12 @@ impl Engine {
                 Err(error) => tracing::error!(%error, "could not read a thread snapshot"),
             }
         }
+        // A thread in a direct or group message is in every team's list.
+        if dirty.thread_lists.remove("") {
+            dirty
+                .thread_lists
+                .extend(self.open_thread_lists.iter().cloned());
+        }
         for team_id in dirty.thread_lists {
             if !self.open_thread_lists.contains(&team_id) {
                 continue;

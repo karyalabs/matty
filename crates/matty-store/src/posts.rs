@@ -826,13 +826,15 @@ pub fn thread_last_reply_at(conn: &Connection, thread_id: &str) -> Result<Option
         .optional()?)
 }
 
-/// Records that the user read every followed thread in a team up to
-/// `viewed_at` ("Mark all as read" in the Threads view).
+/// Records that the user read every followed thread in a team, direct and
+/// group messages' included, up to `viewed_at` ("Mark all as read" in the
+/// Threads view).
 pub fn mark_team_threads_read(conn: &Connection, team_id: &str, viewed_at: i64) -> Result<()> {
     conn.prepare_cached(
         "UPDATE threads SET last_viewed_at = MAX(last_viewed_at, ?2), unread_replies = 0,
              unread_mentions = 0
-         WHERE team_id = ?1 AND is_following = 1",
+         WHERE (team_id = ?1 OR channel_id IN (SELECT id FROM channels WHERE team_id = ''))
+           AND is_following = 1",
     )?
     .execute(params![team_id, viewed_at])?;
     Ok(())
@@ -846,7 +848,8 @@ pub fn set_following(conn: &Connection, thread_id: &str, following: bool) -> Res
 }
 
 /// Up to `limit` followed threads in a team, latest reply first, optionally
-/// only those with unread replies.
+/// only those with unread replies. Threads in direct and group messages
+/// belong to every team, as the server lists them.
 pub fn threads(
     conn: &Connection,
     team_id: &str,
@@ -862,7 +865,8 @@ pub fn threads(
         "SELECT id, channel_id, reply_count, last_reply_at, last_viewed_at, unread_replies,
                 unread_mentions, participants
          FROM threads
-         WHERE team_id = ?1 AND is_following = 1 AND delete_at = 0 {unread}
+         WHERE (team_id = ?1 OR channel_id IN (SELECT id FROM channels WHERE team_id = ''))
+           AND is_following = 1 AND delete_at = 0 {unread}
          ORDER BY last_reply_at DESC, id LIMIT ?2"
     ))?;
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -953,10 +957,14 @@ pub fn note_reply(conn: &Connection, root_id: &str, user_id: &str, at: i64) -> R
     Ok(())
 }
 
-/// The team a followed thread is listed under, if cached.
+/// The team a followed thread is listed under, if cached: empty for one in
+/// a direct or group message, which every team lists.
 pub fn thread_team(conn: &Connection, thread_id: &str) -> Result<Option<String>> {
     Ok(conn
-        .prepare_cached("SELECT team_id FROM threads WHERE id = ?1")?
+        .prepare_cached(
+            "SELECT COALESCE(ch.team_id, th.team_id) FROM threads th
+             LEFT JOIN channels ch ON ch.id = th.channel_id WHERE th.id = ?1",
+        )?
         .query_row([thread_id], |row| row.get(0))
         .optional()?)
 }

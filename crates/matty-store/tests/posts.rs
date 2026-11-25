@@ -394,6 +394,72 @@ fn threads_list_with_unread_replies() {
 }
 
 #[test]
+fn threads_in_direct_messages_are_in_every_teams_list() {
+    let store = Store::open_in_memory().unwrap();
+    let conn = store.conn();
+    let channel = |id: &str, team_id: &str, kind: &str| matty_api::models::Channel {
+        id: id.into(),
+        team_id: team_id.into(),
+        kind: kind.into(),
+        ..Default::default()
+    };
+    matty_store::sidebar::upsert_channels(
+        conn,
+        &[
+            channel("town", "t1", "O"),
+            channel("ops", "t2", "O"),
+            channel("dm", "", "D"),
+        ],
+    )
+    .unwrap();
+    let thread = |id: &str, channel: &str| UserThread {
+        id: id.into(),
+        last_reply_at: 10,
+        unread_replies: 1,
+        post: post(id, channel, 1),
+        ..UserThread::default()
+    };
+    // The server lists the direct message's thread under each team; the
+    // cache keeps it under whichever came last.
+    posts::upsert_threads(conn, "t1", &[thread("in-town", "town")]).unwrap();
+    posts::upsert_threads(
+        conn,
+        "t2",
+        &[thread("in-ops", "ops"), thread("direct", "dm")],
+    )
+    .unwrap();
+    let ids = |team: &str| -> Vec<String> {
+        let mut ids: Vec<String> = posts::threads(conn, team, false, 10)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(ids("t1"), ["direct", "in-town"]);
+    assert_eq!(ids("t2"), ["direct", "in-ops"]);
+    assert_eq!(
+        posts::thread_team(conn, "direct").unwrap().as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        posts::thread_team(conn, "in-ops").unwrap().as_deref(),
+        Some("t2")
+    );
+
+    // Mark all as read in one team reads the direct message's thread too.
+    posts::mark_team_threads_read(conn, "t1", 20).unwrap();
+    assert!(posts::threads(conn, "t1", true, 10).unwrap().is_empty());
+    let unread: Vec<String> = posts::threads(conn, "t2", true, 10)
+        .unwrap()
+        .into_iter()
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(unread, ["in-ops"]);
+}
+
+#[test]
 fn cursors_are_kept_and_since_only_moves_forward() {
     let store = Store::open_in_memory().unwrap();
     let conn = store.conn();
