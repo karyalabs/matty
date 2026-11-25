@@ -632,8 +632,9 @@ pub struct TeamWithUnreads {
     pub display_name: String,
     /// Some unmuted channel in the team is unread.
     pub has_unreads: bool,
-    /// Mentions across the team's channels, muted ones included, as the
-    /// webapp counts them.
+    /// Mentions across the team's channels, muted ones included, and with
+    /// Collapsed Reply Threads its followed threads, as the webapp counts
+    /// them.
     pub mentions: i64,
     /// The team's `last_team_icon_update`: 0 when it has no icon, else the
     /// version of the icon to show on the rail (#89).
@@ -698,6 +699,26 @@ pub fn teams_with_unreads(
         let unread = unreads(&channel, &member, mode);
         team.mentions += unread.mentions;
         team.has_unreads |= unread.messages > 0 && !member.is_muted();
+    }
+    // With Collapsed Reply Threads, replies count in followed threads, not
+    // in channels: the webapp's team badge adds their mentions, and an
+    // unread thread makes the team unread. Threads in direct messages
+    // belong to no team, as on the server.
+    if mode == UnreadMode::CollapsedThreads {
+        let mut threads = conn.prepare_cached(
+            "SELECT th.team_id, SUM(th.unread_mentions), MAX(th.unread_replies > 0)
+             FROM threads th JOIN channels ch ON ch.id = th.channel_id AND ch.team_id = th.team_id
+             WHERE th.is_following = 1 AND th.delete_at = 0 AND ch.delete_at = 0
+             GROUP BY th.team_id",
+        )?;
+        let mut rows = threads.query([])?;
+        while let Some(row) = rows.next()? {
+            let team_id: String = row.get(0)?;
+            if let Some(team) = result.iter_mut().find(|team| team.id == team_id) {
+                team.mentions += row.get::<_, i64>(1)?;
+                team.has_unreads |= row.get::<_, bool>(2)?;
+            }
+        }
     }
     Ok(result)
 }

@@ -5242,7 +5242,8 @@ impl Engine {
                     Err(error) => tracing::error!(%error, "could not read custom emoji"),
                 }
             }
-            if dirty.unreads {
+            // A thread's unread state moves its team's badge too.
+            if dirty.unreads || !dirty.thread_lists.is_empty() {
                 match sidebar::teams_with_unreads(conn, user_id, mode) {
                     Ok(teams) => changes.push(ChangeSet::Unreads {
                         teams: Arc::from(teams),

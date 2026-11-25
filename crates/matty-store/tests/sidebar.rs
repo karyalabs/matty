@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use matty_api::models::{
     Channel, ChannelMember, Emoji, Preference, SidebarCategories, SidebarCategory, Team, User,
+    UserThread,
 };
 use matty_store::Store;
 use matty_store::sidebar::{self, UnreadMode, Unreads};
@@ -450,6 +451,52 @@ fn teams_with_unreads_orders_and_badges_teams() {
         .find(|t| t.id == "t1")
         .unwrap();
     assert_eq!(t1.icon, 1_700);
+}
+
+#[test]
+fn followed_threads_add_to_the_team_badge_with_collapsed_threads() {
+    let store = seeded();
+    let conn = store.conn();
+    let thread = |id: &str, channel_id: &str, replies: i64, mentions: i64| UserThread {
+        id: id.into(),
+        unread_replies: replies,
+        unread_mentions: mentions,
+        post: matty_api::models::Post {
+            id: id.into(),
+            channel_id: channel_id.into(),
+            ..Default::default()
+        },
+        ..UserThread::default()
+    };
+    // The server lists threads in direct messages under every team; they
+    // count toward none.
+    let dm = format!("{ME}__u1");
+    matty_store::posts::upsert_threads(
+        conn,
+        "t2",
+        &[
+            thread("a", "ops", 3, 2),
+            thread("b", "ops", 1, 0),
+            thread("gone", "ops", 4, 5),
+            thread("direct", &dm, 2, 7),
+        ],
+    )
+    .unwrap();
+    matty_store::posts::set_following(conn, "gone", false).unwrap();
+    let badge = |mode| {
+        sidebar::teams_with_unreads(conn, ME, mode)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == "t2")
+            .map(|t| (t.has_unreads, t.mentions))
+            .unwrap()
+    };
+    assert_eq!(badge(UnreadMode::CollapsedThreads), (true, 2));
+    assert_eq!(
+        badge(UnreadMode::AllPosts),
+        (true, 0),
+        "replies count in channels"
+    );
 }
 
 #[test]
