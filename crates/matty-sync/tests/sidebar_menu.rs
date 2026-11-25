@@ -462,6 +462,28 @@ async fn a_team_icon_uploads_and_a_removed_one_goes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn deactivating_the_account_tells_the_server() {
+    let server = server().await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/api/v4/users/{ME}/active")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "OK"})))
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+
+    sync.send(Command::DeactivateAccount);
+    next(&changes, |c| matches!(c, ChangeSet::Deactivated)).await;
+
+    let requests = server.received_requests().await.unwrap_or_default();
+    let put = requests
+        .iter()
+        .find(|r| r.method.as_str() == "PUT" && r.url.path().ends_with("/active"))
+        .expect("the account was deactivated");
+    let body: Value = serde_json::from_slice(&put.body).unwrap();
+    assert_eq!(body, json!({"active": false}));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn categories_and_channels_move_up_and_down() {
     let server = server().await;
     Mock::given(method("GET"))

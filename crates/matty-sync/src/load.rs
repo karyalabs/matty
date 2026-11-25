@@ -265,6 +265,8 @@ pub(crate) enum Loaded {
     Sessions(Vec<matty_api::models::Session>),
     /// The user's password changed.
     PasswordChanged,
+    /// The user deactivated their account.
+    Deactivated,
     MfaSecret(matty_api::MfaSecret),
     /// The signed-in user after multi-factor authentication changed.
     Mfa(matty_api::models::User),

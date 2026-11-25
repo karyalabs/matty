@@ -163,6 +163,17 @@ impl Client {
         self.get(&format!("users/{user_id}/sessions")).await
     }
 
+    /// `PUT users/{user_id}/active`: deactivates the account with
+    /// `false`, which also ends its sessions.
+    pub async fn set_user_active(&self, user_id: &str, active: bool) -> Result<(), ApiError> {
+        self.put::<_, Value>(
+            &format!("users/{user_id}/active"),
+            &serde_json::json!({ "active": active }),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// `PUT users/{user_id}/password`.
     pub async fn change_password(
         &self,

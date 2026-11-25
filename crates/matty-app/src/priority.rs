@@ -81,6 +81,8 @@ pub struct Features {
     pub bot_accounts: bool,
     /// Files can be shared by a public link (`EnablePublicLink`).
     pub public_links: bool,
+    /// Security offers Deactivate account (`EnableUserDeactivation`).
+    pub deactivation: bool,
     /// Seconds after posting that the author may still edit
     /// (`PostEditTimeLimit`); `None` for no limit.
     pub edit_limit_secs: Option<u64>,
@@ -122,6 +124,7 @@ impl Features {
             custom_commands: capabilities.custom_commands,
             bot_accounts: capabilities.bot_accounts,
             public_links: capabilities.public_links,
+            deactivation: capabilities.user_deactivation,
             edit_limit_secs: capabilities.post_edit_time_limit,
             no_attachments: !capabilities.file_attachments,
             no_custom_status: !capabilities.custom_statuses,
@@ -155,6 +158,7 @@ impl Features {
             bot_accounts: true,
             // Preview has no server to make the link.
             public_links: false,
+            deactivation: true,
             edit_limit_secs: None,
             no_attachments: false,
             no_custom_status: false,

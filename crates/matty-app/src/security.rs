@@ -47,6 +47,21 @@ pub enum SecurityEvent {
     DeleteToken {
         token_id: String,
     },
+    /// Deactivate the user's own account, once they confirmed.
+    Deactivate,
+}
+
+/// Where Deactivate account stands.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum Deactivation {
+    #[default]
+    Idle,
+    /// Asking "Deactivate your account?".
+    Confirming,
+    /// With the server.
+    Busy,
+    /// The server refused, and said why.
+    Failed(SharedString),
 }
 
 /// Personal access tokens, as the Security dialog shows them.
@@ -106,6 +121,7 @@ pub struct SecurityView {
     /// `None` when the server or the account's roles allow no tokens.
     tokens: Option<Tokens>,
     token_description: Entity<InputState>,
+    deactivation: Deactivation,
     focus_first: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -178,6 +194,7 @@ impl SecurityView {
             mfa_busy: false,
             tokens: None,
             token_description,
+            deactivation: Deactivation::Idle,
             focus_first: false,
             _subscriptions: subscriptions,
         }
@@ -210,6 +227,7 @@ impl SecurityView {
         self.tokens = tokens.then(Tokens::default);
         self.token_description
             .update(cx, |input, cx| input.set_value("", window, cx));
+        self.deactivation = Deactivation::Idle;
         self.clear(window, cx);
         self.dialog.open(window, cx);
         self.focus_first = password;
@@ -232,6 +250,96 @@ impl SecurityView {
         }
         self.result = Some(result);
         cx.notify();
+    }
+
+    /// How deactivating went: gone closes the dialog (the window signs
+    /// out), refused says why.
+    pub fn deactivated(
+        &mut self,
+        result: Result<(), SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(()) => {
+                self.deactivation = Deactivation::Idle;
+                self.dialog.close(window, cx);
+            }
+            Err(said) => self.deactivation = Deactivation::Failed(said),
+        }
+        cx.notify();
+    }
+
+    /// Deactivate account, where the server lets users do it: a button,
+    /// then a warning with Cancel and Deactivate.
+    fn deactivate_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let theme = UiTheme::read(cx).clone();
+        let note = |text: SharedString, color| {
+            div()
+                .text_size(theme.text(13.))
+                .text_color(color)
+                .child(text)
+        };
+        let asking = matches!(
+            self.deactivation,
+            Deactivation::Confirming | Deactivation::Busy
+        );
+        let busy = self.deactivation == Deactivation::Busy;
+        let actions = if asking {
+            div()
+                .flex()
+                .gap(theme.space(2.))
+                .child(
+                    Button::new("security.deactivate.cancel")
+                        .variant(ButtonVariant::Ghost)
+                        .label(t!("security-mfa-cancel"))
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.deactivation = Deactivation::Idle;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("security.deactivate.confirm")
+                        .variant(ButtonVariant::Destructive)
+                        .label(t!("security-deactivate-confirm"))
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.deactivation = Deactivation::Busy;
+                            cx.emit(SecurityEvent::Deactivate);
+                            cx.notify();
+                        })),
+                )
+        } else {
+            div().flex().child(
+                Button::new("security.deactivate")
+                    .variant(ButtonVariant::Outline)
+                    .label(t!("security-deactivate-button"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.deactivation = Deactivation::Confirming;
+                        cx.notify();
+                    })),
+            )
+        };
+        let error = match &self.deactivation {
+            Deactivation::Failed(said) => Some(note(said.clone(), theme.colors.destructive)),
+            _ => None,
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(theme.space(1.))
+            .child(section_heading(t!("security-deactivate"), &theme))
+            .child(if asking {
+                note(t!("security-deactivate-ask"), theme.colors.destructive)
+            } else {
+                note(
+                    t!("security-deactivate-hint"),
+                    theme.colors.muted_foreground,
+                )
+            })
+            .children(error)
+            .child(div().pt(theme.space(1.)).child(actions))
     }
 
     /// The server's new secret: shows its QR code and asks for a code.
@@ -1024,6 +1132,9 @@ impl Render for SecurityView {
             .as_ref()
             .map(|tokens| self.tokens_section(tokens, cx));
         let sessions = self.sessions_section(cx);
+        let deactivate = crate::priority::Features::read(cx)
+            .deactivation
+            .then(|| self.deactivate_section(cx));
         let popup = dialog_popup("security.popup", t!("security-title"), cx)
             .child(dialog_title("security.title", cx).child(t!("security-title")))
             .child(dialog_description("security.description", cx).child(t!("security-hint")))
@@ -1036,7 +1147,8 @@ impl Render for SecurityView {
                     .children(password)
                     .children(mfa)
                     .children(tokens)
-                    .child(sessions),
+                    .child(sessions)
+                    .children(deactivate),
             )
             .child(
                 div().flex().justify_end().pt(theme.space(2.)).child(

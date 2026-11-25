@@ -665,6 +665,9 @@ impl MainWindow {
                             session_id: session_id.clone(),
                         }
                     }
+                    crate::security::SecurityEvent::Deactivate => {
+                        matty_sync::Command::DeactivateAccount
+                    }
                     crate::security::SecurityEvent::MfaSecret => matty_sync::Command::MfaSecret,
                     crate::security::SecurityEvent::CreateToken { description } => {
                         matty_sync::Command::CreateAccessToken {
@@ -2383,6 +2386,16 @@ impl MainWindow {
         if let Some(result) = update.password_changed.take() {
             self.security
                 .update(cx, |view, cx| view.password_changed(result, window, cx));
+        }
+        if let Some(result) = update.deactivated.take() {
+            let gone = result.is_ok();
+            self.security
+                .update(cx, |view, cx| view.deactivated(result, window, cx));
+            // The server ended every session; this one goes the way of a
+            // sign out, forgetting the server and its cache.
+            if gone {
+                self.sign_out(window, cx);
+            }
         }
         if let Some(secret) = update.mfa_secret.take() {
             self.security

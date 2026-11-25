@@ -418,6 +418,9 @@ pub enum ChangeSet {
     Sessions(Arc<[matty_api::models::Session]>),
     /// [`Command::ChangePassword`](crate::Command::ChangePassword) worked.
     PasswordChanged,
+    /// [`Command::DeactivateAccount`](crate::Command::DeactivateAccount)
+    /// worked: the server ended this session.
+    Deactivated,
     /// A new multi-factor secret: the answer to
     /// [`Command::MfaSecret`](crate::Command::MfaSecret).
     MfaSecret(Arc<matty_api::MfaSecret>),

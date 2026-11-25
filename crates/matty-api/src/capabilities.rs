@@ -205,6 +205,8 @@ pub struct ServerCapabilities {
     pub announcement: Option<Announcement>,
     /// Files can be shared by a public link (`EnablePublicLink`).
     pub public_links: bool,
+    /// Users may deactivate their own account (`EnableUserDeactivation`).
+    pub user_deactivation: bool,
     /// How long after posting a message can still be edited, in seconds
     /// (`PostEditTimeLimit`); `None` when there is no limit (-1).
     pub post_edit_time_limit: Option<u64>,
@@ -397,6 +399,7 @@ impl ServerCapabilities {
                 })
                 .filter(|banner| !banner.text.is_empty()),
             public_links: flag(config, "EnablePublicLink"),
+            user_deactivation: flag(config, "EnableUserDeactivation"),
             post_edit_time_limit: number(config, "PostEditTimeLimit").filter(|secs| *secs > 0),
             // Servers before these settings allowed both.
             file_attachments: !off(config, "EnableFileAttachments"),
@@ -563,7 +566,7 @@ mod tests {
             ServerCapabilities::from_old_format(&config, &license).unwrap()
         };
         type Gate = fn(&ServerCapabilities) -> bool;
-        let cases: [(&str, Gate); 16] = [
+        let cases: [(&str, Gate); 17] = [
             ("EnableBotAccountCreation", |c| c.bot_accounts),
             ("EnableOutgoingWebhooks", |c| c.outgoing_webhooks),
             ("EnableIncomingWebhooks", |c| c.incoming_webhooks),
@@ -580,6 +583,7 @@ mod tests {
             ("PostPriority", |c| c.post_priority),
             ("HasImageProxy", |c| c.image_proxy),
             ("EnablePublicLink", |c| c.public_links),
+            ("EnableUserDeactivation", |c| c.user_deactivation),
         ];
         for (key, read) in cases {
             assert!(read(&gate(key, "true")), "{key} on");

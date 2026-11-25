@@ -914,6 +914,11 @@ pub enum Command {
         /// The password to use from now on.
         new: String,
     },
+    /// Deactivates the user's own account, where the server allows it
+    /// (`EnableUserDeactivation`);
+    /// [`ChangeSet::Deactivated`](crate::ChangeSet::Deactivated) answers,
+    /// or a failure.
+    DeactivateAccount,
     /// A new multi-factor secret to set up an authenticator app with
     /// (#1049); [`ChangeSet::MfaSecret`](crate::ChangeSet::MfaSecret)
     /// answers.
@@ -1575,6 +1580,7 @@ impl std::fmt::Debug for Command {
                 .field("session_id", session_id)
                 .finish(),
             Self::ChangePassword { .. } => f.write_str("ChangePassword"),
+            Self::DeactivateAccount => f.write_str("DeactivateAccount"),
             Self::MfaSecret => f.write_str("MfaSecret"),
             Self::SetMfa { activate, .. } => write!(f, "SetMfa({activate})"),
             Self::GroupMembers { group_id } => f
@@ -2837,6 +2843,7 @@ impl Engine {
                 Message::Command(Command::ChangePassword { current, new }) => {
                     writes.push(Write::Password(commands::PasswordChange { current, new }));
                 }
+                Message::Command(Command::DeactivateAccount) => writes.push(Write::Deactivate),
                 Message::Command(Command::MfaSecret) => writes.push(Write::MfaSecret),
                 Message::Command(Command::SetMfa { activate, code }) => {
                     writes.push(Write::Mfa { activate, code });
@@ -4643,6 +4650,7 @@ impl Engine {
                 dirty.direct.push(ChangeSet::Sessions(Arc::from(sessions)));
             }
             Loaded::PasswordChanged => dirty.direct.push(ChangeSet::PasswordChanged),
+            Loaded::Deactivated => dirty.direct.push(ChangeSet::Deactivated),
             Loaded::MfaSecret(secret) => dirty.direct.push(ChangeSet::MfaSecret(Arc::new(secret))),
             Loaded::Mfa(me) => {
                 let active = me.mfa_active;

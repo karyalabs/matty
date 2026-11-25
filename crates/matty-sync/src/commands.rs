@@ -240,6 +240,7 @@ pub(crate) enum Write {
         session_id: String,
     },
     Password(PasswordChange),
+    Deactivate,
     MfaSecret,
     Mfa {
         activate: bool,
@@ -407,6 +408,7 @@ impl Write {
             Self::Sessions => "list your sessions",
             Self::RevokeSession { .. } => "sign out a session",
             Self::Password(_) => "change your password",
+            Self::Deactivate => "deactivate your account",
             Self::MfaSecret => "set up multi-factor authentication",
             Self::Mfa { activate: true, .. } => "turn on multi-factor authentication",
             Self::Mfa {
@@ -499,6 +501,7 @@ impl Write {
             | Self::Picture(_)
             | Self::Sessions
             | Self::Password(_)
+            | Self::Deactivate
             | Self::MfaSecret
             | Self::Mfa { .. }
             | Self::AccessTokens
@@ -1362,6 +1365,10 @@ pub(crate) async fn run(
                     .change_password(&user_id, &change.current, &change.new)
                     .await?;
                 Some(Loaded::PasswordChanged)
+            }
+            Write::Deactivate => {
+                client.set_user_active(&user_id, false).await?;
+                Some(Loaded::Deactivated)
             }
             Write::MfaSecret => Some(Loaded::MfaSecret(
                 client.generate_mfa_secret(&user_id).await?,

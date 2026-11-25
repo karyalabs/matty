@@ -296,6 +296,9 @@ pub struct Update {
     pub sessions: Option<std::sync::Arc<[matty_api::models::Session]>>,
     /// How a password change went: `Ok`, or the server's reason.
     pub password_changed: Option<Result<(), SharedString>>,
+    /// How deactivating the account went: `Ok` (sign out now), or the
+    /// server's reason.
+    pub deactivated: Option<Result<(), SharedString>>,
     /// A new multi-factor secret, for Security (#1049).
     pub mfa_secret: Option<std::sync::Arc<matty_api::MfaSecret>>,
     /// How a multi-factor step went: whether it is on now, or the
@@ -3123,6 +3126,7 @@ impl Live {
                 page,
             } => update.gifs = Some((query.clone(), *offset, page.clone())),
             ChangeSet::PasswordChanged => update.password_changed = Some(Ok(())),
+            ChangeSet::Deactivated => update.deactivated = Some(Ok(())),
             ChangeSet::MfaSecret(secret) => update.mfa_secret = Some(secret.clone()),
             ChangeSet::Mfa(on) => update.mfa = Some(Ok(*on)),
             ChangeSet::AccessTokens { created, tokens } => {
@@ -3158,6 +3162,16 @@ impl Live {
                     .rsplit_once(" (")
                     .map_or(error.as_str(), |(said, _)| said);
                 update.mfa = Some(Err(said.to_owned().into()));
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
+                action: "deactivate your account",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.deactivated = Some(Err(said.to_owned().into()));
             }
             ChangeSet::Failed(matty_sync::CommandError::Server {
                 action: "change your password",
