@@ -1024,11 +1024,24 @@ pub(crate) async fn run(
                         .into_iter()
                         .filter(|channel| channel.kind == "P" && channel.delete_at == 0),
                 );
-                let ids: Vec<String> = channels.iter().map(|c| c.id.clone()).collect();
+                // The server refuses the whole count when one channel in it
+                // is archived and the user isn't in it, and a list without
+                // counts beats no list.
+                let ids: Vec<String> = channels
+                    .iter()
+                    .filter(|channel| channel.delete_at == 0)
+                    .map(|channel| channel.id.clone())
+                    .collect();
                 let members = if ids.is_empty() {
                     std::collections::HashMap::new()
                 } else {
-                    client.channel_member_counts(&ids).await?
+                    client
+                        .channel_member_counts(&ids)
+                        .await
+                        .unwrap_or_else(|error| {
+                            tracing::warn!(%error, "could not count channel members to browse");
+                            std::collections::HashMap::new()
+                        })
                 };
                 Some(Loaded::Directory {
                     team_id,

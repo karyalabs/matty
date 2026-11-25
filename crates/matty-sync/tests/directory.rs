@@ -333,3 +333,49 @@ async fn add_members_offers_the_team_people_not_in_the_channel() {
     assert_eq!(channel_id, "c1");
     assert_eq!(users[0].first_name, "Bo");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn browse_lists_archived_channels_without_counting_their_members() {
+    let server = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/teams/t1/channels"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": "c1", "team_id": "t1", "type": "O", "name": "c1", "display_name": "C1"}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/teams/t1/channels/deleted"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": "old", "team_id": "t1", "type": "O", "name": "old", "display_name": "Old", "delete_at": 5}
+        ])))
+        .mount(&server)
+        .await;
+    // The server refuses a count that names an archived channel the user
+    // isn't in, so asking for one emptied Browse.
+    Mock::given(method("POST"))
+        .and(path("/api/v4/channels/stats/member_count"))
+        .and(body_json(json!(["c1"])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"c1": 4})))
+        .mount(&server)
+        .await;
+
+    let sync = matty_sync::spawn(Store::open_in_memory().unwrap()).unwrap();
+    let changes = sync.subscribe();
+    sync.send(Command::Connect {
+        client: Client::new(server.uri()).unwrap().with_token("token"),
+    });
+    next(&changes, |c| matches!(c, ChangeSet::Sidebar { .. })).await;
+
+    sync.send(Command::Browse {
+        team_id: "t1".into(),
+    });
+    let ChangeSet::Directory {
+        channels, members, ..
+    } = next(&changes, |c| matches!(c, ChangeSet::Directory { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(channels.len(), 2);
+    assert_eq!(members["c1"], 4);
+}

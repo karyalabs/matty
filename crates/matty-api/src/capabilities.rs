@@ -223,6 +223,9 @@ pub struct ServerCapabilities {
     pub teammate_name_display_locked: bool,
     /// The emoji picker is on (`EnableEmojiPicker`).
     pub emoji_picker: bool,
+    /// Archived channels can be browsed and read
+    /// (`ExperimentalViewArchivedChannels`).
+    pub view_archived_channels: bool,
     /// People can be invited to a team by email (`EnableEmailInvitations`).
     pub email_invitations: bool,
     /// Typing notices go out (`EnableUserTypingMessages`).
@@ -512,6 +515,7 @@ impl ServerCapabilities {
             teammate_name_display: text(config, "TeammateNameDisplay").map(str::to_owned),
             teammate_name_display_locked: flag(config, "LockTeammateNameDisplay"),
             emoji_picker: !off(config, "EnableEmojiPicker"),
+            view_archived_channels: !off(config, "ExperimentalViewArchivedChannels"),
             email_invitations: flag(config, "EnableEmailInvitations"),
             typing: !off(config, "EnableUserTypingMessages"),
             dms_within_team: text(config, "RestrictDirectMessage") == Some("team"),
@@ -733,6 +737,7 @@ mod tests {
         assert!(!gate("EnableFileAttachments", "false").file_attachments);
         assert!(!gate("EnableCustomUserStatuses", "false").custom_statuses);
         assert!(!gate("EnableEmojiPicker", "false").emoji_picker);
+        assert!(!gate("ExperimentalViewArchivedChannels", "false").view_archived_channels);
         assert!(!gate("EnableUserTypingMessages", "false").typing);
         assert!(gate("RestrictDirectMessage", "team").dms_within_team);
         let rules = gate("PasswordRequireSymbol", "true").password_rules;

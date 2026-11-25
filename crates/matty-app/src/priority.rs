@@ -100,6 +100,10 @@ pub struct Features {
     /// The server turned the emoji picker off (`EnableEmojiPicker`): no
     /// picker in the composers and no Add reaction, as in the web app.
     pub no_emoji_picker: bool,
+    /// The server hides archived channels
+    /// (`ExperimentalViewArchivedChannels`): Browse has no Archived list,
+    /// as in the web app.
+    pub no_archived_channels: bool,
     /// Invite people takes email addresses (`EnableEmailInvitations`).
     pub email_invites: bool,
     /// Direct messages stay within a team (`RestrictDirectMessage`).
@@ -149,6 +153,7 @@ impl Features {
                 .and_then(crate::settings::NameFormat::from_server),
             names_locked: capabilities.teammate_name_display_locked,
             no_emoji_picker: !capabilities.emoji_picker,
+            no_archived_channels: !capabilities.view_archived_channels,
             email_invites: capabilities.email_invitations,
             dms_within_team: capabilities.dms_within_team,
             password: capabilities.password_rules,
@@ -189,6 +194,7 @@ impl Features {
             names: None,
             names_locked: false,
             no_emoji_picker: false,
+            no_archived_channels: false,
             email_invites: true,
             dms_within_team: false,
             password: matty_api::PasswordRules::default(),

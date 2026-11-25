@@ -294,7 +294,11 @@ impl Render for BrowseView {
             window.on_next_frame(move |window, cx| window.focus(&focus, cx));
         }
         let query = self.search.read(cx).value().trim().to_lowercase();
-        let kind = self.kind;
+        let archived_shown = !crate::priority::Features::read(cx).no_archived_channels;
+        let kind = match self.kind {
+            BrowseKind::Archived if !archived_shown => BrowseKind::Public,
+            kind => kind,
+        };
         let hide_joined = self.hide_joined && kind != BrowseKind::Archived;
         let matching: Vec<&DirectoryChannel> = self
             .channels
@@ -320,7 +324,7 @@ impl Render for BrowseView {
             .filter(|channel| kind.lists(channel))
             .count();
         let any_private = self.channels.iter().any(|c| !c.archived && c.private);
-        let any_archived = self.channels.iter().any(|c| c.archived);
+        let any_archived = archived_shown && self.channels.iter().any(|c| c.archived);
         let view = cx.entity().downgrade();
         let filter = crate::ui::toggle_group::ToggleGroup::new("browse.filter")
             .aria_label(t!("browse-filter"))
