@@ -92,7 +92,19 @@ impl ThreadModel {
 pub struct ListedPost {
     pub channel_id: SharedString,
     pub channel_name: SharedString,
+    /// A direct or group message, whose name is shown without `#`.
+    pub direct: bool,
     pub post: Post,
+}
+
+impl ListedPost {
+    /// Where the post is, as its listing's header names it.
+    pub fn place(&self) -> SharedString {
+        match self.channel_name.as_ref() {
+            name if self.direct || name.contains(' ') => self.channel_name.clone(),
+            name => format!("#{name}").into(),
+        }
+    }
 }
 
 /// The kinds of file the Files lists filter by, as in Mattermost.
@@ -3947,10 +3959,7 @@ impl RightPaneView {
             .overflow_y_scroll()
             .py(theme.space(2.))
             .children(items.iter().map(|item| {
-                let channel = match item.channel_name.as_ref() {
-                    name if name.contains(' ') => name.to_string(),
-                    name => format!("#{name}"),
-                };
+                let channel = item.place().to_string();
                 let (jump_channel, jump_post) = (item.channel_id.clone(), item.post.id.clone());
                 let jump_view = view.clone();
                 div()
@@ -5140,6 +5149,7 @@ mod tests {
                     Some(RightPaneContent::Saved(vec![ListedPost {
                         channel_id: "c-town".into(),
                         channel_name: "town".into(),
+                        direct: false,
                         post: post("s1"),
                     }])),
                     cx,

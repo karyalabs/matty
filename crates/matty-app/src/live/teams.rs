@@ -76,6 +76,7 @@ impl Live {
         if let Some(team_id) = self.team.clone() {
             self.send(Command::OpenThreadList { team_id });
         }
+        self.learn_channel_names();
         update.categories = self.shown_categories();
     }
 

@@ -148,6 +148,7 @@ impl Live {
             emoji_images: self.emoji_images.clone(),
             team_icons: self.team_icons.clone(),
             custom_emoji: self.custom_emoji.clone(),
+            channel_names: self.channel_names.clone(),
             views: self.views.fork(),
             interactive: Default::default(),
         };

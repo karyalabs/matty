@@ -80,6 +80,50 @@ pub fn link_entities_and_emoji_in_source(
     out
 }
 
+/// `source` with each `~name` channel link that [`link_entities_in_source`]
+/// wrote labeled `~Display Name` instead, the way Mattermost shows a
+/// channel mention, for the channels `display_name` knows. A link the
+/// writer labeled themselves, or an unknown channel, stays as it is.
+pub fn label_channel_links(source: &str, display_name: &dyn Fn(&str) -> Option<String>) -> String {
+    const TARGET: &str = "](matty://channel/";
+    let mut out = String::with_capacity(source.len());
+    let mut copied = 0;
+    let mut from = 0;
+    while let Some(found) = source[from..].find(TARGET) {
+        let close = from + found;
+        let name_start = close + TARGET.len();
+        from = name_start;
+        let Some(name_len) = source[name_start..].find(')') else {
+            break;
+        };
+        let name = &source[name_start..name_start + name_len];
+        let Some(open) = source[copied..close].rfind("[~").map(|at| copied + at) else {
+            continue;
+        };
+        let label = &source[open + 2..close];
+        if label.is_empty()
+            || !label
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '\\'))
+        {
+            continue;
+        }
+        let Some(shown) = display_name(name) else {
+            continue;
+        };
+        out.push_str(&source[copied..open + 2]);
+        for c in shown.chars() {
+            if matches!(c, '\\' | '*' | '_' | '[' | ']' | '`' | '<' | '>' | '~') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        copied = close;
+    }
+    out.push_str(&source[copied..]);
+    out
+}
+
 /// `text` (Markdown source) with each of `words` written as a link to
 /// `mark:`, for a view to draw highlighted: the reader's keywords in a
 /// message, or the terms of a search among its results. A word matches
@@ -374,6 +418,19 @@ mod tests {
 
     fn rewrite(text: &str) -> String {
         link_entities_in_source(text, &|name| name == "tada")
+    }
+
+    #[test]
+    fn channel_links_show_display_names() {
+        let names = |name: &str| (name == "town-square").then(|| "Town Square [HQ]".to_owned());
+        assert_eq!(
+            label_channel_links(
+                &rewrite("see ~Town-Square, ~off-topic and [here](matty://channel/town-square)"),
+                &names
+            ),
+            "see [~Town Square \\[HQ\\]](matty://channel/town-square), \
+             [~off-topic](matty://channel/off-topic) and [here](matty://channel/town-square)"
+        );
     }
 
     #[test]

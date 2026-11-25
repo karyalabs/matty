@@ -156,6 +156,7 @@ chan-archive-title = Archive { $name }?
 chan-archive-description = Nobody can post in it any more and it leaves everyone's sidebar. Its messages and files stay on the server.
 chan-archive = Archive
 chan-archived-note = You are viewing an archived channel. New messages can't be posted.
+listed-direct-with = Direct Message (with { $name })
 chan-deactivated-note = This person's account is deactivated. New messages can't be sent.
 chan-unarchive = Unarchive
 chan-unarchive-failed = Couldn't unarchive the channel: { $error }

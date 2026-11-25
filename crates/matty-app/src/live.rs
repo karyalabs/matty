@@ -183,6 +183,7 @@ pub struct Live {
     team_icons: crate::avatars::TeamIcons,
     /// The server's custom emoji by name, shared with the views.
     custom_emoji: crate::emoji::CustomEmoji,
+    channel_names: crate::links::ChannelNames,
     /// Which windows hold each channel and thread open (#222).
     views: popout::OpenViews,
     /// The open channel's bookmarks and App bindings, and this view's App
@@ -886,6 +887,7 @@ impl Live {
                 emoji_images,
                 team_icons,
                 custom_emoji: crate::emoji::CustomEmoji::default(),
+                channel_names: crate::links::ChannelNames::default(),
                 my_groups: Vec::new(),
                 views: popout::OpenViews::default(),
                 extras: extras::Extras::default(),
@@ -1961,9 +1963,12 @@ impl Live {
             })
             .map(|post| crate::right_pane::ListedPost {
                 channel_id: post.channel_id.clone().into(),
-                channel_name: self
-                    .channel_name(&post.channel_id)
-                    .unwrap_or_else(|| "Another channel".into()),
+                channel_name: self.listed_place(
+                    &post.channel_id,
+                    self.channel_name(&post.channel_id)
+                        .unwrap_or_else(|| "Another channel".into()),
+                ),
+                direct: self.is_direct(&post.channel_id),
                 post: crate::transcript::listed_post(post, &self.users, &viewer),
             })
             .collect();
@@ -2361,7 +2366,11 @@ impl Live {
                     listed.own_mentions = listed.own_mentions.with_marks(marks.iter().cloned());
                     crate::right_pane::ListedPost {
                         channel_id: post.channel_id.clone().into(),
-                        channel_name: self.search_channel_name(&post.channel_id),
+                        channel_name: self.listed_place(
+                            &post.channel_id,
+                            self.search_channel_name(&post.channel_id),
+                        ),
+                        direct: self.is_direct(&post.channel_id),
                         post: listed,
                     }
                 })
@@ -2437,6 +2446,22 @@ impl Live {
     }
 
     /// Whether `channel_id` is a direct or group message in the sidebar.
+    /// A listed post's place as Mattermost heads it: a direct message
+    /// reads "Direct Message (with ana)", anything else keeps `name`.
+    fn listed_place(&self, channel_id: &str, name: SharedString) -> SharedString {
+        let direct = self
+            .sections
+            .values()
+            .flat_map(|sections| sections.iter())
+            .flat_map(|section| section.channels.iter())
+            .any(|channel| channel.id == channel_id && channel.kind == "D");
+        if direct {
+            crate::t!("listed-direct-with", name = name.to_string()).into()
+        } else {
+            name
+        }
+    }
+
     fn is_direct(&self, channel_id: &str) -> bool {
         self.sections
             .values()
@@ -2638,6 +2663,27 @@ impl Live {
         cx.set_global(self.emoji_images.clone());
         cx.set_global(self.team_icons.clone());
         cx.set_global(self.custom_emoji.clone());
+        cx.set_global(self.channel_names.clone());
+    }
+
+    /// Learns the display names of the channels in every loaded sidebar,
+    /// the team on screen's winning where two teams share a URL name.
+    pub(super) fn learn_channel_names(&self) {
+        let mut names = std::collections::HashMap::new();
+        let shown = self.team.as_ref().and_then(|team| self.sections.get(team));
+        let others = self
+            .sections
+            .iter()
+            .filter(|(team, _)| Some(*team) != self.team.as_ref())
+            .map(|(_, sections)| sections);
+        for sections in others.chain(shown) {
+            for channel in sections.iter().flat_map(|section| &section.channels) {
+                if matches!(channel.kind.as_str(), "O" | "P") {
+                    names.insert(channel.name.clone(), channel.display_name.clone());
+                }
+            }
+        }
+        self.channel_names.set(names);
     }
 
     pub fn is_typing(&self) -> bool {
@@ -2678,6 +2724,7 @@ impl Live {
             ChangeSet::Sidebar { team_id, sections } => {
                 // Unreads, which comes in the same batch, picks the team.
                 self.sections.insert(team_id.clone(), sections.clone());
+                self.learn_channel_names();
                 if self.team.as_ref() == Some(team_id) {
                     update.categories = Some(self.categories(sections));
                 }
@@ -4721,6 +4768,40 @@ mod tests {
         assert_eq!(username, "ada");
         assert!(name.contains("Ada"), "{name}");
         assert_eq!(live.me_user().map(|u| u.username.as_str()), Some("ada"));
+    }
+
+    #[test]
+    fn channel_mentions_learn_display_names_from_the_sidebar() {
+        let mut live = live();
+        let named = |name: &str, shown: &str, kind: &str| SidebarChannel {
+            name: name.into(),
+            display_name: shown.into(),
+            ..channel(name, kind, 0, 0)
+        };
+        live.apply(&ChangeSet::Sidebar {
+            team_id: "t1".into(),
+            sections: Arc::from(vec![section(
+                "c",
+                vec![
+                    named("town-square", "Town Square", "O"),
+                    named("ada", "ada", "D"),
+                ],
+            )]),
+        });
+        assert_eq!(
+            live.channel_names
+                .label("[~town-square](matty://channel/town-square) [~ada](matty://channel/ada)"),
+            "[~Town Square](matty://channel/town-square) [~ada](matty://channel/ada)"
+        );
+        let seen = live.channel_names.identity();
+        live.apply(&ChangeSet::Sidebar {
+            team_id: "t1".into(),
+            sections: Arc::from(vec![section(
+                "c",
+                vec![named("town-square", "Town Square", "O")],
+            )]),
+        });
+        assert_eq!(live.channel_names.identity(), seen, "nothing new to learn");
     }
 
     #[test]

@@ -300,6 +300,8 @@ struct SourceCache {
     /// The custom emoji list the sources were made with: its identity and
     /// generation.
     emoji: (usize, u64),
+    /// The channel names the sources were made with, likewise.
+    channels: (usize, u64),
     /// Whether the sources were made with Markdown on.
     formatting: bool,
     /// Whether the sources were made with emoticons as emoji.
@@ -340,6 +342,8 @@ fn marked_source(source: SharedString, marks: &Arc<[String]>) -> SharedString {
 fn cached_source(body: &SharedString, cx: &App) -> SharedString {
     let custom = cx.try_global::<crate::emoji::CustomEmoji>();
     let emoji = custom.map_or((0, 0), crate::emoji::CustomEmoji::identity);
+    let channel_names = cx.try_global::<ChannelNames>();
+    let channels = channel_names.map_or((0, 0), ChannelNames::identity);
     let (formatting, emoticons) =
         crate::settings::SettingsStore::try_global(cx).map_or((true, true), |store| {
             let settings = store.read(cx).get();
@@ -347,11 +351,13 @@ fn cached_source(body: &SharedString, cx: &App) -> SharedString {
         });
     SOURCES.with_borrow_mut(|cache| {
         if cache.emoji != emoji
+            || cache.channels != channels
             || cache.formatting != formatting
             || cache.emoticons != emoticons
             || cache.sources.len() >= SOURCE_CACHE_LIMIT
         {
             cache.emoji = emoji;
+            cache.channels = channels;
             cache.formatting = formatting;
             cache.emoticons = emoticons;
             cache.sources.clear();
@@ -361,7 +367,11 @@ fn cached_source(body: &SharedString, cx: &App) -> SharedString {
         }
         let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
         let source: SharedString = if formatting {
-            body_source(body, emoticons, &is_custom)
+            let source = body_source(body, emoticons, &is_custom);
+            match channel_names {
+                Some(names) => names.label(&source),
+                None => source,
+            }
         } else {
             plain_source(body)
         }
@@ -369,6 +379,41 @@ fn cached_source(body: &SharedString, cx: &App) -> SharedString {
         cache.sources.insert(body.clone(), source.clone());
         source
     })
+}
+
+/// The display names of the channels the user is in, by URL name, so a
+/// `~town-square` mention reads `~Town Square` as in Mattermost.
+#[derive(Clone, Default)]
+pub struct ChannelNames(
+    std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, String>>>,
+    /// Bumped by each change, for the caches made from the names.
+    std::rc::Rc<std::cell::Cell<u64>>,
+);
+
+impl gpui_kit::Global for ChannelNames {}
+
+impl ChannelNames {
+    /// Replaces the names, keeping the caches when nothing changed.
+    pub fn set(&self, names: std::collections::HashMap<String, String>) {
+        if *self.0.borrow() != names {
+            *self.0.borrow_mut() = names;
+            self.1.set(self.1.get() + 1);
+        }
+    }
+
+    /// Which list this is and how often it changed.
+    pub fn identity(&self) -> (usize, u64) {
+        (std::rc::Rc::as_ptr(&self.0) as usize, self.1.get())
+    }
+
+    /// `source` with its channel mentions labeled by display name.
+    pub(crate) fn label(&self, source: &str) -> String {
+        let names = self.0.borrow();
+        if names.is_empty() {
+            return source.to_owned();
+        }
+        matty_markdown::label_channel_links(source, &|name| names.get(name).cloned())
+    }
 }
 
 /// Opens a menu for a link right-clicked in a message, at the pointer.
@@ -390,7 +435,12 @@ pub fn markdown_body(
     let is_custom = |name: &str| custom.is_some_and(|known| known.contains(name));
     let emoticons = crate::settings::SettingsStore::try_global(cx)
         .is_none_or(|store| store.read(cx).get().emoticons);
-    let source = body_source(body, emoticons, &is_custom).into();
+    let source = body_source(body, emoticons, &is_custom);
+    let source = match cx.try_global::<ChannelNames>() {
+        Some(names) => names.label(&source),
+        None => source,
+    }
+    .into();
     markdown_from_source(
         id,
         source,

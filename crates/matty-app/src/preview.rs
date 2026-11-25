@@ -1313,6 +1313,7 @@ fn listed(channel_id: &str, post_id: &str) -> Option<ListedPost> {
     Some(ListedPost {
         channel_id: channel.id.clone(),
         channel_name: channel.name.clone(),
+        direct: false,
         post: post.clone(),
     })
 }
@@ -1368,6 +1369,7 @@ pub fn search(query: &str) -> Vec<ListedPost> {
                 results.push(ListedPost {
                     channel_id: channel.id.clone(),
                     channel_name: channel.name.clone(),
+                    direct: false,
                     post: post.clone(),
                 });
             }
@@ -1386,6 +1388,7 @@ pub fn pinned(channel: &ChannelModel) -> Vec<ListedPost> {
         .map(|post| ListedPost {
             channel_id: channel.id.clone(),
             channel_name: channel.name.clone(),
+            direct: false,
             post: post.clone(),
         })
         .collect()
