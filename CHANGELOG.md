@@ -9,6 +9,72 @@ Fixed, Removed.
 
 ## [Unreleased]
 
+## [0.1.0-beta.32] - 2026-11-25
+
+Group messages, @group mentions, GIFs in the composer, every emoji the
+official client knows, and a long run of settings and menus from
+Mattermost's own app.
+
+### Added
+
+- Group messages: tick several people in New message and press Go. A group
+  message is named by the other people, in your name format, and Add
+  members reopens New message with them ticked (#977, #1041, #1043).
+- Mention a user group with @group (#1058).
+- A GIFs tab in the composer's emoji picker (#1060).
+- React to the latest message by sending `+:emoji:` (#1050).
+- Emoticons such as :) and <3 show as emoji, and a message of only emoji
+  shows large (#1037, #1047).
+- Plugin posts show, @channel asks before it notifies everyone, and a
+  message's edit history can be viewed (#976).
+- Browse, read and unarchive archived channels; Browse channels filters
+  private channels and can hide the ones you joined (#982, #1011).
+- Invite people to a team, create a team, view and manage team members,
+  and Team settings for team admins (#978, #980, #989, #990).
+- Security: multi-factor authentication on and off, and personal access
+  tokens can be made, turned off and deleted (#980, #1051, #1055).
+- Out of office replies, turned off again from the status menu (#980,
+  #1039).
+- Settings for push and email notifications, thread replies (mobile push,
+  email, and with collapsed reply threads off), link previews, email
+  frequency, message formatting, draft syncing, click to open threads,
+  centered message width, join/leave messages, the DM count and time zone
+  (#978, #980, #985, #986, #991, #1001, #1009, #1019, #1027).
+- Name Matty's sessions and mute sidebar categories (#985).
+- A channel intro at the start of a channel's history, and a New messages
+  line when an unread channel opens (#997, #1033).
+- BOT and GUEST tags, and threads you start or reply to are followed
+  automatically (#996).
+- Text and code attachments preview in the app, and search and channel
+  files filter by type (#1003, #1007).
+- Mark a message unread with Alt+click, or a read channel from its
+  sidebar menu (#1005, #1029).
+- Ctrl+Up and Ctrl+Down bring back sent messages in the composer (#1024).
+- An options menu on each row of the Threads list (#1017).
+- Add-to-channel links, a fuller channel name menu and custom reminders
+  (#1022).
+- A direct message's header shows the person's picture and presence;
+  profile cards show the email address and when the person was last
+  online, which you can stop sharing (#1013, #1045, #1053).
+- Forgot your password and Create an account links on the sign-in card
+  (#1031, #1035).
+
+### Changed
+
+- Matty knows every emoji the official client knows (#975).
+- Unread channels can be grouped in their own sidebar section (#981).
+- Deactivated people's direct messages are hidden (#996, #1001).
+- Matty sends this device's time zone to the server (#1019).
+- Built on gpuicn 0.13.6 (#1060, #1062).
+
+### Fixed
+
+- New message can open a direct message the sidebar hides past its DM
+  limit (#956).
+- Open in channel from Threads lands on the thread's root (#1025).
+- A menu with no entries stays closed instead of showing an empty panel
+  (#1062).
+
 ## [0.1.0-beta.31] - 2026-11-17
 
 Bold text and channel headers read the way Mattermost shows them, and
@@ -645,7 +711,8 @@ karyalabs organization.
 The beta 3 review fixes (#612). Earlier betas: see the
 [GitHub releases](https://github.com/karyalabs/matty/releases).
 
-[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.30...HEAD
+[Unreleased]: https://github.com/karyalabs/matty/compare/v0.1.0-beta.32...HEAD
+[0.1.0-beta.32]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.32
 [0.1.0-beta.31]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.31
 [0.1.0-beta.30]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.30
 [0.1.0-beta.29]: https://github.com/karyalabs/matty/releases/tag/v0.1.0-beta.29
