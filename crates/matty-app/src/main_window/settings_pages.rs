@@ -576,11 +576,8 @@ pub(crate) fn mirror(preferences: &[Preference], settings: &mut Settings) {
         settings.visible_dms = limit;
     }
     if let Some(value) = find(preferences, DISPLAY, "name_format") {
-        settings.name_format = match value {
-            "username" => NameFormat::Username,
-            "full_name" => NameFormat::FullName,
-            _ => NameFormat::NicknameFullName,
-        };
+        settings.name_format =
+            NameFormat::from_server(value).unwrap_or(NameFormat::NicknameFullName);
     }
     let ctrl = find(preferences, ADVANCED, "send_on_ctrl_enter");
     let code = find(preferences, ADVANCED, "code_block_ctrl_enter");
@@ -815,6 +812,25 @@ impl MainWindow {
     ) {
         self.settings
             .update(cx, |store, cx| store.update(cx, |s| mirror(preferences, s)));
+        self.account_chose_names = find(preferences, DISPLAY, "name_format").is_some();
+        self.adopt_server_names(cx);
+    }
+
+    /// Shows names the server's way where the account never chose one, or
+    /// where the server locks it, as the web app does. Only the local
+    /// setting changes: the account keeps no choice it did not make.
+    pub(super) fn adopt_server_names(&mut self, cx: &mut Context<Self>) {
+        let features = crate::priority::Features::read(cx);
+        if !features.names_locked && self.account_chose_names {
+            return;
+        }
+        let Some(format) = features.names else {
+            return;
+        };
+        if self.settings.read(cx).get().name_format != format {
+            self.settings
+                .update(cx, |store, cx| store.update(cx, |s| s.name_format = format));
+        }
     }
 
     /// Keeps the account's Mattermost theme for the team on screen current
@@ -1323,6 +1339,7 @@ impl MainWindow {
                 }
             },
         );
+        let names_locked = crate::priority::Features::read(cx).names_locked;
         let names = selects.get(
             "preferences.names",
             &[
@@ -1341,6 +1358,7 @@ impl MainWindow {
                     "username" => NameFormat::Username,
                     _ => NameFormat::NicknameFullName,
                 };
+                this.account_chose_names = true;
                 this.set_synced(
                     |s| s.name_format = format,
                     |s| name_format_preference(s.name_format),
@@ -1613,12 +1631,26 @@ impl MainWindow {
             .rows(zone)
             .row(
                 Row::new("preferences.names", t!("prefs-names-label"))
-                    .description(match settings.name_format {
-                        NameFormat::NicknameFullName => t!("prefs-names-nickname-hint"),
-                        NameFormat::FullName => t!("prefs-names-full-hint"),
-                        NameFormat::Username => t!("prefs-names-username-hint"),
+                    .description(if names_locked {
+                        t!("prefs-names-locked")
+                    } else {
+                        match settings.name_format {
+                            NameFormat::NicknameFullName => t!("prefs-names-nickname-hint"),
+                            NameFormat::FullName => t!("prefs-names-full-hint"),
+                            NameFormat::Username => t!("prefs-names-username-hint"),
+                        }
                     })
-                    .control(select(&names, t!("prefs-names-label"), &theme)),
+                    .control(
+                        div()
+                            .flex_shrink_0()
+                            .min_w(scaled(&theme, 160.))
+                            .max_w(scaled(&theme, 220.))
+                            .child(
+                                Select::new(&names)
+                                    .aria_label(t!("prefs-names-label"))
+                                    .disabled(names_locked),
+                            ),
+                    ),
             )
             .row(
                 Row::new("preferences.link-previews", t!("prefs-link-previews"))

@@ -91,6 +91,12 @@ pub struct Features {
     pub no_attachments: bool,
     /// The server turned custom statuses off (`EnableCustomUserStatuses`).
     pub no_custom_status: bool,
+    /// How names show for an account that never chose
+    /// (`TeammateNameDisplay`).
+    pub names: Option<crate::settings::NameFormat>,
+    /// The server holds every account to `names`
+    /// (`LockTeammateNameDisplay`).
+    pub names_locked: bool,
 }
 
 impl Global for Features {}
@@ -128,6 +134,11 @@ impl Features {
             edit_limit_secs: capabilities.post_edit_time_limit,
             no_attachments: !capabilities.file_attachments,
             no_custom_status: !capabilities.custom_statuses,
+            names: capabilities
+                .teammate_name_display
+                .as_deref()
+                .and_then(crate::settings::NameFormat::from_server),
+            names_locked: capabilities.teammate_name_display_locked,
         }
     }
 
@@ -162,6 +173,8 @@ impl Features {
             edit_limit_secs: None,
             no_attachments: false,
             no_custom_status: false,
+            names: None,
+            names_locked: false,
         }
     }
 

@@ -214,6 +214,13 @@ pub struct ServerCapabilities {
     pub file_attachments: bool,
     /// Users can set a custom status (`EnableCustomUserStatuses`).
     pub custom_statuses: bool,
+    /// How people's names show for an account that never chose
+    /// (`TeammateNameDisplay`): `username`, `nickname_full_name` or
+    /// `full_name`.
+    pub teammate_name_display: Option<String>,
+    /// Users can't change how names show (`LockTeammateNameDisplay`, a
+    /// licensed setting the server only reports on with a license).
+    pub teammate_name_display_locked: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -404,6 +411,8 @@ impl ServerCapabilities {
             // Servers before these settings allowed both.
             file_attachments: !off(config, "EnableFileAttachments"),
             custom_statuses: !off(config, "EnableCustomUserStatuses"),
+            teammate_name_display: text(config, "TeammateNameDisplay").map(str::to_owned),
+            teammate_name_display_locked: flag(config, "LockTeammateNameDisplay"),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -566,7 +575,7 @@ mod tests {
             ServerCapabilities::from_old_format(&config, &license).unwrap()
         };
         type Gate = fn(&ServerCapabilities) -> bool;
-        let cases: [(&str, Gate); 17] = [
+        let cases: [(&str, Gate); 18] = [
             ("EnableBotAccountCreation", |c| c.bot_accounts),
             ("EnableOutgoingWebhooks", |c| c.outgoing_webhooks),
             ("EnableIncomingWebhooks", |c| c.incoming_webhooks),
@@ -584,6 +593,9 @@ mod tests {
             ("HasImageProxy", |c| c.image_proxy),
             ("EnablePublicLink", |c| c.public_links),
             ("EnableUserDeactivation", |c| c.user_deactivation),
+            ("LockTeammateNameDisplay", |c| {
+                c.teammate_name_display_locked
+            }),
         ];
         for (key, read) in cases {
             assert!(read(&gate(key, "true")), "{key} on");
@@ -613,6 +625,12 @@ mod tests {
         bare.remove("EnableCustomUserStatuses");
         let bare = ServerCapabilities::from_old_format(&bare, &license).unwrap();
         assert!(bare.file_attachments && bare.custom_statuses);
+        assert_eq!(
+            gate("TeammateNameDisplay", "full_name")
+                .teammate_name_display
+                .as_deref(),
+            Some("full_name")
+        );
     }
 
     #[test]

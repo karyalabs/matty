@@ -269,6 +269,9 @@ pub struct MainWindow {
     /// Whether the user may choose collapsed reply threads, and whether
     /// they are on (#157).
     collapsed_threads: Option<(bool, bool)>,
+    /// The account has its own `name_format`, so the server's default
+    /// (`TeammateNameDisplay`) does not apply unless the server locks it.
+    account_chose_names: bool,
     /// Where notifications go on this platform (#141).
     notifier: Box<dyn matty_notify::Notifier>,
     /// What the dock badge shows now (#141).
@@ -1493,6 +1496,7 @@ impl MainWindow {
             notify_props: preview_props,
             zone_checked: false,
             collapsed_threads: crate::preview::enabled().then_some((true, true)),
+            account_chose_names: false,
             browse,
             join_team_view,
             team_invite_view,
@@ -2700,6 +2704,7 @@ impl MainWindow {
                 .update(cx, |teams, cx| teams.refresh_menu(cx));
             // ... and the account menu Set a status… only where it has those.
             self.account.update(cx, |view, cx| view.refresh_items(cx));
+            self.adopt_server_names(cx);
         }
         if let Some(scheduled) = update.scheduled.take() {
             self.scheduled_changed(scheduled, cx);

@@ -203,6 +203,7 @@ prefs-names-username = Username
 prefs-names-nickname-hint = The nickname, else the full name, else the username.
 prefs-names-full-hint = The full name, else the username.
 prefs-names-username-hint = Usernames only.
+prefs-names-locked = Your server sets how names show.
 prefs-motion = Motion
 prefs-reduce-motion = Reduce motion
 prefs-reduce-motion-detail = Panes and banners change without sliding.

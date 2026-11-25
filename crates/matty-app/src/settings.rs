@@ -172,6 +172,19 @@ pub enum NameFormat {
     FullName,
 }
 
+impl NameFormat {
+    /// The value Mattermost stores for a format, in `name_format` and
+    /// `TeammateNameDisplay`.
+    pub fn from_server(value: &str) -> Option<Self> {
+        match value {
+            "username" => Some(Self::Username),
+            "full_name" => Some(Self::FullName),
+            "nickname_full_name" => Some(Self::NicknameFullName),
+            _ => None,
+        }
+    }
+}
+
 /// How much room a message row takes (PLAN §4.2 display).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
