@@ -1982,9 +1982,16 @@ impl Live {
             matty_sync::Listing::EditHistory { .. } => RightPaneContent::EditHistory(listed),
             matty_sync::Listing::Mentions { .. } => RightPaneContent::Mentions(listed),
             matty_sync::Listing::Unreads { .. } => RightPaneContent::Unreads(listed),
+            // One channel's pins, named in the pane's header only.
             matty_sync::Listing::Pinned { channel_id } => RightPaneContent::Pinned {
                 channel_name: self.channel_name(channel_id).unwrap_or_default(),
-                posts: listed,
+                posts: listed
+                    .into_iter()
+                    .map(|listed| crate::right_pane::ListedPost {
+                        channel_name: SharedString::default(),
+                        ..listed
+                    })
+                    .collect(),
             },
         })
     }

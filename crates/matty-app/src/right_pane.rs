@@ -3981,7 +3981,11 @@ impl RightPaneView {
                                 div()
                                     .type_style(style::META, &theme)
                                     .text_color(theme.colors.muted_foreground)
-                                    .child(format!("{channel} · {}", item.post.day)),
+                                    .child(if channel.is_empty() {
+                                        item.post.day.to_string()
+                                    } else {
+                                        format!("{channel} · {}", item.post.day)
+                                    }),
                             )
                             .child(
                                 Button::new(gpui_kit::ElementId::Name(

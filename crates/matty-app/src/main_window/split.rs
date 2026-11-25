@@ -867,12 +867,14 @@ impl MainWindow {
         use crate::chrome::{PaneChrome, Panel};
         let full = self.threads_open || self.drafts_open;
         let right = self.right_pane_open && !full && !Self::narrow_right_pane(window);
-        // The Mentions and Saved buttons show pressed while their listing
-        // is open beside the place, drawer or docked.
+        // The Mentions, Saved, Pinned and Info buttons show pressed while
+        // their pane is open beside the place, drawer or docked.
         let panel = if self.right_pane_open && !full {
             match self.right_pane.read(cx).content() {
                 Some(RightPaneContent::Mentions(_)) => Some(Panel::Mentions),
                 Some(RightPaneContent::Saved(_)) => Some(Panel::Saved),
+                Some(RightPaneContent::Pinned { .. }) => Some(Panel::Pinned),
+                Some(RightPaneContent::ChannelInfo(_)) => Some(Panel::Info),
                 _ => None,
             }
         } else {

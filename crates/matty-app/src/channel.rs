@@ -4859,16 +4859,35 @@ impl ChannelView {
             )),
             _ => None,
         };
-        let count = |id: &'static str, label: String, glyph: LucideIcon, n: usize| {
-            Button::new(id)
+        // A button whose pane is open shows pressed, as in Mattermost.
+        let open = self.chrome.panel;
+        let pressed_colors = |button: Button, glyph: LucideIcon| {
+            button
+                .bg(theme.colors.accent)
+                .text_color(theme.colors.accent_foreground)
+                .child(
+                    lucide(glyph)
+                        .size(scaled(&theme, metrics::ICON))
+                        .text_color(theme.colors.accent_foreground),
+                )
+        };
+        let count = |id: &'static str,
+                     label: String,
+                     glyph: LucideIcon,
+                     n: usize,
+                     panel: Option<crate::chrome::Panel>| {
+            let button = Button::new(id)
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Sm)
                 .aria_label(label)
                 .px(theme.space(2.))
-                .type_style(style::UI, &theme)
-                .text_color(muted)
-                .child(icon(glyph))
-                .child(n.to_string())
+                .type_style(style::UI, &theme);
+            if panel.is_some() && open == panel {
+                pressed_colors(button, glyph)
+            } else {
+                button.text_color(muted).child(icon(glyph))
+            }
+            .child(n.to_string())
         };
         div()
             .flex_shrink_0()
@@ -4993,6 +5012,7 @@ impl ChannelView {
                             t!("chan-members-count", count = channel.members).to_string(),
                             LucideIcon::Users,
                             channel.members,
+                            None,
                         )
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChannelEvent::OpenInfo))),
                     ))
@@ -5004,14 +5024,25 @@ impl ChannelView {
                             t!("chan-pinned-count", count = channel.pinned).to_string(),
                             LucideIcon::Pin,
                             channel.pinned,
+                            Some(crate::chrome::Panel::Pinned),
                         )
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChannelEvent::OpenPinned))),
                     ))
                     .child(style::tipped(
                         "channel.info.tip",
                         actions::tooltip_text(&t!("chan-info"), "Channel info"),
-                        action("channel.info", t!("chan-info"), LucideIcon::Info)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ChannelEvent::OpenInfo))),
+                        if open == Some(crate::chrome::Panel::Info) {
+                            pressed_colors(
+                                Button::new("channel.info")
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::IconSm)
+                                    .aria_label(t!("chan-info")),
+                                LucideIcon::Info,
+                            )
+                        } else {
+                            action("channel.info", t!("chan-info"), LucideIcon::Info)
+                        }
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ChannelEvent::OpenInfo))),
                     ))
                     .when(self.split_controls, |row| {
                         row.child(style::tipped(

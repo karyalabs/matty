@@ -40,8 +40,9 @@ pub struct PaneChrome {
     /// and server: mentions as a pill on the toggle, else a dot for unread.
     pub hidden_mentions: usize,
     pub hidden_unread: bool,
-    /// The listing the right pane shows, for the pressed state of the
-    /// Mentions and Saved buttons that end a leading header.
+    /// What the right pane shows, for the pressed state of the Mentions
+    /// and Saved buttons that end a leading header and of the channel
+    /// header's Pinned and Info buttons.
     pub panel: Option<Panel>,
 }
 
@@ -52,6 +53,10 @@ pub struct PaneChrome {
 pub enum Panel {
     Mentions,
     Saved,
+    /// The channel's pinned messages, opened from its header.
+    Pinned,
+    /// The channel's info, opened from its header.
+    Info,
 }
 
 gpui_kit::actions!(
