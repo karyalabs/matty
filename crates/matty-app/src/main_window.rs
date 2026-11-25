@@ -510,9 +510,17 @@ impl MainWindow {
             })
             .detach();
         }
-        window.on_window_should_close(cx, |_, cx| {
+        window.on_window_should_close(cx, |window, cx| {
             if crate::close_hides(cx) {
                 crate::hide_for_close(cx);
+                return false;
+            }
+            // The window owns every server's sync and the notifier (#932),
+            // and GPUI cannot hide one window on Linux or Windows: with the
+            // tray icon up, closing minimizes it, so messages keep coming
+            // and notifying until Quit.
+            if crate::tray_up(cx) {
+                crate::minimize_for_close(window, cx);
                 return false;
             }
             true
@@ -5896,10 +5904,13 @@ impl Render for MainWindow {
             }))
             .on_key_down(cx.listener(Self::type_to_composer))
             .on_action(cx.listener(|this, _: &ChannelInfo, _, cx| this.show_channel_info(cx)))
-            .on_action(cx.listener(|_, _: &actions::CloseWindow, _, cx| {
+            .on_action(cx.listener(|_, _: &actions::CloseWindow, window, cx| {
                 // Elsewhere the app-wide handler closes the window.
                 if crate::close_hides(cx) {
                     crate::hide_for_close(cx);
+                } else if crate::tray_up(cx) {
+                    // As the window's close button does (#932).
+                    crate::minimize_for_close(window, cx);
                 } else {
                     cx.propagate();
                 }

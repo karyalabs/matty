@@ -428,6 +428,24 @@ pub mod test_support {
         hidden
     }
 
+    /// Puts a stand-in tray icon up, as "close to tray" does on Linux and
+    /// Windows when the desktop has a tray.
+    /// The returned count goes up each time closing would minimize the
+    /// window.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    pub fn tray_up(cx: &mut App) -> std::rc::Rc<std::cell::Cell<usize>> {
+        cx.set_global(crate::Shown {
+            up: true,
+            _tray: None,
+        });
+        let minimized = std::rc::Rc::new(std::cell::Cell::new(0));
+        let count = minimized.clone();
+        cx.set_global(crate::MinimizeForClose(std::rc::Rc::new(move || {
+            count.set(count.get() + 1)
+        })));
+        minimized
+    }
+
     /// Whether the main window's sidebar marks `id` unread.
     pub fn is_unread(view: &AnyView, id: &str, cx: &App) -> bool {
         view.clone()
@@ -534,16 +552,51 @@ fn follow_launch_at_login(settings: &Entity<SettingsStore>, cx: &mut App) {
     .detach();
 }
 
+/// The tray icon while "close to tray" has one up.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+struct Shown {
+    /// Whether an icon is up: the tray's, or a test's stand-in.
+    up: bool,
+    _tray: Option<tray::Tray>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+impl gpui_kit::Global for Shown {}
+
+/// Whether the tray icon is up, so closing the main window should keep the
+/// app running.
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "windows")),
+    allow(unused_variables)
+)]
+pub(crate) fn tray_up(cx: &App) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    return cx.try_global::<Shown>().is_some_and(|shown| shown.up);
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    false
+}
+
+/// What closing the main window does while the tray icon is up, in place
+/// of minimizing it: a test's counter.
+struct MinimizeForClose(std::rc::Rc<dyn Fn()>);
+
+impl gpui_kit::Global for MinimizeForClose {}
+
+/// Minimizes the main window in place of closing it while the tray icon is
+/// up (#932): the window runs sync and notifications, and GPUI cannot hide
+/// one window on Linux or Windows.
+pub(crate) fn minimize_for_close(window: &mut Window, cx: &App) {
+    match cx.try_global::<MinimizeForClose>() {
+        Some(hook) => (hook.0)(),
+        None => window.minimize_window(),
+    }
+}
+
 /// Keeps the tray icon (#634) in step with the "Keep running when closed"
 /// setting. While the icon is up, closing the last window leaves Matty
 /// running; without one, closing quits as usual.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn follow_close_to_tray(settings: &Entity<SettingsStore>, cx: &mut App) {
-    struct Shown {
-        _tray: Option<tray::Tray>,
-    }
-    impl gpui_kit::Global for Shown {}
-
     let (events, picked) = async_channel::unbounded();
     cx.spawn(async move |cx| {
         while let Ok(event) = picked.recv().await {
@@ -557,7 +610,10 @@ fn follow_close_to_tray(settings: &Entity<SettingsStore>, cx: &mut App) {
 
     let apply = move |wanted: bool, cx: &mut App| {
         if !wanted {
-            cx.set_global(Shown { _tray: None });
+            cx.set_global(Shown {
+                up: false,
+                _tray: None,
+            });
             cx.set_quit_mode(gpui_kit::QuitMode::Default);
             return;
         }
@@ -572,7 +628,10 @@ fn follow_close_to_tray(settings: &Entity<SettingsStore>, cx: &mut App) {
                 }
                 match shown {
                     Ok(tray) => {
-                        cx.set_global(Shown { _tray: Some(tray) });
+                        cx.set_global(Shown {
+                            up: true,
+                            _tray: Some(tray),
+                        });
                         cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
                     }
                     Err(error) => tracing::warn!(%error, "no tray icon; closing quits"),

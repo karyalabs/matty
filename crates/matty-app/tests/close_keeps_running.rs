@@ -46,3 +46,22 @@ fn the_red_button_hides_matty_and_keeps_the_window(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(hidden.get(), 1, "closing did not hide Matty");
 }
+
+/// Linux and Windows cannot hide one window, and the window runs sync and
+/// notifications (#932): with the tray icon up, closing minimizes it, and
+/// the window stays.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[gpui_kit::test]
+fn with_the_tray_up_closing_keeps_the_window(cx: &mut TestAppContext) {
+    matty_app::preview::set("1".into());
+    cx.update(matty_app::test_support::init);
+    let minimized = cx.update(matty_app::test_support::tray_up);
+    let window = cx.add_window(|window, cx| Root(matty_app::test_support::main_window(window, cx)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    assert!(!cx.simulate_close(), "the close button closed the window");
+    cx.simulate_keystrokes("secondary-w");
+    cx.run_until_parked();
+    assert_eq!(minimized.get(), 2, "closing did not minimize the window");
+    assert_eq!(cx.windows().len(), 1, "the main window closed");
+}
