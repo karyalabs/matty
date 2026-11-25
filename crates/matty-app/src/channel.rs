@@ -3777,6 +3777,9 @@ impl ChannelView {
 
     /// Opens the picker for `target` (a post to react to, or the composer).
     fn open_picker(&mut self, target: Option<SharedString>, cx: &mut Context<Self>) {
+        if target.is_some() && crate::priority::Features::read(cx).no_emoji_picker {
+            return;
+        }
         self.picker.update(cx, crate::emoji::prepare_picker);
         self.picker_target = target;
         self.picker_at = None;
@@ -4267,19 +4270,21 @@ impl ChannelView {
                     cx.emit(ChannelEvent::OpenThreadWindow(window_id.clone()))
                 }),
             ),
-            {
-                // The picker opens where the menu was, not at the composer.
-                let view = view.clone();
+        ];
+        if !crate::priority::Features::read(cx).no_emoji_picker {
+            // The picker opens where the menu was, not at the composer.
+            let view = view.clone();
+            items.push(
                 MenuItem::new("post.context.react", t!("chan-add-reaction-menu")).on_click(
                     move |event, _, cx| {
                         let at = crate::post_row::pointer(event);
                         view.update(cx, |this, cx| this.pick_reaction(react_id.clone(), at, cx))
                             .ok();
                     },
-                )
-            },
-            MenuItem::separator(),
-        ];
+                ),
+            );
+        }
+        items.push(MenuItem::separator());
         items.extend(Self::more_items_for(post, away, delete_others, cx));
         items
     }
@@ -5899,6 +5904,11 @@ impl ChannelView {
             t!("chan-emoji"),
             LucideIcon::FaceSlightlySmiling,
         );
+        // The web app drops the picker with EnableEmojiPicker; GIFs share it.
+        let show_emoji = {
+            let features = crate::priority::Features::read(cx);
+            !features.no_emoji_picker || features.gifs
+        };
         let emoji_popover = popover("composer.emoji.popover")
             .open(picker_open && picker_at.is_none())
             .offset(px(6.))
@@ -6048,7 +6058,7 @@ impl ChannelView {
                                 window.dispatch_action(Box::new(actions::TogglePreview), cx)
                             }),
                     ))
-                    .child(emoji_popover)
+                    .when(show_emoji, |row| row.child(emoji_popover))
                     .child(style::tipped(
                         "composer.mention.tip",
                         t!("chan-mention"),

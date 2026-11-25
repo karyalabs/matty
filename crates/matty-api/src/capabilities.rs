@@ -221,6 +221,8 @@ pub struct ServerCapabilities {
     /// Users can't change how names show (`LockTeammateNameDisplay`, a
     /// licensed setting the server only reports on with a license).
     pub teammate_name_display_locked: bool,
+    /// The emoji picker is on (`EnableEmojiPicker`).
+    pub emoji_picker: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -413,6 +415,7 @@ impl ServerCapabilities {
             custom_statuses: !off(config, "EnableCustomUserStatuses"),
             teammate_name_display: text(config, "TeammateNameDisplay").map(str::to_owned),
             teammate_name_display_locked: flag(config, "LockTeammateNameDisplay"),
+            emoji_picker: !off(config, "EnableEmojiPicker"),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -620,6 +623,7 @@ mod tests {
         assert_eq!(gate("PostEditTimeLimit", "-1").post_edit_time_limit, None);
         assert!(!gate("EnableFileAttachments", "false").file_attachments);
         assert!(!gate("EnableCustomUserStatuses", "false").custom_statuses);
+        assert!(!gate("EnableEmojiPicker", "false").emoji_picker);
         let mut bare = base.clone();
         bare.remove("EnableFileAttachments");
         bare.remove("EnableCustomUserStatuses");

@@ -243,7 +243,8 @@ pub(crate) fn post_message<H: PostHost>(
         }),
         cx,
     ));
-    if parts.reactable && !post.reactions.is_empty() {
+    let no_picker = crate::priority::Features::read(cx).no_emoji_picker;
+    if parts.reactable && !post.reactions.is_empty() && !no_picker {
         // The chip row gets an add button; posts without reactions use the
         // hover toolbar, so the transcript stays quiet.
         let (view, id) = (view.clone(), id.clone());
@@ -465,22 +466,25 @@ pub(crate) fn hover_actions<H: PostHost>(
         );
         let (react_view, react_id) = (view.clone(), id.clone());
         let selector = format!("{}.{id}.react", H::PREFIX);
+        let picker = !crate::priority::Features::read(cx).no_emoji_picker;
         actions = actions
             .children(quick)
-            .child(
-                style::tipped_when(
-                    !menu_open,
-                    tip,
-                    label,
-                    button.on_click(move |event, _, cx| {
-                        let at = pointer(event);
-                        with(&react_view, cx, |this, cx| {
-                            this.pick_reaction(react_id.clone(), at, cx)
-                        })
-                    }),
+            .when(picker, |actions| {
+                actions.child(
+                    style::tipped_when(
+                        !menu_open,
+                        tip,
+                        label,
+                        button.on_click(move |event, _, cx| {
+                            let at = pointer(event);
+                            with(&react_view, cx, |this, cx| {
+                                this.pick_reaction(react_id.clone(), at, cx)
+                            })
+                        }),
+                    )
+                    .debug_selector(move || selector.clone()),
                 )
-                .debug_selector(move || selector.clone()),
-            )
+            })
             .children(extra);
     }
     let (tip, label, button) = tipped("more", t!("chan-more-actions"), LucideIcon::Ellipsis, cx);

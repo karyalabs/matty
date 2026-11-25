@@ -97,6 +97,9 @@ pub struct Features {
     /// The server holds every account to `names`
     /// (`LockTeammateNameDisplay`).
     pub names_locked: bool,
+    /// The server turned the emoji picker off (`EnableEmojiPicker`): no
+    /// picker in the composers and no Add reaction, as in the web app.
+    pub no_emoji_picker: bool,
 }
 
 impl Global for Features {}
@@ -139,6 +142,7 @@ impl Features {
                 .as_deref()
                 .and_then(crate::settings::NameFormat::from_server),
             names_locked: capabilities.teammate_name_display_locked,
+            no_emoji_picker: !capabilities.emoji_picker,
         }
     }
 
@@ -175,6 +179,7 @@ impl Features {
             no_custom_status: false,
             names: None,
             names_locked: false,
+            no_emoji_picker: false,
         }
     }
 

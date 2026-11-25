@@ -736,7 +736,7 @@ impl PostHost for RightPaneView {
             post,
             self.away,
             reply,
-            crate::priority::Features::read(cx).edit_limit_secs,
+            crate::priority::Features::read(cx),
         );
         self.open_menu(items, at, window, cx);
     }
@@ -767,7 +767,7 @@ impl PostHost for RightPaneView {
             &post,
             self.away,
             reply,
-            crate::priority::Features::read(cx).edit_limit_secs,
+            crate::priority::Features::read(cx),
         ));
         self.select_post(&id, window, cx);
         self.open_menu(items, at, window, cx);
@@ -803,7 +803,7 @@ impl PostHost for RightPaneView {
             &post,
             self.away,
             reply,
-            crate::priority::Features::read(cx).edit_limit_secs,
+            crate::priority::Features::read(cx),
         ));
         self.select_post(&id, window, cx);
         self.open_menu(items, at, window, cx);
@@ -2560,6 +2560,9 @@ impl RightPaneView {
 
     /// Opens the picker for `target` (a post to react to, or the reply).
     fn open_picker(&mut self, target: Option<SharedString>, cx: &mut Context<Self>) {
+        if target.is_some() && crate::priority::Features::read(cx).no_emoji_picker {
+            return;
+        }
         self.picker.update(cx, crate::emoji::prepare_picker);
         self.picker_target = target;
         self.picker_at = None;
@@ -2626,12 +2629,12 @@ impl RightPaneView {
         post: &Post,
         away: bool,
         reply: bool,
-        edit_limit: Option<u64>,
+        features: crate::priority::Features,
     ) -> Vec<MenuItem> {
         let body = post.body.clone();
         let markdown_body = post.body.clone();
         // The server does not have an unsent reply yet: nothing to react to.
-        let mut items = if post.status == PostStatus::Sent {
+        let mut items = if post.status == PostStatus::Sent && !features.no_emoji_picker {
             let (view, id) = (view.clone(), post.id.clone());
             vec![
                 MenuItem::new("thread.context.react", t!("pane-add-reaction-menu")).on_click(
@@ -2786,7 +2789,9 @@ impl RightPaneView {
         // the channel (#117, #118); the root is the channel's to change.
         let own_sent =
             reply && post.mine && post.kind == PostKind::Regular && post.status == PostStatus::Sent;
-        if own_sent && crate::channel::editable(post, edit_limit, crate::channel::now_ms()) {
+        if own_sent
+            && crate::channel::editable(post, features.edit_limit_secs, crate::channel::now_ms())
+        {
             let (edit_view, edit_id) = (view.clone(), post.id.clone());
             items.push(
                 MenuItem::new("thread.context.edit", t!("pane-edit")).on_click(
@@ -3125,7 +3130,7 @@ impl RightPaneView {
                         &menu_post,
                         away,
                         !root,
-                        crate::priority::Features::read(cx).edit_limit_secs,
+                        crate::priority::Features::read(cx),
                     );
                     menu_view
                         .update(cx, |this, cx| {
@@ -3325,6 +3330,11 @@ impl RightPaneView {
             t!("pane-emoji"),
             LucideIcon::FaceSlightlySmiling,
         );
+        // The web app drops the picker with EnableEmojiPicker; GIFs share it.
+        let show_emoji = {
+            let features = crate::priority::Features::read(cx);
+            !features.no_emoji_picker || features.gifs
+        };
         let emoji_popover = popover("right-pane.emoji.popover")
             .open(picker_open && picker_at.is_none())
             .offset(px(6.))
@@ -3494,7 +3504,7 @@ impl RightPaneView {
                                         window.dispatch_action(Box::new(actions::TogglePreview), cx)
                                     }),
                             ))
-                            .child(emoji_popover)
+                            .when(show_emoji, |row| row.child(emoji_popover))
                             .child(div().flex_1())
                             .children(self.schedule_button(cx))
                             .child(style::tipped(
