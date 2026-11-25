@@ -227,6 +227,8 @@ pub struct ServerCapabilities {
     pub email_invitations: bool,
     /// Typing notices go out (`EnableUserTypingMessages`).
     pub typing: bool,
+    /// What a new password must have.
+    pub password_rules: PasswordRules,
     /// Direct messages stay within a team (`RestrictDirectMessage` =
     /// `team`); by default anyone on the server can message anyone.
     pub dms_within_team: bool,
@@ -249,6 +251,49 @@ pub struct ServerCapabilities {
 
 /// The raw `format=old` payload: every value is a string.
 pub type OldFormat = HashMap<String, serde_json::Value>;
+
+/// What a new password must have (`PasswordMinimumLength`,
+/// `PasswordRequireLowercase` and the rest of the console's Password
+/// settings).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PasswordRules {
+    /// The fewest characters.
+    pub min_length: usize,
+    /// At least one lowercase letter.
+    pub lowercase: bool,
+    /// At least one uppercase letter.
+    pub uppercase: bool,
+    /// At least one digit.
+    pub number: bool,
+    /// At least one symbol: ASCII punctuation or a space, as the server
+    /// counts them.
+    pub symbol: bool,
+}
+
+impl Default for PasswordRules {
+    /// The server's defaults.
+    fn default() -> Self {
+        Self {
+            min_length: 8,
+            lowercase: false,
+            uppercase: false,
+            number: false,
+            symbol: false,
+        }
+    }
+}
+
+impl PasswordRules {
+    /// Whether `password` meets every rule.
+    pub fn accepts(&self, password: &str) -> bool {
+        let has = |test: fn(char) -> bool| password.chars().any(test);
+        password.chars().count() >= self.min_length
+            && (!self.lowercase || has(|c| c.is_lowercase()))
+            && (!self.uppercase || has(|c| c.is_uppercase()))
+            && (!self.number || has(|c| c.is_ascii_digit()))
+            && (!self.symbol || has(|c| c.is_ascii_punctuation() || c == ' '))
+    }
+}
 
 /// The announcement banner an admin set in the system console.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -426,6 +471,14 @@ impl ServerCapabilities {
             email_invitations: flag(config, "EnableEmailInvitations"),
             typing: !off(config, "EnableUserTypingMessages"),
             dms_within_team: text(config, "RestrictDirectMessage") == Some("team"),
+            password_rules: PasswordRules {
+                min_length: number(config, "PasswordMinimumLength")
+                    .map_or(PasswordRules::default().min_length, |min| min as usize),
+                lowercase: flag(config, "PasswordRequireLowercase"),
+                uppercase: flag(config, "PasswordRequireUppercase"),
+                number: flag(config, "PasswordRequireNumber"),
+                symbol: flag(config, "PasswordRequireSymbol"),
+            },
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -637,6 +690,14 @@ mod tests {
         assert!(!gate("EnableEmojiPicker", "false").emoji_picker);
         assert!(!gate("EnableUserTypingMessages", "false").typing);
         assert!(gate("RestrictDirectMessage", "team").dms_within_team);
+        let rules = gate("PasswordRequireSymbol", "true").password_rules;
+        assert!(!rules.accepts("longenough"));
+        assert!(rules.accepts("long enough"));
+        assert!(
+            !gate("PasswordMinimumLength", "12")
+                .password_rules
+                .accepts("elevenchars")
+        );
         assert!(!gate("RestrictDirectMessage", "any").dms_within_team);
         let mut bare = base.clone();
         bare.remove("EnableFileAttachments");

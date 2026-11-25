@@ -104,6 +104,8 @@ pub struct Features {
     pub email_invites: bool,
     /// Direct messages stay within a team (`RestrictDirectMessage`).
     pub dms_within_team: bool,
+    /// What Change password asks of a new password.
+    pub password: matty_api::PasswordRules,
 }
 
 impl Global for Features {}
@@ -149,6 +151,7 @@ impl Features {
             no_emoji_picker: !capabilities.emoji_picker,
             email_invites: capabilities.email_invitations,
             dms_within_team: capabilities.dms_within_team,
+            password: capabilities.password_rules,
         }
     }
 
@@ -188,6 +191,7 @@ impl Features {
             no_emoji_picker: false,
             email_invites: true,
             dms_within_team: false,
+            password: matty_api::PasswordRules::default(),
         }
     }
 

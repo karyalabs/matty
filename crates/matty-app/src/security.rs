@@ -127,9 +127,48 @@ pub struct SecurityView {
 }
 
 /// Why the typed passwords can't be sent yet, if they can't.
-fn password_problem(current: &str, new: &str, confirm: &str) -> Option<SharedString> {
+/// The server's password rules in a sentence, as the web app spells them
+/// out under New password.
+fn rules_text(rules: &matty_api::PasswordRules) -> SharedString {
+    let length = t!("security-rule-length", min = rules.min_length);
+    let parts: Vec<SharedString> = [
+        (rules.lowercase, t!("security-rule-lowercase")),
+        (rules.uppercase, t!("security-rule-uppercase")),
+        (rules.number, t!("security-rule-number")),
+        (rules.symbol, t!("security-rule-symbol")),
+    ]
+    .into_iter()
+    .filter_map(|(on, part)| on.then_some(part))
+    .collect();
+    if parts.is_empty() {
+        t!("security-rule-only", length = length.to_string())
+    } else {
+        t!(
+            "security-rule-with",
+            length = length.to_string(),
+            parts = match parts.split_last() {
+                Some((last, rest)) if !rest.is_empty() => t!(
+                    "security-rule-and",
+                    rest = rest.join(", "),
+                    last = last.to_string()
+                )
+                .to_string(),
+                _ => parts.join(""),
+            }
+        )
+    }
+}
+
+fn password_problem(
+    current: &str,
+    new: &str,
+    confirm: &str,
+    rules: &matty_api::PasswordRules,
+) -> Option<SharedString> {
     if current.is_empty() || new.is_empty() {
         None
+    } else if !rules.accepts(new) {
+        Some(t!("security-weak"))
     } else if new != confirm {
         Some(t!("security-mismatch"))
     } else if new == current {
@@ -931,7 +970,13 @@ impl SecurityView {
         let (current, new, confirm) = self.typed(cx);
         !current.is_empty()
             && !new.is_empty()
-            && password_problem(&current, &new, &confirm).is_none()
+            && password_problem(
+                &current,
+                &new,
+                &confirm,
+                &crate::priority::Features::read(cx).password,
+            )
+            .is_none()
     }
 
     fn change_password(&mut self, _: &mut Window, cx: &mut Context<Self>) {
@@ -945,7 +990,8 @@ impl SecurityView {
     fn password_section(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let theme = UiTheme::read(cx).clone();
         let (current, new, confirm) = self.typed(cx);
-        let problem = password_problem(&current, &new, &confirm);
+        let rules = crate::priority::Features::read(cx).password;
+        let problem = password_problem(&current, &new, &confirm, &rules);
         let status = match (&self.result, problem) {
             (_, Some(problem)) => Some((problem, theme.colors.destructive)),
             (Some(Ok(())), None) => Some((t!("security-changed"), theme.colors.muted_foreground)),
@@ -970,6 +1016,12 @@ impl SecurityView {
                     .child(div().flex_1().child(
                         Field::new("security.confirm", &self.confirm).label(t!("security-confirm")),
                     )),
+            )
+            .child(
+                div()
+                    .text_size(theme.text(13.))
+                    .text_color(theme.colors.muted_foreground)
+                    .child(rules_text(&rules)),
             )
             .child(
                 div()
