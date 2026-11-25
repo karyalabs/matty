@@ -80,6 +80,105 @@ pub fn link_entities_and_emoji_in_source(
     out
 }
 
+/// `text` (Markdown source) with each of `words` written as a link to
+/// `mark:`, for a view to draw highlighted: the reader's keywords in a
+/// message, or the terms of a search among its results. A word matches
+/// whole and in any case; one ending in `*` matches as a prefix, and one
+/// with spaces matches as a phrase. Text inside code, links (mentions
+/// included), images and bare URLs is left alone.
+pub fn mark_words_in_source(text: &str, words: &[String]) -> String {
+    let words: Vec<(Vec<char>, bool)> = words
+        .iter()
+        .filter_map(|word| {
+            let (word, prefix) = match word.strip_suffix('*') {
+                Some(stem) => (stem, true),
+                None => (word.as_str(), false),
+            };
+            let chars: Vec<char> = word.trim().chars().flat_map(char::to_lowercase).collect();
+            (!chars.is_empty()).then_some((chars, prefix))
+        })
+        .collect();
+    if words.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut copied = 0;
+    for run in text_runs(text) {
+        let run_text = &text[run.clone()];
+        let urls = link_spans(run_text);
+        for found in word_matches(run_text, &words) {
+            if urls
+                .iter()
+                .any(|url| found.start < url.end && url.start < found.end)
+            {
+                continue;
+            }
+            let start = run.start + found.start;
+            let end = run.start + found.end;
+            out.push_str(&text[copied..start]);
+            out.push('[');
+            for c in text[start..end].chars() {
+                if matches!(c, '\\' | '*' | '_' | '[' | ']' | '`') {
+                    out.push('\\');
+                }
+                out.push(c);
+            }
+            out.push_str("](mark:)");
+            copied = end;
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// The byte ranges in `text` where one of `words` (lowercase, and whether
+/// each is a prefix) stands as a word, earliest first, without overlaps;
+/// at one place the longest match wins.
+fn word_matches(text: &str, words: &[(Vec<char>, bool)]) -> Vec<Range<usize>> {
+    let word_char = |c: char| c.is_alphanumeric() || c == '_';
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut found = Vec::new();
+    let mut at = 0;
+    while at < chars.len() {
+        let starts = at == 0 || !word_char(chars[at - 1].1);
+        let longest = starts
+            .then(|| {
+                words
+                    .iter()
+                    .filter_map(|(word, prefix)| {
+                        let end = at + word.len();
+                        let matched = chars.get(at..end)?.iter().zip(word).all(|((_, c), w)| {
+                            let mut lower = c.to_lowercase();
+                            lower.next() == Some(*w) && lower.next().is_none()
+                        });
+                        if !matched {
+                            return None;
+                        }
+                        let mut end = end;
+                        if *prefix {
+                            while chars.get(end).is_some_and(|(_, c)| word_char(*c)) {
+                                end += 1;
+                            }
+                        } else if chars.get(end).is_some_and(|(_, c)| word_char(*c)) {
+                            return None;
+                        }
+                        Some(end)
+                    })
+                    .max()
+            })
+            .flatten();
+        match longest {
+            Some(end) => {
+                let byte_end = chars.get(end).map_or(text.len(), |(index, _)| *index);
+                found.push(chars[at].0..byte_end);
+                at = end;
+            }
+            None => at += 1,
+        }
+    }
+    found
+}
+
 /// Mattermost's emoticons and the emoji each one shows as, longest first
 /// where one starts another. Letters match in either case.
 const EMOTICONS: &[(&str, &str)] = &[
@@ -214,6 +313,43 @@ fn text_runs(text: &str) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marked_words_are_whole_words_outside_code_and_links() {
+        let words = |list: &[&str]| list.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            mark_words_in_source("Deploy the deployer, deploy!", &words(&["deploy"])),
+            "[Deploy](mark:) the deployer, [deploy](mark:)!"
+        );
+        assert_eq!(
+            mark_words_in_source("deploying and deploys", &words(&["deploy*"])),
+            "[deploying](mark:) and [deploys](mark:)"
+        );
+        assert_eq!(
+            mark_words_in_source(
+                "the staging server is down",
+                &words(&["staging server", "staging"])
+            ),
+            "the [staging server](mark:) is down"
+        );
+        for text in [
+            "`deploy` and\n```\ndeploy\n```",
+            "[deploy](https://example.com)",
+            "https://example.com/deploy",
+            "[@deploy](matty://user/deploy)",
+        ] {
+            assert_eq!(mark_words_in_source(text, &words(&["deploy"])), text);
+        }
+        assert_eq!(
+            mark_words_in_source("**Größe** and größer", &words(&["GRÖSSE", "größe"])),
+            "**[Größe](mark:)** and größer"
+        );
+        assert_eq!(mark_words_in_source("a_b", &words(&["_"])), "a_b");
+        assert_eq!(
+            mark_words_in_source("snake_case", &words(&["snake_case"])),
+            "[snake\\_case](mark:)"
+        );
+    }
 
     #[test]
     fn emoticons_become_emoji_codes_between_words_only() {

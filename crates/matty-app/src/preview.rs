@@ -748,6 +748,7 @@ pub fn channel(id: &str) -> Option<ChannelModel> {
             username: "arya".into(),
             channel_wide: true,
             groups: std::sync::Arc::from([]),
+            marks: std::sync::Arc::from([]),
         },
         edited: false,
         continues: false,

@@ -145,6 +145,11 @@ pub struct OwnMentions {
     pub channel_wide: bool,
     /// The user groups the viewer is in, by `@name` (#1057).
     pub groups: Arc<[String]>,
+    /// Words the body highlights, as Mattermost does: the viewer's first
+    /// name when it mentions them, their keywords and highlight-only
+    /// keywords, and among search results the search's terms. See
+    /// [`matty_markdown::mark_words_in_source`] for how they match.
+    pub marks: Arc<[String]>,
 }
 
 impl OwnMentions {
@@ -153,7 +158,24 @@ impl OwnMentions {
             username: keys.username.clone().into(),
             channel_wide: keys.channel_wide,
             groups: keys.groups.iter().cloned().collect(),
+            marks: keys
+                .first_name
+                .iter()
+                .chain(&keys.keywords)
+                .chain(&keys.highlight)
+                // `@name` keywords are mentions, which show as chips.
+                .filter(|word| !word.starts_with('@') && !word.trim().is_empty())
+                .cloned()
+                .collect(),
         }
+    }
+
+    /// These mentions, also highlighting `words`.
+    pub fn with_marks(mut self, words: impl IntoIterator<Item = String>) -> Self {
+        let mut marks = self.marks.to_vec();
+        marks.extend(words);
+        self.marks = marks.into();
+        self
     }
 
     /// Whether the entity link `target` (the part after `matty:`, such as
@@ -194,6 +216,11 @@ pub fn message_body(
 ) -> ShowMore {
     let id = id.into();
     let source = cached_source(body, cx);
+    let source = if own.marks.is_empty() {
+        source
+    } else {
+        marked_source(source, &own.marks)
+    };
     let emoticons = crate::settings::SettingsStore::try_global(cx)
         .is_none_or(|store| store.read(cx).get().emoticons);
     let mut view = markdown_from_source(
@@ -282,6 +309,28 @@ struct SourceCache {
 
 thread_local! {
     static SOURCES: std::cell::RefCell<SourceCache> = std::cell::RefCell::default();
+    static MARKED: std::cell::RefCell<std::collections::HashMap<(SharedString, u64), SharedString>> =
+        std::cell::RefCell::default();
+}
+
+/// A body's Markdown `source` with `marks` highlighted, worked out once per
+/// source and list of words.
+fn marked_source(source: SharedString, marks: &Arc<[String]>) -> SharedString {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    marks.hash(&mut hasher);
+    let key = (source.clone(), hasher.finish());
+    MARKED.with_borrow_mut(|cache| {
+        if let Some(marked) = cache.get(&key) {
+            return marked.clone();
+        }
+        if cache.len() >= SOURCE_CACHE_LIMIT {
+            cache.clear();
+        }
+        let marked: SharedString = matty_markdown::mark_words_in_source(&source, marks).into();
+        cache.insert(key, marked.clone());
+        marked
+    })
 }
 
 /// [`body_source`] for a stored body, made once per body text and custom
@@ -417,6 +466,8 @@ fn with_message_plugins(
                 .placeholder(|url, _, cx| crate::remote_images::placeholder(url, cx))
                 .on_click(move |url, window, cx| image_link(url, window, cx)),
         )
+        // Highlighted words: plain text with the mention fill, no link.
+        .plugin(EntityLinks::new("mark").highlight(|_| true))
         .plugin(
             EntityLinks::new("matty")
                 .on_click(move |target, window, cx| {
@@ -628,6 +679,7 @@ mod tests {
             username: "ada".into(),
             channel_wide: true,
             groups: Arc::from(["developers".to_owned()]),
+            marks: Arc::from([]),
         };
         assert!(own.matches("//user/ada"));
         assert!(own.matches("//user/Developers"), "a group the viewer is in");
@@ -643,6 +695,19 @@ mod tests {
         };
         assert!(!quiet.matches("//special/channel"));
         assert!(!OwnMentions::default().matches("//user/"));
+    }
+
+    #[test]
+    fn keywords_and_the_first_name_are_marked_but_at_keywords_are_not() {
+        let keys = matty_notify::MentionKeys {
+            username: "ada".into(),
+            first_name: Some("Ada".into()),
+            keywords: vec!["deploy".into(), "@oncall".into()],
+            highlight: vec!["incident".into()],
+            ..Default::default()
+        };
+        let own = OwnMentions::of(&keys).with_marks(["staging*".to_owned()]);
+        assert_eq!(&*own.marks, ["Ada", "deploy", "incident", "staging*"]);
     }
     const TEAMS: &[&str] = &["matty", "design-guild"];
 

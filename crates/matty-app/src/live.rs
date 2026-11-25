@@ -2344,6 +2344,7 @@ impl Live {
             .iter()
             .map(|info| self.found_file(info, &viewer))
             .collect();
+        let marks = search_marks(terms);
         Some(crate::right_pane::SearchModel {
             files,
             query: terms.clone().into(),
@@ -2354,10 +2355,14 @@ impl Live {
             results: posts
                 .iter()
                 .flat_map(|posts| posts.iter())
-                .map(|post| crate::right_pane::ListedPost {
-                    channel_id: post.channel_id.clone().into(),
-                    channel_name: self.search_channel_name(&post.channel_id),
-                    post: crate::transcript::listed_post(post, &self.users, &viewer),
+                .map(|post| {
+                    let mut listed = crate::transcript::listed_post(post, &self.users, &viewer);
+                    listed.own_mentions = listed.own_mentions.with_marks(marks.iter().cloned());
+                    crate::right_pane::ListedPost {
+                        channel_id: post.channel_id.clone().into(),
+                        channel_name: self.search_channel_name(&post.channel_id),
+                        post: listed,
+                    }
                 })
                 .collect(),
         })
@@ -4203,6 +4208,41 @@ pub fn methods(capabilities: &ServerCapabilities, server: &str) -> SignInMethods
 /// The search terms for the user's recent mentions: `@username`, the first
 /// name and keywords, leaving out `@channel`, `@all` and `@here` as the
 /// webapp does.
+/// The words of a search that its results highlight, as Mattermost
+/// highlights them: plain words and `prefix*` words, and quoted phrases;
+/// not `from:`, `in:` and the dates, excluded `-words`, or the `@names`
+/// and `#hashtags` that show as links anyway.
+fn search_marks(terms: &str) -> Vec<String> {
+    let mut marks = Vec::new();
+    let mut rest = terms.trim_start();
+    while !rest.is_empty() {
+        let (token, quoted) = match rest.strip_prefix('"') {
+            Some(after) => {
+                let end = after.find('"').unwrap_or(after.len());
+                rest = after.get(end + 1..).unwrap_or("");
+                (&after[..end], true)
+            }
+            None => {
+                let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+                let token = &rest[..end];
+                rest = &rest[end..];
+                (token, false)
+            }
+        };
+        rest = rest.trim_start();
+        let token = token.trim();
+        let filter = ["from:", "in:", "on:", "before:", "after:", "-"];
+        let skip = token.is_empty()
+            || (!quoted
+                && (filter.iter().any(|prefix| token.starts_with(prefix))
+                    || token.starts_with(['@', '#', '~'])));
+        if !skip {
+            marks.push(token.to_owned());
+        }
+    }
+    marks
+}
+
 fn mention_terms(keys: &matty_notify::MentionKeys) -> String {
     std::iter::once(format!("@{}", keys.username))
         .chain(keys.first_name.clone())
@@ -5089,6 +5129,21 @@ mod tests {
         )])));
         let profile = live.known_user("ana").unwrap();
         assert_eq!(profile.status.unwrap().emoji, "coffee");
+    }
+
+    #[test]
+    fn search_results_mark_the_searched_words() {
+        assert_eq!(
+            super::search_marks(
+                r#"deploy "staging server" from:ada in:town-square -flaky test* @ada #release on:2026-11-02"#
+            ),
+            ["deploy", "staging server", "test*"]
+        );
+        assert!(super::search_marks("  ").is_empty());
+        assert_eq!(
+            super::search_marks(r#""unclosed phrase"#),
+            ["unclosed phrase"]
+        );
     }
 
     #[test]
