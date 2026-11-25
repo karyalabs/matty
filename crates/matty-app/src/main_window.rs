@@ -780,6 +780,17 @@ impl MainWindow {
             ThreadsModel::default()
         };
         let threads = cx.new(|cx| ThreadsView::new(threads_model, me, window, cx));
+        let this = cx.entity().downgrade();
+        threads.update(cx, |view, _| {
+            view.set_saved_lookup(std::rc::Rc::new(move |post_id, cx| {
+                this.upgrade().is_some_and(|this| {
+                    this.read(cx)
+                        .live
+                        .as_ref()
+                        .is_some_and(|live| live.is_saved(post_id))
+                })
+            }))
+        });
         let toasts = cx.new(ToastState::new);
         let updater = crate::updater::UpdatePrompt::start(toasts.clone(), window, cx);
         let drafts_model = if crate::preview::enabled() {
@@ -845,6 +856,8 @@ impl MainWindow {
                 match event {
                     ThreadsEvent::OpenInChannel { .. } | ThreadsEvent::CopyLink { .. } => {}
                     ThreadsEvent::Read(root) => live.read_thread(root),
+                    ThreadsEvent::Unread(root) => live.unread_thread(root),
+                    ThreadsEvent::Save { root, saved } => live.set_saved(root, *saved),
                     ThreadsEvent::MarkAllRead => live.read_all_threads(),
                     ThreadsEvent::Unfollow(root) => live.follow_thread(root, false),
                     ThreadsEvent::LoadMore => live.load_more_threads(),

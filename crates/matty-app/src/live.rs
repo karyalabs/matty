@@ -2097,6 +2097,16 @@ impl Live {
         }
     }
 
+    /// Mark the thread under `root_id` unread from its newest reply.
+    pub fn unread_thread(&self, root_id: &str) {
+        if let Some(team_id) = self.team.clone() {
+            self.send(Command::UnreadThread {
+                team_id,
+                root_id: root_id.to_owned(),
+            });
+        }
+    }
+
     /// "Mark all as read" in the Threads view.
     pub fn read_all_threads(&self) {
         if let Some(team_id) = self.team.clone() {

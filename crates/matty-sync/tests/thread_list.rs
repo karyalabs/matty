@@ -89,6 +89,56 @@ async fn the_thread_list_loads_reads_and_unfollows() {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 }
 
+/// "Mark as unread" reads the thread up to just before its newest reply,
+/// as the web app does, and shows it unread at once (#1106).
+#[tokio::test(flavor = "multi_thread")]
+async fn mark_as_unread_reads_up_to_before_the_newest_reply() {
+    let server = server().await;
+    let root = json!({"id": "root1", "channel_id": "c1", "user_id": "ada", "root_id": "",
+                      "create_at": 100, "update_at": 100, "message": "Plan?"});
+    let thread = json!({"id": "root1", "reply_count": 2, "last_reply_at": 300,
+                        "last_viewed_at": 300, "participants": [], "post": root,
+                        "unread_replies": 0, "unread_mentions": 0});
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v4/users/{ME}/teams/t1/threads")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "threads": [thread], "total": 1,
+        })))
+        .mount(&server)
+        .await;
+    let mut unread = thread.clone();
+    unread["last_viewed_at"] = json!(299);
+    unread["unread_replies"] = json!(1);
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "/api/v4/users/{ME}/teams/t1/threads/root1/read/299"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(unread))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (sync, changes) = connected(&server).await;
+    sync.send(Command::OpenThreadList {
+        team_id: "t1".into(),
+    });
+    next(
+        &changes,
+        |c| matches!(c, ChangeSet::ThreadList { threads, .. } if threads.len() == 1),
+    )
+    .await;
+
+    sync.send(Command::UnreadThread {
+        team_id: "t1".into(),
+        root_id: "root1".into(),
+    });
+    next(&changes, |c| {
+        matches!(c, ChangeSet::ThreadList { threads, .. }
+            if threads.len() == 1 && threads[0].unread_replies == 1)
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+}
+
 /// The Threads list pages past the server's first page (#122): it says
 /// more threads remain until a page comes back short.
 #[tokio::test(flavor = "multi_thread")]

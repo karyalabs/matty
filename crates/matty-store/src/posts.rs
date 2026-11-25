@@ -722,6 +722,15 @@ pub fn mark_thread_read(
     Ok(())
 }
 
+/// When the newest reply in a followed thread was posted, if the thread is
+/// stored.
+pub fn thread_last_reply_at(conn: &Connection, thread_id: &str) -> Result<Option<i64>> {
+    Ok(conn
+        .prepare_cached("SELECT last_reply_at FROM threads WHERE id = ?1")?
+        .query_row([thread_id], |row| row.get(0))
+        .optional()?)
+}
+
 /// Records that the user read every followed thread in a team up to
 /// `viewed_at` ("Mark all as read" in the Threads view).
 pub fn mark_team_threads_read(conn: &Connection, team_id: &str, viewed_at: i64) -> Result<()> {

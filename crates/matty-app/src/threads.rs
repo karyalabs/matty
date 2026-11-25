@@ -94,6 +94,10 @@ pub enum ThreadsEvent {
     },
     /// Read the thread's replies without opening it (#1014).
     Read(SharedString),
+    /// Count the thread's newest reply unread again (#1106).
+    Unread(SharedString),
+    /// Save or unsave the thread's root post (#1106).
+    Save { root: SharedString, saved: bool },
 }
 
 /// Groups a row with its options button, which shows on hover.
@@ -116,7 +120,12 @@ pub struct ThreadsView {
     loading_more: bool,
     /// A row's options, from its ⋯ button or a right click (#1014).
     row_menu: Entity<MenuState>,
+    /// Whether the user saved a post, for a row menu's Save or Unsave.
+    is_saved: Option<SavedLookup>,
 }
+
+/// Answers whether the user saved the post with this id.
+pub type SavedLookup = std::rc::Rc<dyn Fn(&str, &gpui_kit::App) -> bool>;
 
 impl EventEmitter<ThreadsEvent> for ThreadsView {}
 
@@ -142,9 +151,15 @@ impl ThreadsView {
             scroll: gpui_kit::ScrollHandle::new(),
             loading_more: false,
             row_menu: cx.new(|cx| MenuState::new([], cx)),
+            is_saved: None,
         };
         this.set_model(model, cx);
         this
+    }
+
+    /// Where a row menu learns whether the thread's root is saved.
+    pub fn set_saved_lookup(&mut self, lookup: SavedLookup) {
+        self.is_saved = Some(lookup);
     }
 
     pub fn model(&self) -> &ThreadsModel {
@@ -416,13 +431,35 @@ impl ThreadsView {
                 },
             ),
         ];
-        if row.summary.unread() {
-            items.push(emit(
+        items.push(if row.summary.unread() {
+            emit(
                 "threads.row.read",
                 t!("threads-mark-read"),
                 ThreadsEvent::Read(root.clone()),
-            ));
-        }
+            )
+        } else {
+            emit(
+                "threads.row.unread",
+                t!("threads-mark-unread"),
+                ThreadsEvent::Unread(root.clone()),
+            )
+        });
+        let saved = self
+            .is_saved
+            .as_ref()
+            .is_some_and(|is_saved| is_saved(&root, cx));
+        items.push(emit(
+            "threads.row.save",
+            if saved {
+                t!("threads-unsave")
+            } else {
+                t!("threads-save")
+            },
+            ThreadsEvent::Save {
+                root: root.clone(),
+                saved: !saved,
+            },
+        ));
         items.push(MenuItem::separator());
         items.push(emit(
             "threads.row.unfollow",
@@ -441,6 +478,11 @@ impl ThreadsView {
                 if let Some(row) = self.model.threads.iter_mut().find(|row| row.id() == root) {
                     row.summary.unread_replies = 0;
                     row.summary.unread_mentions = 0;
+                }
+            }
+            ThreadsEvent::Unread(root) => {
+                if let Some(row) = self.model.threads.iter_mut().find(|row| row.id() == root) {
+                    row.summary.unread_replies = row.summary.unread_replies.max(1);
                 }
             }
             ThreadsEvent::Unfollow(root) => {

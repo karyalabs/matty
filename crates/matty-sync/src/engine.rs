@@ -322,6 +322,14 @@ pub enum Command {
         /// The root post's id.
         root_id: String,
     },
+    /// "Mark as unread" on a followed thread: its newest reply counts as
+    /// unread again, as the web app does it.
+    UnreadThread {
+        /// The team whose Threads view lists it.
+        team_id: String,
+        /// The root post's id.
+        root_id: String,
+    },
     /// "Mark all as read" in a team's Threads view.
     ReadAllThreads {
         /// The team.
@@ -1295,6 +1303,11 @@ impl std::fmt::Debug for Command {
                 .field("team_id", team_id)
                 .field("root_id", root_id)
                 .finish(),
+            Self::UnreadThread { team_id, root_id } => f
+                .debug_struct("UnreadThread")
+                .field("team_id", team_id)
+                .field("root_id", root_id)
+                .finish(),
             Self::ReadAllThreads { team_id } => f
                 .debug_struct("ReadAllThreads")
                 .field("team_id", team_id)
@@ -2256,6 +2269,22 @@ impl Engine {
                         thread_id: root_id,
                         at,
                     });
+                }
+                Message::Command(Command::UnreadThread { team_id, root_id }) => {
+                    // Read up to just before the newest reply: the server
+                    // counts that reply unread again.
+                    if let Some(at) = posts::thread_last_reply_at(&tx, &root_id)?
+                        .filter(|at| *at > 0)
+                        .map(|at| at - 1)
+                    {
+                        posts::mark_thread_read(&tx, &root_id, at, 1, 0)?;
+                        dirty.thread_lists.insert(team_id.clone());
+                        writes.push(Write::ReadThread {
+                            team_id,
+                            thread_id: root_id,
+                            at,
+                        });
+                    }
                 }
                 Message::Command(Command::ReadAllThreads { team_id }) => {
                     posts::mark_team_threads_read(&tx, &team_id, posts::now_ms())?;
