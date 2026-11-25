@@ -102,6 +102,8 @@ pub struct Features {
     pub no_emoji_picker: bool,
     /// Invite people takes email addresses (`EnableEmailInvitations`).
     pub email_invites: bool,
+    /// Direct messages stay within a team (`RestrictDirectMessage`).
+    pub dms_within_team: bool,
 }
 
 impl Global for Features {}
@@ -146,6 +148,7 @@ impl Features {
             names_locked: capabilities.teammate_name_display_locked,
             no_emoji_picker: !capabilities.emoji_picker,
             email_invites: capabilities.email_invitations,
+            dms_within_team: capabilities.dms_within_team,
         }
     }
 
@@ -184,6 +187,7 @@ impl Features {
             names_locked: false,
             no_emoji_picker: false,
             email_invites: true,
+            dms_within_team: false,
         }
     }
 

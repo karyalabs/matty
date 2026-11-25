@@ -30,9 +30,12 @@ async fn browse_people_and_create_answer_with_their_change_sets() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"c1": 4, "c2": 9})))
         .mount(&server)
         .await;
+    // New message lists the whole server: by default anyone may message
+    // anyone (`RestrictDirectMessage` = `any`).
     Mock::given(method("GET"))
         .and(path("/api/v4/users"))
-        .and(query_param("in_team", "t1"))
+        .and(query_param("active", "true"))
+        .and(wiremock::matchers::query_param_is_missing("in_team"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
             {"id": "ada", "username": "ada", "first_name": "Ada"}
         ])))

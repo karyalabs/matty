@@ -144,6 +144,9 @@ pub(crate) enum Write {
     },
     People {
         team_id: String,
+        /// Everyone on the server, not just the team: the server lets
+        /// anyone message anyone (`RestrictDirectMessage` = `any`).
+        everyone: bool,
     },
     ChannelMembers {
         channel_id: String,
@@ -555,7 +558,7 @@ impl Write {
             Self::Listing(crate::Listing::EditHistory { post_id }) => post_id.clone(),
             Self::Listing(crate::Listing::Mentions { team_id, .. })
             | Self::Browse { team_id }
-            | Self::People { team_id }
+            | Self::People { team_id, .. }
             | Self::Search { team_id, .. }
             | Self::ReadAllThreads { team_id } => team_id.clone(),
             Self::CreateCategory { category, .. } | Self::UpdateCategory { category, .. } => {
@@ -1031,10 +1034,14 @@ pub(crate) async fn run(
                     members,
                 })
             }
-            Write::People { team_id } => {
+            Write::People { team_id, everyone } => {
                 let mut users = Vec::new();
                 for page in 0..PEOPLE_PAGES {
-                    let batch = client.team_users(&team_id, page, PAGE).await?;
+                    let batch = if everyone {
+                        client.active_users(page, PAGE).await?
+                    } else {
+                        client.team_users(&team_id, page, PAGE).await?
+                    };
                     let last = batch.len() < PAGE as usize;
                     users.extend(batch);
                     if last {

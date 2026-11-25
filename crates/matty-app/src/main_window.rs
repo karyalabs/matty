@@ -2434,6 +2434,8 @@ impl MainWindow {
             detail.update(cx, |pane, cx| {
                 pane.set_suggested(term.clone(), people.clone(), cx)
             });
+            self.new_message
+                .update(cx, |view, cx| view.add_found(people.clone(), cx));
             self.right_pane
                 .update(cx, |pane, cx| pane.set_suggested(term, people, cx));
         }
@@ -3181,6 +3183,16 @@ impl MainWindow {
                 purpose,
                 private,
             } => self.create_channel(name.clone(), purpose.clone(), *private, window, cx),
+            DirectoryEvent::FindPeople(term) => {
+                if let Some(live) = &self.live {
+                    let within_team = crate::priority::Features::read(cx).dms_within_team;
+                    live.send(matty_sync::Command::SuggestPeople {
+                        term: term.to_string(),
+                        team_id: live.team().filter(|_| within_team).map(str::to_string),
+                        channel_id: None,
+                    });
+                }
+            }
         }
     }
 

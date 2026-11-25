@@ -227,6 +227,9 @@ pub struct ServerCapabilities {
     pub email_invitations: bool,
     /// Typing notices go out (`EnableUserTypingMessages`).
     pub typing: bool,
+    /// Direct messages stay within a team (`RestrictDirectMessage` =
+    /// `team`); by default anyone on the server can message anyone.
+    pub dms_within_team: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -422,6 +425,7 @@ impl ServerCapabilities {
             emoji_picker: !off(config, "EnableEmojiPicker"),
             email_invitations: flag(config, "EnableEmailInvitations"),
             typing: !off(config, "EnableUserTypingMessages"),
+            dms_within_team: text(config, "RestrictDirectMessage") == Some("team"),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -632,6 +636,8 @@ mod tests {
         assert!(!gate("EnableCustomUserStatuses", "false").custom_statuses);
         assert!(!gate("EnableEmojiPicker", "false").emoji_picker);
         assert!(!gate("EnableUserTypingMessages", "false").typing);
+        assert!(gate("RestrictDirectMessage", "team").dms_within_team);
+        assert!(!gate("RestrictDirectMessage", "any").dms_within_team);
         let mut bare = base.clone();
         bare.remove("EnableFileAttachments");
         bare.remove("EnableCustomUserStatuses");

@@ -338,6 +338,20 @@ impl Client {
         .await
     }
 
+    /// `GET users?active=true`: one page of everyone active on the server,
+    /// for starting a direct message where any two people may talk.
+    pub async fn active_users(&self, page: u32, per_page: u32) -> Result<Vec<User>, ApiError> {
+        self.get_query(
+            "users",
+            &[
+                ("active", "true".to_owned()),
+                ("page", page.to_string()),
+                ("per_page", per_page.to_string()),
+            ],
+        )
+        .await
+    }
+
     /// `GET users?in_team=&not_in_channel=`: one page of a team's active
     /// people who are not in a channel, for Add members (#208).
     pub async fn users_not_in_team(

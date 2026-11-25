@@ -2941,7 +2941,13 @@ impl Engine {
                     });
                 }
                 Message::Command(Command::FindPeople { team_id }) => {
-                    writes.push(Write::People { team_id });
+                    // The web app lists the whole server unless the server
+                    // keeps direct messages within a team.
+                    let everyone = self
+                        .capabilities
+                        .as_ref()
+                        .is_none_or(|c| !c.dms_within_team);
+                    writes.push(Write::People { team_id, everyone });
                 }
                 Message::Command(Command::RunPostAction {
                     post_id,

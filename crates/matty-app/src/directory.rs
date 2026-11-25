@@ -96,6 +96,9 @@ pub enum DirectoryEvent {
         purpose: Option<SharedString>,
         private: bool,
     },
+    /// Ask the server for people matching this name: New message lists
+    /// only a first batch, and a big server has more.
+    FindPeople(SharedString),
 }
 
 /// The browse-channels dialog body; the window wraps it in `dialog`.
@@ -479,6 +482,12 @@ impl NewMessageView {
                 if matches!(event, InputEvent::PressEnter { .. }) {
                     this.enter(window, cx);
                 } else {
+                    if matches!(event, InputEvent::Change) {
+                        let term = this.search.read(cx).value().trim().to_string();
+                        if !term.is_empty() {
+                            cx.emit(DirectoryEvent::FindPeople(term.into()));
+                        }
+                    }
                     cx.notify();
                 }
             },
@@ -500,6 +509,24 @@ impl NewMessageView {
     pub fn set_profiles(&mut self, profiles: Vec<UserProfile>, cx: &mut Context<Self>) {
         self.profiles = profiles;
         cx.notify();
+    }
+
+    /// Adds the people the server found for a search to the list, so
+    /// someone past the first batch can still be messaged.
+    pub fn add_found(&mut self, found: Vec<UserProfile>, cx: &mut Context<Self>) {
+        let before = self.profiles.len();
+        for person in found {
+            if !self
+                .profiles
+                .iter()
+                .any(|known| known.user_id == person.user_id)
+            {
+                self.profiles.push(person);
+            }
+        }
+        if self.profiles.len() != before {
+            cx.notify();
+        }
     }
 
     pub fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
