@@ -170,12 +170,14 @@ impl Pictures {
         let mut store = self.0.borrow_mut();
         let entry = store.entries.entry(id.to_owned()).or_default();
         match image {
-            // An answer older than the picture up already is stale.
+            // An answer older than the picture up already is stale. The
+            // server marks a removed picture with a negative time, so the
+            // size of the number says which is newer.
             Some(image)
                 if entry
                     .image
                     .as_ref()
-                    .is_none_or(|(shown, _)| *shown <= version) =>
+                    .is_none_or(|(shown, _)| shown.unsigned_abs() <= version.unsigned_abs()) =>
             {
                 entry.image = Some((version, image));
                 entry.failed = false;
@@ -367,6 +369,19 @@ mod tests {
         // A late answer for the old version does not win.
         assert!(!avatars.landed("u1", 10, Some(old)));
         assert!(Arc::ptr_eq(&avatars.image("u1").unwrap(), &new));
+    }
+
+    #[test]
+    fn a_removed_picture_replaces_the_custom_one() {
+        let (avatars, _) = store();
+        avatars.learn("u1", 10);
+        avatars.image("u1");
+        assert!(avatars.landed("u1", 10, Some(png())));
+        // Removing a picture sets `last_picture_update` to minus the time.
+        avatars.learn("u1", -20);
+        let default = png();
+        assert!(avatars.landed("u1", -20, Some(default.clone())));
+        assert!(Arc::ptr_eq(&avatars.image("u1").unwrap(), &default));
     }
 
     #[test]
