@@ -621,6 +621,10 @@ pub struct RightPaneView {
     pending_seq: usize,
     /// The search field at the top of the Search listing.
     search: Entity<InputState>,
+    /// Channel info's member search, and the channel it was typed for:
+    /// another channel's list shows unfiltered.
+    member_filter: Entity<InputState>,
+    member_filter_channel: SharedString,
     /// The saved, pinned or mentions listing has yet to come from sync.
     loading: bool,
     /// The reply box takes the caret once the thread is on screen: a thread
@@ -1013,6 +1017,8 @@ impl RightPaneView {
         crate::spelling::check(&composer, cx);
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("pane-search-placeholder")));
+        let member_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("pane-search-members")));
         let (schedule_dialog, scheduling) = schedule::schedule_dialog(window, cx);
         let (remind_dialog, reminding) = schedule::remind_dialog(window, cx);
         let composer_input = composer.read(cx).input().clone();
@@ -1029,6 +1035,14 @@ impl RightPaneView {
             state
         });
         let subscriptions = vec![
+            cx.subscribe(&member_filter, |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    if let Some(RightPaneContent::ChannelInfo(channel)) = &this.content {
+                        this.member_filter_channel = channel.id.clone();
+                    }
+                    cx.notify();
+                }
+            }),
             cx.subscribe(
                 &file_kind,
                 |_, _, _: &crate::ui::select::SelectEvent, cx| cx.notify(),
@@ -1151,6 +1165,8 @@ impl RightPaneView {
             _link_task: None,
             pending_seq: 0,
             search,
+            member_filter,
+            member_filter_channel: SharedString::default(),
             loading: false,
             focus_reply: false,
             hints: SearchHints::default(),
@@ -4463,6 +4479,34 @@ impl RightPaneView {
         let view = cx.entity().downgrade();
         let me = self.me.clone();
         let can_manage = channel.rights.roles;
+        // As in Mattermost: channel admins first, then everyone else, each
+        // A to Z, narrowed by the member search.
+        let typed = self.member_filter.read(cx).value().trim().to_lowercase();
+        let query = (is_channel && self.member_filter_channel == channel.id).then_some(typed);
+        let mut shown: Vec<_> = channel
+            .profiles
+            .iter()
+            .filter(|profile| {
+                query.as_deref().is_none_or(|query| {
+                    profile.display_name.to_lowercase().contains(query)
+                        || profile.username.to_lowercase().contains(query)
+                })
+            })
+            .map(|profile| (profile, channel.admins.contains(&profile.user_id)))
+            .collect();
+        shown.sort_by_cached_key(|(profile, _)| profile.display_name.to_lowercase());
+        let (admins, others): (Vec<_>, Vec<_>) = shown.into_iter().partition(|(_, admin)| *admin);
+        let sections = if is_channel && !admins.is_empty() {
+            vec![
+                (t!("pane-channel-admins"), admins),
+                (t!("pane-channel-members"), others),
+            ]
+        } else {
+            vec![(
+                SharedString::default(),
+                admins.into_iter().chain(others).collect(),
+            )]
+        };
         let members = div()
             .flex()
             .flex_col()
@@ -4500,12 +4544,31 @@ impl RightPaneView {
                         )
                     }),
             )
-            .children(channel.profiles.iter().map(|profile| {
-                let admin = channel.admins.contains(&profile.user_id);
-                let others = profile.display_name != me;
-                let roles = can_manage && others;
-                let removable = manage_members && others;
-                Self::member_row(profile, admin, roles, removable, &view, cx)
+            .when(is_channel, |members| {
+                members.child(
+                    Input::new(&self.member_filter)
+                        .aria_label(t!("pane-search-members"))
+                        .mb(theme.space(1.)),
+                )
+            })
+            .children(sections.into_iter().flat_map(|(title, profiles)| {
+                let rows: Vec<_> = profiles
+                    .into_iter()
+                    .map(|(profile, admin)| {
+                        let others = profile.display_name != me;
+                        let roles = can_manage && others;
+                        let removable = manage_members && others;
+                        Self::member_row(profile, admin, roles, removable, &view, cx)
+                            .into_any_element()
+                    })
+                    .collect();
+                let heading = (!rows.is_empty() && !title.is_empty()).then(|| {
+                    div()
+                        .pt(theme.space(2.))
+                        .child(label(title.to_string()))
+                        .into_any_element()
+                });
+                heading.into_iter().chain(rows)
             }))
             .when(channel.profiles.len() < channel.members, |members| {
                 members.child(

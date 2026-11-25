@@ -49,6 +49,9 @@ use crate::ui::{
     toast::{Notice, ToastState},
 };
 
+/// Channel info loads the member list as it opens up to this many members.
+const MEMBERS_AT_OPEN: usize = 200;
+
 /// The log detail choices: the setting, the picker's value and its label.
 const LOG_LEVELS: [(LogLevel, &str, &str); 5] = [
     (LogLevel::Error, "error", "Errors only"),
@@ -4248,6 +4251,15 @@ impl MainWindow {
     fn show_channel_info(&mut self, cx: &mut Context<Self>) {
         self.leave_thread();
         let info = self.channel.read(cx).model().cloned();
+        // Mattermost lists the members, admins first, as the pane opens;
+        // a big channel's wait for "Show all".
+        if let Some(live) = &self.live
+            && info.as_ref().is_some_and(|channel| {
+                channel.profiles.len() < channel.members && channel.members <= MEMBERS_AT_OPEN
+            })
+        {
+            live.load_members();
+        }
         self.right_pane.update(cx, |pane, cx| {
             pane.set_content(info.map(RightPaneContent::ChannelInfo), cx)
         });
