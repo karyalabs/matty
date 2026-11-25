@@ -1509,6 +1509,8 @@ impl Live {
                 "manage_own_incoming_webhooks",
                 "manage_slash_commands",
                 "manage_own_slash_commands",
+                "manage_outgoing_webhooks",
+                "manage_own_outgoing_webhooks",
             ],
         )
     }
@@ -2834,12 +2836,14 @@ impl Live {
                 team_id,
                 hooks,
                 commands,
+                outgoing,
                 created,
             } => {
                 update.integrations = Some(Ok(crate::integrations::Integrations {
                     team_id: team_id.clone(),
                     hooks: hooks.clone(),
                     commands: commands.clone(),
+                    outgoing: outgoing.clone(),
                     created: created.clone(),
                 }));
             }
@@ -2849,7 +2853,12 @@ impl Live {
                     | "create a webhook"
                     | "delete a webhook"
                     | "create a slash command"
-                    | "delete a slash command",
+                    | "delete a slash command"
+                    | "change a webhook"
+                    | "change a slash command"
+                    | "create an outgoing webhook"
+                    | "change an outgoing webhook"
+                    | "delete an outgoing webhook",
                 error,
                 ..
             }) => {

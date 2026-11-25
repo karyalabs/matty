@@ -71,6 +71,12 @@ pub struct Features {
     /// (`EnableIncomingWebhooks`) or custom slash commands
     /// (`EnableCommands`), #1071.
     pub integrations: bool,
+    /// Incoming webhooks are on (#1071).
+    pub incoming_webhooks: bool,
+    /// Outgoing webhooks are on (#1073).
+    pub outgoing_webhooks: bool,
+    /// Custom slash commands are on (#1071).
+    pub custom_commands: bool,
 }
 
 impl Global for Features {}
@@ -95,7 +101,12 @@ impl Features {
             access_tokens: capabilities.access_tokens,
             last_active: capabilities.last_active_time,
             gifs: capabilities.giphy_key.is_some(),
-            integrations: capabilities.incoming_webhooks || capabilities.custom_commands,
+            integrations: capabilities.incoming_webhooks
+                || capabilities.custom_commands
+                || capabilities.outgoing_webhooks,
+            incoming_webhooks: capabilities.incoming_webhooks,
+            outgoing_webhooks: capabilities.outgoing_webhooks,
+            custom_commands: capabilities.custom_commands,
         }
     }
 
@@ -120,6 +131,9 @@ impl Features {
             // Preview has no GIPHY to ask.
             gifs: false,
             integrations: true,
+            incoming_webhooks: true,
+            outgoing_webhooks: true,
+            custom_commands: true,
         }
     }
 

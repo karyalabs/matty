@@ -104,8 +104,23 @@ pub enum IntegrationChange {
         /// The webhook.
         hook_id: String,
     },
+    /// An incoming webhook's new name, description or channel (#1073).
+    UpdateWebhook(Box<matty_api::models::IncomingWebhook>),
     /// A new custom slash command; its `team_id` says where.
     CreateCommand(Box<matty_api::models::CustomCommand>),
+    /// A custom slash command as changed (#1073).
+    UpdateCommand(Box<matty_api::models::CustomCommand>),
+    /// A new outgoing webhook (#1073).
+    CreateOutgoing(Box<matty_api::models::OutgoingWebhook>),
+    /// An outgoing webhook as changed (#1073).
+    UpdateOutgoing(Box<matty_api::models::OutgoingWebhook>),
+    /// An outgoing webhook goes away (#1073).
+    DeleteOutgoing {
+        /// The team.
+        team_id: String,
+        /// The webhook.
+        hook_id: String,
+    },
     /// A custom slash command goes away.
     DeleteCommand {
         /// The team.
@@ -121,8 +136,11 @@ impl IntegrationChange {
         match self {
             Self::CreateWebhook { team_id, .. }
             | Self::DeleteWebhook { team_id, .. }
-            | Self::DeleteCommand { team_id, .. } => team_id,
-            Self::CreateCommand(command) => &command.team_id,
+            | Self::DeleteCommand { team_id, .. }
+            | Self::DeleteOutgoing { team_id, .. } => team_id,
+            Self::UpdateWebhook(hook) => &hook.team_id,
+            Self::CreateCommand(command) | Self::UpdateCommand(command) => &command.team_id,
+            Self::CreateOutgoing(hook) | Self::UpdateOutgoing(hook) => &hook.team_id,
         }
     }
 }
@@ -4148,12 +4166,14 @@ impl Engine {
                 team_id,
                 hooks,
                 commands,
+                outgoing,
                 created,
             } => {
                 dirty.direct.push(ChangeSet::Integrations {
                     team_id,
                     hooks: Arc::from(hooks),
                     commands: Arc::from(commands),
+                    outgoing: Arc::from(outgoing),
                     created,
                 });
             }

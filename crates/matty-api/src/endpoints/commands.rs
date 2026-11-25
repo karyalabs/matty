@@ -5,7 +5,7 @@ use crate::{
     ApiError, Client,
     models::{
         CommandResponse, CommandSuggestion, CustomCommand, ExecuteCommand, IncomingWebhook,
-        SlashCommand,
+        OutgoingWebhook, SlashCommand,
     },
 };
 
@@ -28,6 +28,57 @@ impl Client {
     /// `POST commands`: a custom slash command in its team.
     pub async fn create_command(&self, command: &CustomCommand) -> Result<CustomCommand, ApiError> {
         self.post("commands", command).await
+    }
+
+    /// `PUT commands/{id}`: the command as changed; its id says which.
+    pub async fn update_command(&self, command: &CustomCommand) -> Result<CustomCommand, ApiError> {
+        self.put(&format!("commands/{}", command.id), command).await
+    }
+
+    /// `PUT hooks/incoming/{id}`: the webhook as changed.
+    pub async fn update_incoming_webhook(
+        &self,
+        hook: &IncomingWebhook,
+    ) -> Result<IncomingWebhook, ApiError> {
+        self.put(&format!("hooks/incoming/{}", hook.id), hook).await
+    }
+
+    /// `GET hooks/outgoing?team_id=`: the team's outgoing webhooks the
+    /// user may manage.
+    pub async fn outgoing_webhooks(&self, team_id: &str) -> Result<Vec<OutgoingWebhook>, ApiError> {
+        let hooks: Option<Vec<OutgoingWebhook>> = self
+            .get_query(
+                "hooks/outgoing",
+                &[
+                    ("team_id", team_id.to_owned()),
+                    ("page", "0".to_owned()),
+                    ("per_page", "200".to_owned()),
+                ],
+            )
+            .await?;
+        Ok(hooks.unwrap_or_default())
+    }
+
+    /// `POST hooks/outgoing`.
+    pub async fn create_outgoing_webhook(
+        &self,
+        hook: &OutgoingWebhook,
+    ) -> Result<OutgoingWebhook, ApiError> {
+        self.post("hooks/outgoing", hook).await
+    }
+
+    /// `PUT hooks/outgoing/{id}`: the webhook as changed.
+    pub async fn update_outgoing_webhook(
+        &self,
+        hook: &OutgoingWebhook,
+    ) -> Result<OutgoingWebhook, ApiError> {
+        self.put(&format!("hooks/outgoing/{}", hook.id), hook).await
+    }
+
+    /// `DELETE hooks/outgoing/{hook_id}`.
+    pub async fn delete_outgoing_webhook(&self, hook_id: &str) -> Result<(), ApiError> {
+        let _: serde_json::Value = self.delete(&format!("hooks/outgoing/{hook_id}")).await?;
+        Ok(())
     }
 
     /// `DELETE commands/{command_id}`.

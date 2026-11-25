@@ -5377,6 +5377,7 @@ impl MainWindow {
                 "integrations",
                 &self.integrations.read(cx).handle().clone(),
                 dialog_popup("integrations.popup", crate::t!("integrations-title"), cx)
+                    .max_w(UiTheme::read(cx).space(130.))
                     .child(self.integrations.clone()),
                 window,
                 cx,

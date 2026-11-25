@@ -420,6 +420,21 @@ impl Write {
             Self::ChangeIntegration(crate::IntegrationChange::DeleteCommand { .. }) => {
                 "delete a slash command"
             }
+            Self::ChangeIntegration(crate::IntegrationChange::UpdateWebhook(_)) => {
+                "change a webhook"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::UpdateCommand(_)) => {
+                "change a slash command"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::CreateOutgoing(_)) => {
+                "create an outgoing webhook"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::UpdateOutgoing(_)) => {
+                "change an outgoing webhook"
+            }
+            Self::ChangeIntegration(crate::IntegrationChange::DeleteOutgoing { .. }) => {
+                "delete an outgoing webhook"
+            }
             Self::CreateAccessToken { .. } => "create an access token",
             Self::SetAccessTokenActive { active: true, .. } => "turn on an access token",
             Self::SetAccessTokenActive { active: false, .. } => "turn off an access token",
@@ -1384,18 +1399,7 @@ pub(crate) async fn run(
                     })
                 }
             }
-            Write::Integrations { team_id } => {
-                let (hooks, commands) = tokio::try_join!(
-                    client.incoming_webhooks(&team_id),
-                    client.custom_commands(&team_id)
-                )?;
-                Some(Loaded::Integrations {
-                    team_id,
-                    hooks,
-                    commands,
-                    created: None,
-                })
-            }
+            Write::Integrations { team_id } => Some(integrations(&client, team_id, None).await?),
             Write::ChangeIntegration(change) => {
                 use crate::IntegrationChange;
                 let team_id = change.team_id().to_owned();
@@ -1422,17 +1426,27 @@ pub(crate) async fn run(
                         client.delete_command(&command_id).await?;
                         None
                     }
+                    IntegrationChange::UpdateWebhook(hook) => {
+                        client.update_incoming_webhook(&hook).await?;
+                        None
+                    }
+                    IntegrationChange::UpdateCommand(command) => {
+                        client.update_command(&command).await?;
+                        None
+                    }
+                    IntegrationChange::CreateOutgoing(hook) => {
+                        Some(client.create_outgoing_webhook(&hook).await?.id)
+                    }
+                    IntegrationChange::UpdateOutgoing(hook) => {
+                        client.update_outgoing_webhook(&hook).await?;
+                        None
+                    }
+                    IntegrationChange::DeleteOutgoing { hook_id, .. } => {
+                        client.delete_outgoing_webhook(&hook_id).await?;
+                        None
+                    }
                 };
-                let (hooks, commands) = tokio::try_join!(
-                    client.incoming_webhooks(&team_id),
-                    client.custom_commands(&team_id)
-                )?;
-                Some(Loaded::Integrations {
-                    team_id,
-                    hooks,
-                    commands,
-                    created,
-                })
+                Some(integrations(&client, team_id, created).await?)
             }
             Write::GroupMembers { group_id } => {
                 let page = client.group_members(&group_id).await?;
@@ -1730,6 +1744,31 @@ async fn sessions(
     let mut sessions = client.sessions(user_id).await?;
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity_at));
     Ok(sessions)
+}
+
+/// A team's integrations. A kind the server has off, or the user may not
+/// manage, comes back empty; only when every kind fails is it an error.
+async fn integrations(
+    client: &Client,
+    team_id: String,
+    created: Option<String>,
+) -> Result<Loaded, ApiError> {
+    let (hooks, commands, outgoing) = tokio::join!(
+        client.incoming_webhooks(&team_id),
+        client.custom_commands(&team_id),
+        client.outgoing_webhooks(&team_id)
+    );
+    let hooks = match (hooks, &commands, &outgoing) {
+        (Err(error), Err(_), Err(_)) => return Err(error),
+        (hooks, ..) => hooks.unwrap_or_default(),
+    };
+    Ok(Loaded::Integrations {
+        team_id,
+        hooks,
+        commands: commands.unwrap_or_default(),
+        outgoing: outgoing.unwrap_or_default(),
+        created,
+    })
 }
 
 #[cfg(test)]

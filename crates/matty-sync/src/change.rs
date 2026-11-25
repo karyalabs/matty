@@ -309,6 +309,8 @@ pub enum ChangeSet {
         hooks: Arc<[matty_api::models::IncomingWebhook]>,
         /// Its custom slash commands, oldest first.
         commands: Arc<[matty_api::models::CustomCommand]>,
+        /// Its outgoing webhooks, oldest first (#1073).
+        outgoing: Arc<[matty_api::models::OutgoingWebhook]>,
         /// The id of the webhook or command just made, so its URL or
         /// token can be shown.
         created: Option<String>,

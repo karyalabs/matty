@@ -102,6 +102,47 @@ pub struct IncomingWebhook {
     pub delete_at: i64,
 }
 
+/// An outgoing webhook (#1073): posts in its channel, or anywhere in its
+/// team, that start with a trigger word are sent to its URLs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OutgoingWebhook {
+    /// Server id.
+    pub id: String,
+    /// Sent with each call so the integration knows it is the server.
+    #[serde(deserialize_with = "null_as_default")]
+    pub token: String,
+    /// Who made it.
+    #[serde(deserialize_with = "null_as_default")]
+    pub creator_id: String,
+    /// Only posts in this channel trigger it; empty for any channel.
+    #[serde(deserialize_with = "null_as_default")]
+    pub channel_id: String,
+    /// Team the item belongs to.
+    pub team_id: String,
+    /// Words a post starts with to trigger it.
+    #[serde(deserialize_with = "null_as_default")]
+    pub trigger_words: Vec<String>,
+    /// 0: the first word is a trigger word; 1: it starts with one.
+    pub trigger_when: i32,
+    /// Where posts are sent.
+    #[serde(deserialize_with = "null_as_default")]
+    pub callback_urls: Vec<String>,
+    /// Name shown in lists.
+    #[serde(deserialize_with = "null_as_default")]
+    pub display_name: String,
+    /// What it is for.
+    #[serde(deserialize_with = "null_as_default")]
+    pub description: String,
+    /// `application/x-www-form-urlencoded` or `application/json`.
+    #[serde(deserialize_with = "null_as_default")]
+    pub content_type: String,
+    /// Created, in epoch milliseconds.
+    pub create_at: i64,
+    /// Deleted, in epoch milliseconds, or 0.
+    pub delete_at: i64,
+}
+
 /// One row of `teams/{team_id}/commands/autocomplete_suggestions`: a
 /// command, a subcommand or an argument value. The server spells these
 /// fields with capitals.

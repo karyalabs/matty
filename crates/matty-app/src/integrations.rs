@@ -1,5 +1,6 @@
-//! Integrations (#1071): a team's incoming webhooks and custom slash
-//! commands, listed, made and deleted, as the webapp's Integrations pages.
+//! Integrations (#1071, #1073): a team's incoming webhooks, outgoing
+//! webhooks and custom slash commands, listed, made, changed and deleted,
+//! as the webapp's Integrations pages.
 
 use std::sync::Arc;
 
@@ -9,9 +10,10 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window, div, prelude::FluentBuilder as _,
 };
-use matty_api::models::{CustomCommand, IncomingWebhook};
+use matty_api::models::{CustomCommand, IncomingWebhook, OutgoingWebhook};
 use matty_sync::IntegrationChange;
 
+use crate::priority::Features;
 use crate::style::{self, TypeStyleExt as _, metrics, scaled};
 use crate::t;
 use crate::ui::{
@@ -31,6 +33,7 @@ pub struct Integrations {
     pub team_id: String,
     pub hooks: Arc<[IncomingWebhook]>,
     pub commands: Arc<[CustomCommand]>,
+    pub outgoing: Arc<[OutgoingWebhook]>,
     /// The webhook or command just made.
     pub created: Option<String>,
 }
@@ -44,14 +47,39 @@ pub enum IntegrationsEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Webhooks,
+    Outgoing,
     Commands,
+}
+
+impl Kind {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Webhooks => "hooks",
+            Self::Outgoing => "outgoing",
+            Self::Commands => "commands",
+        }
+    }
+
+    /// The kinds the server has on, in the webapp's order.
+    fn available(cx: &App) -> Vec<Self> {
+        let features = Features::read(cx);
+        [
+            (Self::Webhooks, features.incoming_webhooks),
+            (Self::Outgoing, features.outgoing_webhooks),
+            (Self::Commands, features.custom_commands),
+        ]
+        .into_iter()
+        .filter_map(|(kind, on)| on.then_some(kind))
+        .collect()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Mode {
     List,
-    Add,
-    /// Waiting for the server to make it.
+    /// Making one, or changing the one `editing` names.
+    Form,
+    /// Waiting for the server.
     Saving,
     /// Made: its URL or token shows once here.
     Created(String),
@@ -59,6 +87,8 @@ enum Mode {
 
 /// The server's limits on a command's trigger.
 const TRIGGER_MAX: usize = 128;
+/// The outgoing webhook channel choice for "any channel".
+const ANY_CHANNEL: &str = "*";
 
 /// A slash command's trigger as typed, without its slash.
 fn trigger_problem(trigger: &str) -> Option<SharedString> {
@@ -85,7 +115,23 @@ fn url_problem(url: &str) -> Option<SharedString> {
     }
 }
 
-/// "Integrations…": the team's incoming webhooks and slash commands.
+/// Words or URLs typed into one field, split on commas and spaces.
+fn split_list(text: &str) -> Vec<String> {
+    text.split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|word| !word.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// What is wrong with an outgoing webhook's URLs, if anything.
+fn callbacks_problem(urls: &[String]) -> Option<SharedString> {
+    if urls.is_empty() {
+        return Some(t!("integrations-callbacks-empty"));
+    }
+    urls.iter().find_map(|url| url_problem(url))
+}
+
+/// "Integrations…": the team's webhooks and slash commands.
 pub struct IntegrationsView {
     team_id: String,
     server: String,
@@ -93,6 +139,8 @@ pub struct IntegrationsView {
     channels: Vec<(SharedString, SharedString)>,
     kind: Kind,
     mode: Mode,
+    /// The webhook or command the form changes; `None` while making one.
+    editing: Option<String>,
     loaded: Option<Integrations>,
     error: Option<SharedString>,
     confirm_delete: Option<String>,
@@ -106,6 +154,11 @@ pub struct IntegrationsView {
     method: Entity<SelectState>,
     hint: Entity<InputState>,
     autocomplete: bool,
+    out_channel: Entity<SelectState>,
+    words: Entity<InputState>,
+    when: Entity<SelectState>,
+    callbacks: Entity<InputState>,
+    content_type: Entity<SelectState>,
     handle: DialogHandle,
     focus_first: bool,
     /// The dialog itself, focused when the focused control goes away (a
@@ -127,21 +180,61 @@ impl IntegrationsView {
         let trigger = input(t!("integrations-trigger-placeholder"), window, cx);
         let url = input(t!("integrations-url-placeholder"), window, cx);
         let hint = input(t!("integrations-hint-placeholder"), window, cx);
-        let channel = cx.new(|cx| SelectState::new(Vec::new(), window, cx));
-        let method = cx.new(|cx| {
-            let mut state = SelectState::new(
-                [
-                    SelectItem::new("P", "POST"), // i18n-ignore
-                    SelectItem::new("G", "GET"),  // i18n-ignore
-                ],
-                window,
-                cx,
-            );
-            state.set_value(Some("P".into()), window, cx);
-            state
-        });
+        let words = input(t!("integrations-words-placeholder"), window, cx);
+        let callbacks = input(t!("integrations-callbacks-placeholder"), window, cx);
+        let select =
+            |items: Vec<SelectItem>, first: &str, window: &mut Window, cx: &mut Context<Self>| {
+                let first: SharedString = first.to_owned().into();
+                cx.new(|cx| {
+                    let mut state = SelectState::new(items, window, cx);
+                    if !first.is_empty() {
+                        state.set_value(Some(first), window, cx);
+                    }
+                    state
+                })
+            };
+        let channel = select(Vec::new(), "", window, cx);
+        let out_channel = select(Vec::new(), ANY_CHANNEL, window, cx);
+        let method = select(
+            vec![
+                SelectItem::new("P", "POST"), // i18n-ignore
+                SelectItem::new("G", "GET"),  // i18n-ignore
+            ],
+            "P",
+            window,
+            cx,
+        );
+        let when = select(
+            vec![
+                SelectItem::new("0", t!("integrations-when-first")),
+                SelectItem::new("1", t!("integrations-when-starts")),
+            ],
+            "0",
+            window,
+            cx,
+        );
+        let content_type = select(
+            vec![
+                SelectItem::new(
+                    "application/x-www-form-urlencoded",
+                    "application/x-www-form-urlencoded",
+                ), // i18n-ignore
+                SelectItem::new("application/json", "application/json"), // i18n-ignore
+            ],
+            "application/x-www-form-urlencoded",
+            window,
+            cx,
+        );
         let mut subscriptions = Vec::new();
-        for field in [&name, &description, &trigger, &url, &hint] {
+        for field in [
+            &name,
+            &description,
+            &trigger,
+            &url,
+            &hint,
+            &words,
+            &callbacks,
+        ] {
             subscriptions.push(cx.subscribe_in(
                 field,
                 window,
@@ -154,7 +247,7 @@ impl IntegrationsView {
                 },
             ));
         }
-        for select in [&channel, &method] {
+        for select in [&channel, &method, &out_channel, &when, &content_type] {
             subscriptions.push(cx.subscribe(select, |_, _, _: &SelectEvent, cx| cx.notify()));
         }
         Self {
@@ -163,6 +256,7 @@ impl IntegrationsView {
             channels: Vec::new(),
             kind: Kind::Webhooks,
             mode: Mode::List,
+            editing: None,
             loaded: None,
             error: None,
             confirm_delete: None,
@@ -176,6 +270,11 @@ impl IntegrationsView {
             method,
             hint,
             autocomplete: false,
+            out_channel,
+            words,
+            when,
+            callbacks,
+            content_type,
             handle: DialogHandle::new(false),
             focus_first: false,
             focus: cx.focus_handle(),
@@ -194,7 +293,7 @@ impl IntegrationsView {
         &mut self,
         team_id: String,
         server: String,
-        channels: Vec<(SharedString, SharedString)>,
+        channels: Vec<(SharedString, SharedString, bool)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -205,11 +304,30 @@ impl IntegrationsView {
         self.server = server.trim_end_matches('/').to_owned();
         let items: Vec<SelectItem> = channels
             .iter()
-            .map(|(id, name)| SelectItem::new(id.clone(), name.clone()))
+            .map(|(id, name, _)| SelectItem::new(id.clone(), name.clone()))
             .collect();
-        self.channels = channels;
+        // Outgoing webhooks only hear public channels.
+        let mut any = vec![SelectItem::new(ANY_CHANNEL, t!("integrations-any-channel"))];
+        any.extend(
+            channels
+                .iter()
+                .filter(|(_, _, public)| *public)
+                .map(|(id, name, _)| SelectItem::new(id.clone(), name.clone())),
+        );
+        self.channels = channels
+            .into_iter()
+            .map(|(id, name, _)| (id, name))
+            .collect();
         self.channel
             .update(cx, |select, cx| select.set_items(items, cx));
+        self.out_channel
+            .update(cx, |select, cx| select.set_items(any, cx));
+        let kinds = Kind::available(cx);
+        if !kinds.contains(&self.kind)
+            && let Some(first) = kinds.first()
+        {
+            self.kind = *first;
+        }
         self.mode = Mode::List;
         self.error = None;
         self.confirm_delete = None;
@@ -224,17 +342,22 @@ impl IntegrationsView {
                 if integrations.team_id != self.team_id {
                     return;
                 }
-                if let (Mode::Saving, Some(created)) = (&self.mode, &integrations.created) {
-                    self.mode = Mode::Created(created.clone());
-                    self.copied = false;
+                if self.mode == Mode::Saving {
                     self.refocus = true;
+                    self.mode = match &integrations.created {
+                        Some(created) => {
+                            self.copied = false;
+                            Mode::Created(created.clone())
+                        }
+                        None => Mode::List,
+                    };
                 }
                 self.error = None;
                 self.loaded = Some(integrations);
             }
             Err(error) => {
                 if self.mode == Mode::Saving {
-                    self.mode = Mode::Add;
+                    self.mode = Mode::Form;
                 }
                 self.error = Some(error);
             }
@@ -242,32 +365,108 @@ impl IntegrationsView {
         cx.notify();
     }
 
-    fn start_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for field in [
-            &self.name,
-            &self.description,
-            &self.trigger,
-            &self.url,
-            &self.hint,
-        ] {
-            field.update(cx, |input, cx| input.set_value("", window, cx));
-        }
-        let first = self.channels.first().map(|(id, _)| id.clone());
-        self.channel
-            .update(cx, |select, cx| select.set_value(first, window, cx));
-        self.method.update(cx, |select, cx| {
-            select.set_value(Some("P".into()), window, cx)
-        });
-        self.autocomplete = false;
+    fn set_text(&self, input: &Entity<InputState>, text: &str, window: &mut Window, cx: &mut App) {
+        let text = text.to_owned();
+        input.update(cx, |input, cx| input.set_value(text, window, cx));
+    }
+
+    fn set_choice(select: &Entity<SelectState>, value: &str, window: &mut Window, cx: &mut App) {
+        let value: Option<SharedString> = (!value.is_empty()).then(|| value.to_owned().into());
+        select.update(cx, |select, cx| select.set_value(value, window, cx));
+    }
+
+    /// The form, empty for a new one or filled from the one with `id`.
+    fn start_form(&mut self, id: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let loaded = self.loaded.clone().unwrap_or_default();
+        let hook = id
+            .as_ref()
+            .and_then(|id| loaded.hooks.iter().find(|hook| &hook.id == id))
+            .cloned()
+            .unwrap_or_default();
+        let command = id
+            .as_ref()
+            .and_then(|id| loaded.commands.iter().find(|command| &command.id == id))
+            .cloned()
+            .unwrap_or_default();
+        let outgoing = id
+            .as_ref()
+            .and_then(|id| loaded.outgoing.iter().find(|hook| &hook.id == id))
+            .cloned()
+            .unwrap_or_default();
+        let (name, description) = match self.kind {
+            Kind::Webhooks => (hook.display_name.clone(), hook.description.clone()),
+            Kind::Commands => (command.display_name.clone(), command.description.clone()),
+            Kind::Outgoing => (outgoing.display_name.clone(), outgoing.description.clone()),
+        };
+        self.set_text(&self.name, &name, window, cx);
+        self.set_text(&self.description, &description, window, cx);
+        self.set_text(&self.trigger, &command.trigger, window, cx);
+        self.set_text(&self.url, &command.url, window, cx);
+        self.set_text(&self.hint, &command.auto_complete_hint, window, cx);
+        self.set_text(&self.words, &outgoing.trigger_words.join(", "), window, cx);
+        self.set_text(
+            &self.callbacks,
+            &outgoing.callback_urls.join(" "),
+            window,
+            cx,
+        );
+        let first = self
+            .channels
+            .first()
+            .map(|(id, _)| id.to_string())
+            .unwrap_or_default();
+        let channel = if hook.channel_id.is_empty() {
+            first
+        } else {
+            hook.channel_id.clone()
+        };
+        Self::set_choice(&self.channel, &channel, window, cx);
+        let out_channel = if outgoing.channel_id.is_empty() {
+            ANY_CHANNEL.to_owned()
+        } else {
+            outgoing.channel_id.clone()
+        };
+        Self::set_choice(&self.out_channel, &out_channel, window, cx);
+        let method = if command.method.is_empty() {
+            "P"
+        } else {
+            &command.method
+        };
+        Self::set_choice(&self.method, method, window, cx);
+        Self::set_choice(&self.when, &outgoing.trigger_when.to_string(), window, cx);
+        let content_type = if outgoing.content_type.is_empty() {
+            "application/x-www-form-urlencoded"
+        } else {
+            &outgoing.content_type
+        };
+        Self::set_choice(&self.content_type, content_type, window, cx);
+        self.autocomplete = command.auto_complete;
+        self.editing = id;
         self.tried = false;
         self.error = None;
-        self.mode = Mode::Add;
+        self.confirm_delete = None;
+        self.mode = Mode::Form;
         self.focus_first = true;
         cx.notify();
     }
 
     fn value(input: &Entity<InputState>, cx: &App) -> String {
         input.read(cx).value().trim().to_owned()
+    }
+
+    fn choice(select: &Entity<SelectState>, cx: &App) -> String {
+        select
+            .read(cx)
+            .value()
+            .map(|value| value.to_string())
+            .unwrap_or_default()
+    }
+
+    /// An outgoing webhook needs trigger words unless it has a channel.
+    fn words_problem(&self, cx: &App) -> Option<SharedString> {
+        let any = Self::choice(&self.out_channel, cx) == ANY_CHANNEL;
+        (any && split_list(&Self::value(&self.words, cx)).is_empty())
+            .then(|| t!("integrations-words-needed"))
     }
 
     fn problems(&self, cx: &App) -> bool {
@@ -277,11 +476,15 @@ impl IntegrationsView {
                 trigger_problem(&Self::value(&self.trigger, cx)).is_some()
                     || url_problem(&Self::value(&self.url, cx)).is_some()
             }
+            Kind::Outgoing => {
+                self.words_problem(cx).is_some()
+                    || callbacks_problem(&split_list(&Self::value(&self.callbacks, cx))).is_some()
+            }
         }
     }
 
     fn save(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if self.mode != Mode::Add {
+        if self.mode != Mode::Form {
             return;
         }
         if self.problems(cx) {
@@ -291,29 +494,41 @@ impl IntegrationsView {
         }
         let display_name = Self::value(&self.name, cx);
         let description = Self::value(&self.description, cx);
+        let loaded = self.loaded.clone().unwrap_or_default();
+        let editing = self.editing.clone();
         let change = match self.kind {
-            Kind::Webhooks => IntegrationChange::CreateWebhook {
-                team_id: self.team_id.clone(),
-                channel_id: self
-                    .channel
-                    .read(cx)
-                    .value()
-                    .map(|id| id.to_string())
-                    .unwrap_or_default(),
-                display_name,
-                description,
-            },
+            Kind::Webhooks => {
+                let channel_id = Self::choice(&self.channel, cx);
+                match editing.and_then(|id| loaded.hooks.iter().find(|hook| hook.id == id).cloned())
+                {
+                    Some(hook) => IntegrationChange::UpdateWebhook(Box::new(IncomingWebhook {
+                        channel_id,
+                        display_name,
+                        description,
+                        ..hook
+                    })),
+                    None => IntegrationChange::CreateWebhook {
+                        team_id: self.team_id.clone(),
+                        channel_id,
+                        display_name,
+                        description,
+                    },
+                }
+            }
             Kind::Commands => {
                 let hint = Self::value(&self.hint, cx);
-                IntegrationChange::CreateCommand(Box::new(CustomCommand {
-                    team_id: self.team_id.clone(),
+                let base = editing
+                    .as_ref()
+                    .and_then(|id| loaded.commands.iter().find(|command| &command.id == id))
+                    .cloned()
+                    .unwrap_or_else(|| CustomCommand {
+                        team_id: self.team_id.clone(),
+                        ..CustomCommand::default()
+                    });
+                let command = Box::new(CustomCommand {
                     trigger: Self::value(&self.trigger, cx).to_lowercase(),
                     url: Self::value(&self.url, cx),
-                    method: self
-                        .method
-                        .read(cx)
-                        .value()
-                        .map_or_else(|| "P".to_owned(), |method| method.to_string()),
+                    method: Self::choice(&self.method, cx),
                     display_name,
                     auto_complete: self.autocomplete,
                     auto_complete_desc: if self.autocomplete {
@@ -327,8 +542,43 @@ impl IntegrationsView {
                         String::new()
                     },
                     description,
-                    ..CustomCommand::default()
-                }))
+                    ..base
+                });
+                if editing.is_some() {
+                    IntegrationChange::UpdateCommand(command)
+                } else {
+                    IntegrationChange::CreateCommand(command)
+                }
+            }
+            Kind::Outgoing => {
+                let base = editing
+                    .as_ref()
+                    .and_then(|id| loaded.outgoing.iter().find(|hook| &hook.id == id))
+                    .cloned()
+                    .unwrap_or_else(|| OutgoingWebhook {
+                        team_id: self.team_id.clone(),
+                        ..OutgoingWebhook::default()
+                    });
+                let channel = Self::choice(&self.out_channel, cx);
+                let hook = Box::new(OutgoingWebhook {
+                    channel_id: if channel == ANY_CHANNEL {
+                        String::new()
+                    } else {
+                        channel
+                    },
+                    trigger_words: split_list(&Self::value(&self.words, cx)),
+                    trigger_when: Self::choice(&self.when, cx).parse().unwrap_or_default(),
+                    callback_urls: split_list(&Self::value(&self.callbacks, cx)),
+                    content_type: Self::choice(&self.content_type, cx),
+                    display_name,
+                    description,
+                    ..base
+                });
+                if editing.is_some() {
+                    IntegrationChange::UpdateOutgoing(hook)
+                } else {
+                    IntegrationChange::CreateOutgoing(hook)
+                }
             }
         };
         self.mode = Mode::Saving;
@@ -348,6 +598,10 @@ impl IntegrationsView {
         let team_id = self.team_id.clone();
         cx.emit(IntegrationsEvent::Change(match self.kind {
             Kind::Webhooks => IntegrationChange::DeleteWebhook {
+                team_id,
+                hook_id: id,
+            },
+            Kind::Outgoing => IntegrationChange::DeleteOutgoing {
                 team_id,
                 hook_id: id,
             },
@@ -383,6 +637,7 @@ impl IntegrationsView {
         let theme = UiTheme::read(cx).clone();
         let confirming = self.confirm_delete.as_deref() == Some(id.as_str());
         let deleted = id.clone();
+        let edited = id.clone();
         div()
             .id(gpui_kit::ElementId::Name(
                 format!("integrations.row.{id}").into(),
@@ -404,6 +659,7 @@ impl IntegrationsView {
                     .child(
                         lucide(match self.kind {
                             Kind::Webhooks => LucideIcon::Webhook,
+                            Kind::Outgoing => LucideIcon::Send,
                             Kind::Commands => LucideIcon::SquareSlash,
                         })
                         .size(scaled(&theme, 15.))
@@ -431,6 +687,19 @@ impl IntegrationsView {
                             .child(detail),
                     ),
             )
+            .when(!confirming, |row| {
+                row.child(
+                    Button::new(gpui_kit::ElementId::Name(
+                        format!("integrations.edit.{id}").into(),
+                    ))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .label(t!("integrations-edit"))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.start_form(Some(edited.clone()), window, cx)
+                    })),
+                )
+            })
             .when(confirming, |row| {
                 row.child(
                     Button::new(gpui_kit::ElementId::Name(
@@ -492,6 +761,33 @@ impl IntegrationsView {
                         .into_any_element()
                 })
                 .collect(),
+            (Some(loaded), Kind::Outgoing) => loaded
+                .outgoing
+                .iter()
+                .filter(|hook| hook.delete_at == 0)
+                .map(|hook| {
+                    let title: SharedString = if hook.display_name.is_empty() {
+                        t!("integrations-untitled")
+                    } else {
+                        hook.display_name.clone().into()
+                    };
+                    let words = hook.trigger_words.join(", ");
+                    let detail = match (hook.channel_id.is_empty(), words.is_empty()) {
+                        (true, _) => t!("integrations-outgoing-detail-any", words = words),
+                        (false, true) => t!(
+                            "integrations-outgoing-detail-all",
+                            channel = self.channel_name(&hook.channel_id).to_string()
+                        ),
+                        (false, false) => t!(
+                            "integrations-outgoing-detail",
+                            channel = self.channel_name(&hook.channel_id).to_string(),
+                            words = words
+                        ),
+                    };
+                    self.row(hook.id.clone(), title, detail, cx)
+                        .into_any_element()
+                })
+                .collect(),
             (Some(loaded), Kind::Commands) => loaded
                 .commands
                 .iter()
@@ -516,6 +812,7 @@ impl IntegrationsView {
             (None, ..) if self.error.is_none() => Some(t!("integrations-loading")),
             (_, false, _) | (None, ..) => None,
             (Some(_), true, Kind::Webhooks) => Some(t!("integrations-no-hooks")),
+            (Some(_), true, Kind::Outgoing) => Some(t!("integrations-no-outgoing")),
             (Some(_), true, Kind::Commands) => Some(t!("integrations-no-commands")),
         };
         div()
@@ -560,6 +857,45 @@ impl IntegrationsView {
                 body.child(name)
                     .child(description)
                     .child(channel)
+                    .into_any_element()
+            }
+            Kind::Outgoing => {
+                let channel = Field::from_control(
+                    "integrations.out-channel",
+                    Select::new(&self.out_channel).aria_label(t!("integrations-channel")),
+                )
+                .label(t!("integrations-channel"));
+                let mut words =
+                    Field::new("integrations.words", &self.words).label(t!("integrations-words"));
+                words = match self.words_problem(cx).filter(|_| self.tried) {
+                    Some(problem) => words.error(problem),
+                    None => words.description(t!("integrations-words-hint")),
+                };
+                let when = Field::from_control(
+                    "integrations.when",
+                    Select::new(&self.when).aria_label(t!("integrations-when")),
+                )
+                .label(t!("integrations-when"));
+                let mut callbacks = Field::new("integrations.callbacks", &self.callbacks)
+                    .label(t!("integrations-callbacks"));
+                callbacks = match callbacks_problem(&split_list(&Self::value(&self.callbacks, cx)))
+                    .filter(|_| self.tried)
+                {
+                    Some(problem) => callbacks.error(problem),
+                    None => callbacks.description(t!("integrations-callbacks-hint")),
+                };
+                let content_type = Field::from_control(
+                    "integrations.content-type",
+                    Select::new(&self.content_type).aria_label(t!("integrations-content-type")),
+                )
+                .label(t!("integrations-content-type"));
+                body.child(name)
+                    .child(description)
+                    .child(channel)
+                    .child(words)
+                    .child(when)
+                    .child(callbacks)
+                    .child(content_type)
                     .into_any_element()
             }
             Kind::Commands => {
@@ -626,14 +962,25 @@ impl IntegrationsView {
 
     fn created(&self, id: &str, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = UiTheme::read(cx).clone();
+        let loaded = self.loaded.clone().unwrap_or_default();
         let (note, secret) = match self.kind {
             Kind::Webhooks => (t!("integrations-hook-created"), self.hook_url(id)),
             Kind::Commands => (
                 t!("integrations-command-created"),
-                self.loaded
-                    .as_ref()
-                    .and_then(|loaded| loaded.commands.iter().find(|command| command.id == id))
+                loaded
+                    .commands
+                    .iter()
+                    .find(|command| command.id == id)
                     .map(|command| command.token.clone())
+                    .unwrap_or_default(),
+            ),
+            Kind::Outgoing => (
+                t!("integrations-outgoing-created"),
+                loaded
+                    .outgoing
+                    .iter()
+                    .find(|hook| hook.id == id)
+                    .map(|hook| hook.token.clone())
                     .unwrap_or_default(),
             ),
         };
@@ -678,6 +1025,52 @@ impl IntegrationsView {
             )
             .into_any_element()
     }
+
+    fn title(&self) -> (SharedString, SharedString) {
+        let editing = self.editing.is_some();
+        match (&self.mode, self.kind) {
+            (Mode::List, _) => (
+                t!("integrations-title"),
+                t!("integrations-description-text"),
+            ),
+            (Mode::Form | Mode::Saving, Kind::Webhooks) => (
+                if editing {
+                    t!("integrations-edit-hook")
+                } else {
+                    t!("integrations-add-hook")
+                },
+                t!("integrations-add-hook-text"),
+            ),
+            (Mode::Form | Mode::Saving, Kind::Outgoing) => (
+                if editing {
+                    t!("integrations-edit-outgoing")
+                } else {
+                    t!("integrations-add-outgoing")
+                },
+                t!("integrations-add-outgoing-text"),
+            ),
+            (Mode::Form | Mode::Saving, Kind::Commands) => (
+                if editing {
+                    t!("integrations-edit-command")
+                } else {
+                    t!("integrations-add-command")
+                },
+                t!("integrations-add-command-text"),
+            ),
+            (Mode::Created(_), Kind::Webhooks) => (
+                t!("integrations-add-hook"),
+                t!("integrations-hook-created-text"),
+            ),
+            (Mode::Created(_), Kind::Outgoing) => (
+                t!("integrations-add-outgoing"),
+                t!("integrations-outgoing-created-text"),
+            ),
+            (Mode::Created(_), Kind::Commands) => (
+                t!("integrations-add-command"),
+                t!("integrations-command-created-text"),
+            ),
+        }
+    }
 }
 
 impl Render for IntegrationsView {
@@ -686,7 +1079,7 @@ impl Render for IntegrationsView {
         if self.focus_first {
             self.focus_first = false;
             let first = match self.kind {
-                Kind::Webhooks => &self.name,
+                Kind::Webhooks | Kind::Outgoing => &self.name,
                 Kind::Commands => &self.trigger,
             };
             let focus = first.read(cx).focus_handle(cx);
@@ -696,32 +1089,11 @@ impl Render for IntegrationsView {
             let focus = self.focus.clone();
             window.on_next_frame(move |window, cx| window.focus(&focus, cx));
         }
-        let (title, description) = match (&self.mode, self.kind) {
-            (Mode::List, _) => (
-                t!("integrations-title"),
-                t!("integrations-description-text"),
-            ),
-            (Mode::Add | Mode::Saving, Kind::Webhooks) => (
-                t!("integrations-add-hook"),
-                t!("integrations-add-hook-text"),
-            ),
-            (Mode::Add | Mode::Saving, Kind::Commands) => (
-                t!("integrations-add-command"),
-                t!("integrations-add-command-text"),
-            ),
-            (Mode::Created(_), Kind::Webhooks) => (
-                t!("integrations-add-hook"),
-                t!("integrations-hook-created-text"),
-            ),
-            (Mode::Created(_), Kind::Commands) => (
-                t!("integrations-add-command"),
-                t!("integrations-command-created-text"),
-            ),
-        };
+        let (title, description) = self.title();
         let view = cx.entity().downgrade();
         let body = match &self.mode {
             Mode::List => self.list(cx),
-            Mode::Add | Mode::Saving => self.form(cx),
+            Mode::Form | Mode::Saving => self.form(cx),
             Mode::Created(id) => {
                 let id = id.clone();
                 self.created(&id, cx)
@@ -735,9 +1107,12 @@ impl Render for IntegrationsView {
                         .variant(ButtonVariant::Outline)
                         .label(match self.kind {
                             Kind::Webhooks => t!("integrations-add-hook"),
+                            Kind::Outgoing => t!("integrations-add-outgoing"),
                             Kind::Commands => t!("integrations-add-command"),
                         })
-                        .on_click(cx.listener(|this, _, window, cx| this.start_add(window, cx))),
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.start_form(None, window, cx)),
+                        ),
                 )
                 .child(div().flex_1())
                 .child(
@@ -746,7 +1121,7 @@ impl Render for IntegrationsView {
                         .label(t!("team-members-close"))
                         .on_click(cx.listener(|this, _, window, cx| this.handle.close(window, cx))),
                 ),
-            Mode::Add | Mode::Saving => footer
+            Mode::Form | Mode::Saving => footer
                 .child(div().flex_1())
                 .child(
                     Button::new("integrations.cancel")
@@ -775,6 +1150,22 @@ impl Render for IntegrationsView {
                     })),
             ),
         };
+        let tabs = Kind::available(cx).into_iter().fold(
+            Tabs::new("integrations.tabs")
+                .aria_label(t!("integrations-title"))
+                .selected(self.kind.id()),
+            |tabs, kind| {
+                tabs.item(Tab::new(
+                    gpui_kit::ElementId::Name(format!("integrations.tabs.{}", kind.id()).into()),
+                    kind.id(),
+                    match kind {
+                        Kind::Webhooks => t!("integrations-hooks"),
+                        Kind::Outgoing => t!("integrations-outgoing"),
+                        Kind::Commands => t!("integrations-commands"),
+                    },
+                ))
+            },
+        );
         div()
             .track_focus(&self.focus)
             .flex()
@@ -789,36 +1180,18 @@ impl Render for IntegrationsView {
                     .child(dialog_description("integrations.description", cx).child(description)),
             )
             .when(self.mode == Mode::List, |column| {
-                column.child(
-                    Tabs::new("integrations.tabs")
-                        .aria_label(t!("integrations-title"))
-                        .selected(match self.kind {
-                            Kind::Webhooks => "hooks",
-                            Kind::Commands => "commands",
-                        })
-                        .item(Tab::new(
-                            "integrations.tabs.hooks",
-                            "hooks",
-                            t!("integrations-hooks"),
-                        ))
-                        .item(Tab::new(
-                            "integrations.tabs.commands",
-                            "commands",
-                            t!("integrations-commands"),
-                        ))
-                        .on_change(move |value, _, cx| {
-                            view.update(cx, |this, cx| {
-                                this.kind = if value == "commands" {
-                                    Kind::Commands
-                                } else {
-                                    Kind::Webhooks
-                                };
-                                this.confirm_delete = None;
-                                cx.notify();
-                            })
-                            .ok();
-                        }),
-                )
+                column.child(tabs.on_change(move |value, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.kind = match value.as_ref() {
+                            "commands" => Kind::Commands,
+                            "outgoing" => Kind::Outgoing,
+                            _ => Kind::Webhooks,
+                        };
+                        this.confirm_delete = None;
+                        cx.notify();
+                    })
+                    .ok();
+                }))
             })
             .when_some(self.error.clone(), |column, error| {
                 column.child(
@@ -852,5 +1225,16 @@ mod tests {
         assert!(url_problem("http://10.0.0.2:8080").is_none());
         assert!(url_problem("ci.example.com").is_some());
         assert!(url_problem("https://").is_some());
+    }
+
+    #[test]
+    fn lists_split_on_commas_and_spaces() {
+        assert_eq!(
+            split_list("build, deploy  ship,,"),
+            vec!["build", "deploy", "ship"]
+        );
+        assert!(callbacks_problem(&split_list("")).is_some());
+        assert!(callbacks_problem(&split_list("https://a.example https://b.example")).is_none());
+        assert!(callbacks_problem(&split_list("https://a.example b.example")).is_some());
     }
 }

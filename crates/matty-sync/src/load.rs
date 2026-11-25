@@ -78,6 +78,7 @@ pub(crate) enum Loaded {
         team_id: String,
         hooks: Vec<matty_api::models::IncomingWebhook>,
         commands: Vec<matty_api::models::CustomCommand>,
+        outgoing: Vec<matty_api::models::OutgoingWebhook>,
         created: Option<String>,
     },
     /// The first page of a group's people.

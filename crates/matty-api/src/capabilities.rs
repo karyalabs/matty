@@ -189,6 +189,8 @@ pub struct ServerCapabilities {
     pub incoming_webhooks: bool,
     /// Custom slash commands can be made (`EnableCommands`, #1071).
     pub custom_commands: bool,
+    /// Outgoing webhooks can be made (`EnableOutgoingWebhooks`, #1073).
+    pub outgoing_webhooks: bool,
     /// Profiles show when someone was last online, unless they turned
     /// sharing it off (`EnableLastActiveTime`).
     pub last_active_time: bool,
@@ -320,6 +322,7 @@ impl ServerCapabilities {
             access_tokens: flag(config, "EnableUserAccessTokens"),
             incoming_webhooks: flag(config, "EnableIncomingWebhooks"),
             custom_commands: flag(config, "EnableCommands"),
+            outgoing_webhooks: flag(config, "EnableOutgoingWebhooks"),
             last_active_time: flag(config, "EnableLastActiveTime"),
             synced_drafts: flag(config, "AllowSyncedDrafts"),
             post_priority,
@@ -505,7 +508,8 @@ mod tests {
             ServerCapabilities::from_old_format(&config, &license).unwrap()
         };
         type Gate = fn(&ServerCapabilities) -> bool;
-        let cases: [(&str, Gate); 13] = [
+        let cases: [(&str, Gate); 14] = [
+            ("EnableOutgoingWebhooks", |c| c.outgoing_webhooks),
             ("EnableIncomingWebhooks", |c| c.incoming_webhooks),
             ("EnableCommands", |c| c.custom_commands),
             ("EnableLdap", |c| c.ldap),
