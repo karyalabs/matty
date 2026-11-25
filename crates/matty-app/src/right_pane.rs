@@ -4012,6 +4012,7 @@ impl RightPaneView {
                 ))
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Xs)
+                .aria_label(t!("chan-replies", count = summary.count))
                 .child(
                     div()
                         .flex()
