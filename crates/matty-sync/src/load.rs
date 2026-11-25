@@ -72,6 +72,11 @@ pub(crate) enum Loaded {
         groups: Vec<matty_api::models::Group>,
         mine: Vec<String>,
     },
+    /// A public link to a file.
+    FileLink {
+        file_id: String,
+        link: String,
+    },
     /// A team's incoming webhooks and custom slash commands, and the id
     /// of one just made.
     Integrations {

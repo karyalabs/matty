@@ -929,6 +929,12 @@ pub enum Command {
         /// The team.
         team_id: String,
     },
+    /// A public link to a file, when the server allows them;
+    /// [`ChangeSet::FileLink`](crate::ChangeSet::FileLink) answers.
+    FileLink {
+        /// The file.
+        file_id: String,
+    },
     /// Makes or deletes an incoming webhook or a custom slash command
     /// (#1071); the team's lists come back in
     /// [`ChangeSet::Integrations`](crate::ChangeSet::Integrations).
@@ -1558,6 +1564,10 @@ impl std::fmt::Debug for Command {
             Self::Integrations { team_id } => f
                 .debug_struct("Integrations")
                 .field("team_id", team_id)
+                .finish(),
+            Self::FileLink { file_id } => f
+                .debug_struct("FileLink")
+                .field("file_id", file_id)
                 .finish(),
             // A command carries its token, which stays out of logs.
             Self::ChangeIntegration(change) => f
@@ -2803,6 +2813,9 @@ impl Engine {
                 }
                 Message::Command(Command::Integrations { team_id }) => {
                     writes.push(Write::Integrations { team_id });
+                }
+                Message::Command(Command::FileLink { file_id }) => {
+                    writes.push(Write::FileLink { file_id });
                 }
                 Message::Command(Command::ChangeIntegration(change)) => {
                     writes.push(Write::ChangeIntegration(change));
@@ -4201,6 +4214,9 @@ impl Engine {
                     groups: Arc::from(groups),
                     mine: Arc::from(mine),
                 });
+            }
+            Loaded::FileLink { file_id, link } => {
+                dirty.direct.push(ChangeSet::FileLink { file_id, link });
             }
             Loaded::Integrations {
                 team_id,

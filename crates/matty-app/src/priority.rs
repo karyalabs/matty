@@ -79,6 +79,8 @@ pub struct Features {
     pub custom_commands: bool,
     /// Bot accounts can be made (#1075).
     pub bot_accounts: bool,
+    /// Files can be shared by a public link (`EnablePublicLink`).
+    pub public_links: bool,
 }
 
 impl Global for Features {}
@@ -111,6 +113,7 @@ impl Features {
             outgoing_webhooks: capabilities.outgoing_webhooks,
             custom_commands: capabilities.custom_commands,
             bot_accounts: capabilities.bot_accounts,
+            public_links: capabilities.public_links,
         }
     }
 
@@ -139,6 +142,8 @@ impl Features {
             outgoing_webhooks: true,
             custom_commands: true,
             bot_accounts: true,
+            // Preview has no server to make the link.
+            public_links: false,
         }
     }
 

@@ -299,6 +299,14 @@ pub enum ChangeSet {
         /// The ids of the groups the user is in, whose mentions are theirs.
         mine: Arc<[String]>,
     },
+    /// A public link to a file, the answer to
+    /// [`Command::FileLink`](crate::Command::FileLink).
+    FileLink {
+        /// The file.
+        file_id: String,
+        /// Its public link.
+        link: String,
+    },
     /// A team's incoming webhooks and custom slash commands (#1071), the
     /// answer to [`Command::Integrations`](crate::Command::Integrations)
     /// and [`Command::ChangeIntegration`](crate::Command::ChangeIntegration).

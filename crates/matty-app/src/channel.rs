@@ -1155,6 +1155,8 @@ pub enum ChannelEvent {
     RetryUpload(SharedString),
     /// The user clicked a file on a post; sync opens or downloads it.
     OpenFile(SharedString),
+    /// The user asked for a file's public link, to copy.
+    CopyPublicLink(SharedString),
     /// The lightbox opened on these image files; sync fetches their full
     /// size and the window hands them back through `set_full_image`.
     ViewImages(Vec<SharedString>),
@@ -3208,17 +3210,35 @@ impl ChannelView {
         };
         let index = self.lightbox.read(cx).index();
         let actions: Vec<gpui_kit::AnyElement> = match self.lightbox_items.get(index).cloned() {
-            Some(LightboxItem::File(id)) => vec![hook(
-                "lightbox-download",
-                Button::new("channel.lightbox.open")
-                    .size(ButtonSize::Icon)
-                    .variant(ButtonVariant::Ghost)
-                    .aria_label(t!("chan-download"))
-                    .child(icon(LucideIcon::Download))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        cx.emit(ChannelEvent::OpenFile(id.clone()));
-                    })),
-            )],
+            Some(LightboxItem::File(id)) => {
+                let link = id.clone();
+                let mut actions = Vec::new();
+                if crate::priority::Features::read(cx).public_links {
+                    actions.push(hook(
+                        "lightbox-public-link",
+                        Button::new("channel.lightbox.public-link")
+                            .size(ButtonSize::Icon)
+                            .variant(ButtonVariant::Ghost)
+                            .aria_label(t!("chan-copy-public-link"))
+                            .child(icon(LucideIcon::Link))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.emit(ChannelEvent::CopyPublicLink(link.clone()));
+                            })),
+                    ));
+                }
+                actions.push(hook(
+                    "lightbox-download",
+                    Button::new("channel.lightbox.open")
+                        .size(ButtonSize::Icon)
+                        .variant(ButtonVariant::Ghost)
+                        .aria_label(t!("chan-download"))
+                        .child(icon(LucideIcon::Download))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.emit(ChannelEvent::OpenFile(id.clone()));
+                        })),
+                ));
+                actions
+            }
             Some(LightboxItem::Link(url)) => {
                 let copy = url.clone();
                 vec![

@@ -249,6 +249,9 @@ pub(crate) enum Write {
     Integrations {
         team_id: String,
     },
+    FileLink {
+        file_id: String,
+    },
     ChangeIntegration(crate::IntegrationChange),
     CreateAccessToken {
         description: String,
@@ -408,6 +411,7 @@ impl Write {
             Self::ChangeGroup(crate::GroupChange::Create { .. }) => "create a group",
             Self::ChangeGroup(_) => "change a group",
             Self::Integrations { .. } => "list integrations",
+            Self::FileLink { .. } => "get a public link",
             Self::ChangeIntegration(crate::IntegrationChange::CreateWebhook { .. }) => {
                 "create a webhook"
             }
@@ -496,6 +500,7 @@ impl Write {
             Self::GroupMembers { group_id } => group_id.clone(),
             Self::ChangeGroup(change) => change.group_id().unwrap_or_default().to_owned(),
             Self::Integrations { team_id } => team_id.clone(),
+            Self::FileLink { file_id } => file_id.clone(),
             Self::ChangeIntegration(change) => change.team_id().to_owned(),
             Self::SetAccessTokenActive { token_id, .. } | Self::RevokeAccessToken { token_id } => {
                 token_id.clone()
@@ -1408,6 +1413,10 @@ pub(crate) async fn run(
                 }
             }
             Write::Integrations { team_id } => Some(integrations(&client, team_id, None).await?),
+            Write::FileLink { file_id } => {
+                let link = client.file_link(&file_id).await?;
+                Some(Loaded::FileLink { file_id, link })
+            }
             Write::ChangeIntegration(change) => {
                 use crate::IntegrationChange;
                 let team_id = change.team_id().to_owned();

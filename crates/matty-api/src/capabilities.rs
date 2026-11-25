@@ -203,6 +203,8 @@ pub struct ServerCapabilities {
     /// The system console's announcement banner (`EnableBanner` with a
     /// `BannerText`), shown across the top of every window.
     pub announcement: Option<Announcement>,
+    /// Files can be shared by a public link (`EnablePublicLink`).
+    pub public_links: bool,
     /// The largest upload the server accepts, in bytes.
     pub max_file_size: u64,
     /// Whether images go through the server's image proxy.
@@ -377,6 +379,7 @@ impl ServerCapabilities {
                     dismissible: flag(config, "AllowBannerDismissal"),
                 })
                 .filter(|banner| !banner.text.is_empty()),
+            public_links: flag(config, "EnablePublicLink"),
             max_file_size: number(config, "MaxFileSize").unwrap_or(DEFAULT_MAX_FILE_SIZE),
             image_proxy: flag(config, "HasImageProxy"),
             channel_bookmarks: licensed
@@ -539,7 +542,7 @@ mod tests {
             ServerCapabilities::from_old_format(&config, &license).unwrap()
         };
         type Gate = fn(&ServerCapabilities) -> bool;
-        let cases: [(&str, Gate); 15] = [
+        let cases: [(&str, Gate); 16] = [
             ("EnableBotAccountCreation", |c| c.bot_accounts),
             ("EnableOutgoingWebhooks", |c| c.outgoing_webhooks),
             ("EnableIncomingWebhooks", |c| c.incoming_webhooks),
@@ -555,6 +558,7 @@ mod tests {
             ("AllowSyncedDrafts", |c| c.synced_drafts),
             ("PostPriority", |c| c.post_priority),
             ("HasImageProxy", |c| c.image_proxy),
+            ("EnablePublicLink", |c| c.public_links),
         ];
         for (key, read) in cases {
             assert!(read(&gate(key, "true")), "{key} on");

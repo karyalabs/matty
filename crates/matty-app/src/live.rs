@@ -313,6 +313,9 @@ pub struct Update {
     pub group_members: Option<(String, Vec<UserProfile>, i64)>,
     /// Something the server or an App refused, for a toast (#226).
     pub refused: Option<SharedString>,
+    /// A file's public link arrived, by the file's id, for the window
+    /// that asked to copy it.
+    pub public_link: Option<(String, String)>,
     /// A link an App answered with, for Matty's link routing (#226).
     pub navigate: Option<SharedString>,
     /// Who is typing in the open channel now; the window checks again
@@ -3190,6 +3193,19 @@ impl Live {
                     crate::t!("team-settings-regenerate-failed", error = said)
                 });
             }
+            ChangeSet::FileLink { file_id, link } => {
+                update.public_link = Some((file_id.clone(), link.clone()));
+            }
+            ChangeSet::Failed(matty_sync::CommandError::Server {
+                action: "get a public link",
+                error,
+                ..
+            }) => {
+                let said = error
+                    .rsplit_once(" (")
+                    .map_or(error.as_str(), |(said, _)| said);
+                update.refused = Some(crate::t!("chan-public-link-failed", error = said));
+            }
             ChangeSet::Failed(matty_sync::CommandError::Server {
                 action: "unarchive channel",
                 error,
@@ -5142,6 +5158,30 @@ mod tests {
         let said = update.refused.expect("a toast");
         assert!(said.contains("invalid password."), "{said}");
         assert!(!said.contains("HTTP 401"), "{said}");
+    }
+
+    #[test]
+    fn a_public_link_reaches_the_window_or_says_why_not() {
+        let mut live = live();
+        let update = live.apply(&ChangeSet::FileLink {
+            file_id: "f1".into(),
+            link: "https://chat.example.com/files/f1/public?h=x".into(),
+        });
+        assert_eq!(
+            update.public_link,
+            Some((
+                "f1".into(),
+                "https://chat.example.com/files/f1/public?h=x".into()
+            ))
+        );
+        let update = live.apply(&ChangeSet::Failed(matty_sync::CommandError::Server {
+            action: "get a public link",
+            target: "f1".into(),
+            error: "Public links have been disabled. (api.file.get_public_link.disabled.app_error, HTTP 501)".into(),
+        }));
+        let said = update.refused.expect("a toast");
+        assert!(said.contains("Public links have been disabled."), "{said}");
+        assert!(!said.contains("HTTP 501"), "{said}");
     }
 
     /// #163: an action that could not reach the server reaches the window

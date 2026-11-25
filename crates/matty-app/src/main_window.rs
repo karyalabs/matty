@@ -354,6 +354,9 @@ pub struct MainWindow {
     /// The banner text the user closed, so it stays closed until an admin
     /// changes it.
     announcement_closed: Option<String>,
+    /// The file whose public link this window asked for, to copy when it
+    /// comes; another window's ask leaves the clipboard alone.
+    asked_public_link: Option<SharedString>,
     /// Channels opened in order, for Back and Forward; `history_at` is the
     /// one shown now.
     history: Vec<SharedString>,
@@ -1149,6 +1152,7 @@ impl MainWindow {
                     }
                 }
                 ChannelEvent::OpenFile(id) => this.download_file(id, cx),
+                ChannelEvent::CopyPublicLink(id) => this.copy_public_link(id, cx),
                 ChannelEvent::ViewImages(ids) => {
                     let here = this
                         .live
@@ -1525,6 +1529,7 @@ impl MainWindow {
             banner_last: crate::preview::connection(),
             announcement: None,
             announcement_closed: None,
+            asked_public_link: None,
             queued: crate::preview::queued(),
             history,
             history_at: 0,
@@ -2136,6 +2141,19 @@ impl MainWindow {
         self.copy_to_clipboard(link, cx);
     }
 
+    /// Asks the server for a file's public link; it's copied when it comes.
+    fn copy_public_link(&mut self, file_id: &SharedString, cx: &mut Context<Self>) {
+        if self.refused_offline("get a public link", cx) {
+            return;
+        }
+        if let Some(live) = &self.live {
+            self.asked_public_link = Some(file_id.clone());
+            live.send(matty_sync::Command::FileLink {
+                file_id: file_id.to_string(),
+            });
+        }
+    }
+
     /// Copies `link` and says "Link copied", or says it couldn't.
     fn copy_to_clipboard(&mut self, link: Option<String>, cx: &mut Context<Self>) {
         let Some(link) = link else {
@@ -2670,6 +2688,12 @@ impl MainWindow {
         }
         if let Some(text) = update.refused.take() {
             self.push_error(text, cx);
+        }
+        if let Some((file_id, link)) = update.public_link.take()
+            && self.asked_public_link.as_deref() == Some(file_id.as_str())
+        {
+            self.asked_public_link = None;
+            self.copy_to_clipboard(Some(link), cx);
         }
         if let Some(url) = update.navigate.take() {
             self.open_message_link(url, window, cx);
@@ -3741,6 +3765,7 @@ impl MainWindow {
             }
             RightPaneEvent::Leave(channel) => self.leave_channel(channel.clone(), window, cx),
             RightPaneEvent::OpenFile(id) => self.download_file(id, cx),
+            RightPaneEvent::CopyPublicLink(id) => self.copy_public_link(id, cx),
             RightPaneEvent::ViewImages(ids) => {
                 let here = self
                     .live

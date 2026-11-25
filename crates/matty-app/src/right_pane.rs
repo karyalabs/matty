@@ -460,6 +460,8 @@ pub enum RightPaneEvent {
     },
     /// The user clicked a file on a post; sync opens or downloads it.
     OpenFile(SharedString),
+    /// The user asked for a file's public link, to copy.
+    CopyPublicLink(SharedString),
     /// The lightbox opened on these image files; the window hands their
     /// full size back through `set_full_image`.
     ViewImages(Vec<SharedString>),
@@ -1287,11 +1289,33 @@ impl RightPaneView {
                 }
             }))
             .into_any_element();
+        let index = self.lightbox.read(cx).index();
+        let file = match self.lightbox_items.get(index) {
+            Some(LightboxItem::File(id)) => Some(id.clone()),
+            _ => None,
+        };
+        let public_link = file
+            .filter(|_| crate::priority::Features::read(cx).public_links)
+            .map(|id| {
+                Button::new("right-pane.lightbox.public-link")
+                    .size(ButtonSize::Icon)
+                    .variant(ButtonVariant::Ghost)
+                    .aria_label(t!("chan-copy-public-link"))
+                    .child(
+                        lucide(LucideIcon::Link)
+                            .size(theme.space(4.5))
+                            .text_color(gpui_kit::white()),
+                    )
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(RightPaneEvent::CopyPublicLink(id.clone()));
+                    }))
+                    .into_any_element()
+            });
         lightbox(
             "right-pane.lightbox",
             &self.lightbox_handle,
             &self.lightbox,
-            [open],
+            public_link.into_iter().chain([open]),
             window,
             cx,
         )

@@ -439,6 +439,9 @@ pub struct PopOutView {
     /// The user marked the channel unread here; it is not viewed again
     /// until the window closes (#146).
     kept_unread: bool,
+    /// The file whose public link this window asked for, to copy when it
+    /// comes.
+    asked_public_link: Option<SharedString>,
     /// The connection is down for good; actions that need it are refused.
     offline: bool,
     _changes: Option<Task<()>>,
@@ -586,6 +589,7 @@ impl PopOutView {
             focus,
             opened: false,
             kept_unread: false,
+            asked_public_link: None,
             offline: false,
             _changes: None,
             _typing_task: None,
@@ -910,6 +914,13 @@ impl PopOutView {
         if let Some(text) = update.refused.take() {
             self.toast("pop-out.refused", text, cx);
         }
+        if let Some((file_id, link)) = update.public_link.take()
+            && self.asked_public_link.as_deref() == Some(file_id.as_str())
+        {
+            self.asked_public_link = None;
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(link));
+            self.toast("copy-link", t!("notice-link-copied"), cx);
+        }
         if let Some(url) = update.navigate.take() {
             self.ask(Ask::OpenLink(url), cx);
         }
@@ -1131,6 +1142,18 @@ impl PopOutView {
         self.kept_unread = true;
     }
 
+    /// Asks the server for a file's public link; it's copied when it comes.
+    fn copy_public_link(&mut self, file_id: &SharedString, cx: &mut Context<Self>) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        self.asked_public_link = Some(file_id.clone());
+        live.send(matty_sync::Command::FileLink {
+            file_id: file_id.to_string(),
+        });
+        cx.notify();
+    }
+
     fn download_file(&mut self, file_id: &SharedString, cx: &mut Context<Self>) {
         use crate::attachments::{Downloads, FileDownload};
         if let Some(FileDownload::Downloading { .. }) = Downloads::get(cx, file_id) {
@@ -1316,6 +1339,7 @@ impl PopOutView {
             ChannelEvent::MarkUnread(post) => return self.mark_unread(post, cx),
             ChannelEvent::Remind { post, at } => return self.remind(post, *at, cx),
             ChannelEvent::OpenFile(id) => return self.download_file(id, cx),
+            ChannelEvent::CopyPublicLink(id) => return self.copy_public_link(id, cx),
             ChannelEvent::Upload { id, name, source } => {
                 let job = crate::live::UploadJob::new(
                     channel.to_string(),
@@ -1545,6 +1569,7 @@ impl PopOutView {
             RightPaneEvent::MarkUnread(post) => return self.mark_unread(post, cx),
             RightPaneEvent::Remind { post, at } => return self.remind(post, *at, cx),
             RightPaneEvent::OpenFile(id) => return self.download_file(id, cx),
+            RightPaneEvent::CopyPublicLink(id) => return self.copy_public_link(id, cx),
             RightPaneEvent::Upload { id, name, source } => {
                 let job = crate::live::UploadJob::new(
                     channel.to_string(),
