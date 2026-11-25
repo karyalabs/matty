@@ -4688,20 +4688,28 @@ impl Engine {
             Loaded::Search {
                 terms,
                 page,
-                posts,
+                mut posts,
                 more,
                 files,
-            } => dirty.direct.push(ChangeSet::Search {
-                terms,
-                page,
-                posts: Arc::from(posts),
-                more,
-                files: Arc::from(files),
-            }),
-            Loaded::Listing { listing, posts } => dirty.direct.push(ChangeSet::Listing {
-                listing,
-                posts: Arc::from(posts),
-            }),
+            } => {
+                // Search leaves out whether the user follows a root's
+                // thread; the cache knows (Follow under the result).
+                posts::with_followed_threads(self.store.conn(), &mut posts)?;
+                dirty.direct.push(ChangeSet::Search {
+                    terms,
+                    page,
+                    posts: Arc::from(posts),
+                    more,
+                    files: Arc::from(files),
+                })
+            }
+            Loaded::Listing { listing, mut posts } => {
+                posts::with_followed_threads(self.store.conn(), &mut posts)?;
+                dirty.direct.push(ChangeSet::Listing {
+                    listing,
+                    posts: Arc::from(posts),
+                })
+            }
             Loaded::People { team_id, users } => {
                 sidebar::upsert_users(self.store.conn(), &users)?;
                 dirty.direct.push(ChangeSet::People {
@@ -5673,6 +5681,7 @@ fn cached_listing(conn: &Db, listing: crate::Listing) -> Result<ChangeSet, Store
         }
     };
     found.sort_by(|a, b| (b.create_at, &b.id).cmp(&(a.create_at, &a.id)));
+    posts::with_followed_threads(conn, &mut found)?;
     Ok(ChangeSet::Listing {
         listing,
         posts: Arc::from(found),
@@ -5751,7 +5760,7 @@ fn cached_search(
     };
     let searched = !words.is_empty() || from.is_some() || channel.is_some();
     let per_page = SEARCH_PAGE as usize;
-    let found = if searched {
+    let mut found = if searched {
         posts::find(conn, team_id, page as usize * per_page, per_page, |post| {
             let text = post.message.to_lowercase();
             from.as_ref().is_none_or(|id| post.user_id == *id)
@@ -5762,6 +5771,7 @@ fn cached_search(
     } else {
         Vec::new()
     };
+    posts::with_followed_threads(conn, &mut found)?;
     Ok(ChangeSet::Search {
         terms,
         page,

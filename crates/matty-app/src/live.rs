@@ -1972,7 +1972,7 @@ impl Live {
             .map(|post| crate::right_pane::ListedPost {
                 channel_id: post.channel_id.clone().into(),
                 channel_name: self.listed_place(post),
-                post: crate::transcript::listed_post(post, &self.users, &viewer),
+                post: crate::transcript::listed_with_replies(post, &self.users, &viewer),
             })
             .collect();
         let listing = listing.clone();
@@ -2411,7 +2411,8 @@ impl Live {
                 .iter()
                 .flat_map(|posts| posts.iter())
                 .map(|post| {
-                    let mut listed = crate::transcript::listed_post(post, &self.users, &viewer);
+                    let mut listed =
+                        crate::transcript::listed_with_replies(post, &self.users, &viewer);
                     listed.own_mentions = listed.own_mentions.with_marks(marks.iter().cloned());
                     crate::right_pane::ListedPost {
                         channel_id: post.channel_id.clone().into(),
