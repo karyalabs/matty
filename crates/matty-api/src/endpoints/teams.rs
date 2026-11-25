@@ -21,6 +21,10 @@ pub struct TeamPatch {
     /// Anyone on the server may join without an invite.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_open_invite: Option<bool>,
+    /// Email domains a person must have to join, separated by commas;
+    /// empty for any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_domains: Option<String>,
 }
 
 impl Client {

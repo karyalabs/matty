@@ -511,6 +511,7 @@ impl MainWindow {
             name,
             description: gpui_kit::SharedString::default(),
             open: false,
+            domains: gpui_kit::SharedString::default(),
             link: None,
         };
         self.team_settings
@@ -602,12 +603,14 @@ impl MainWindow {
                 name,
                 description,
                 open,
+                domains,
             } => live.send(matty_sync::Command::PatchTeam {
                 team_id: team_id.to_string(),
                 patch: matty_api::TeamPatch {
                     display_name: name.clone(),
                     description: description.clone(),
                     allow_open_invite: *open,
+                    allowed_domains: domains.clone(),
                 },
             }),
             crate::team_settings::TeamSettingsEvent::RegenerateInvite { team_id } => {

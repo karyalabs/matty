@@ -155,6 +155,9 @@ pub struct Team {
     pub allow_open_invite: bool,
     /// The id in the team's invite link; empty unless the user may invite.
     pub invite_id: String,
+    /// Email domains a person must have to join, separated by commas or
+    /// spaces; empty for any.
+    pub allowed_domains: String,
     /// Milliseconds since the epoch.
     pub last_team_icon_update: i64,
     /// Milliseconds since the epoch; nonzero when archived.

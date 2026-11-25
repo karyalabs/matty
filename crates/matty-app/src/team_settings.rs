@@ -1,5 +1,6 @@
 //! Team settings for a team admin (#987): the team's name, description,
-//! whether anyone on the server may join, and its invite link.
+//! whether anyone on the server may join, which email domains may, and
+//! its invite link.
 
 use gpui_kit::{
     App, AppContext as _, Context, Entity, EventEmitter, Focusable as _, IntoElement,
@@ -29,6 +30,9 @@ pub struct TeamSettings {
     pub description: SharedString,
     /// Anyone on the server may join without an invite.
     pub open: bool,
+    /// Email domains a person must have to join, as the server keeps
+    /// them; empty for any.
+    pub domains: SharedString,
     /// The invite link, when the server gave its id.
     pub link: Option<SharedString>,
 }
@@ -41,6 +45,7 @@ pub enum TeamSettingsEvent {
         name: Option<String>,
         description: Option<String>,
         open: Option<bool>,
+        domains: Option<String>,
     },
     RegenerateInvite {
         team_id: SharedString,
@@ -51,6 +56,7 @@ pub struct TeamSettingsView {
     team: Option<TeamSettings>,
     name: Entity<InputState>,
     description: Entity<InputState>,
+    domains: Entity<InputState>,
     open: bool,
     copied: bool,
     handle: DialogHandle,
@@ -64,6 +70,7 @@ impl TeamSettingsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx));
         let description = cx.new(|cx| InputState::new(window, cx));
+        let domains = cx.new(|cx| InputState::new(window, cx));
         let on_input = |this: &mut Self,
                         _: &Entity<InputState>,
                         event: &InputEvent,
@@ -78,11 +85,13 @@ impl TeamSettingsView {
         let subscriptions = vec![
             cx.subscribe_in(&name, window, on_input),
             cx.subscribe_in(&description, window, on_input),
+            cx.subscribe_in(&domains, window, on_input),
         ];
         Self {
             team: None,
             name,
             description,
+            domains,
             open: false,
             copied: false,
             handle: DialogHandle::new(false),
@@ -141,6 +150,10 @@ impl TeamSettingsView {
             input.set_value(team.description.as_ref(), window, cx);
             input.set_placeholder(t!("team-settings-description-placeholder"), window, cx);
         });
+        self.domains.update(cx, |input, cx| {
+            input.set_value(team.domains.as_ref(), window, cx);
+            input.set_placeholder(t!("team-settings-domains-placeholder"), window, cx);
+        });
         self.open = team.open;
     }
 
@@ -152,10 +165,17 @@ impl TeamSettingsView {
         self.description.read(cx).value().trim().to_string()
     }
 
+    /// The typed domains as the server keeps them: lowercase, without a
+    /// leading `@`, joined by ", ".
+    fn domains(&self, cx: &App) -> String {
+        normalize_domains(self.domains.read(cx).value().as_ref())
+    }
+
     fn edited(&self, cx: &App) -> bool {
         self.team.as_ref().is_some_and(|team| {
             self.name(cx) != team.name.as_ref()
                 || self.description(cx) != team.description.as_ref()
+                || self.domains(cx) != normalize_domains(&team.domains)
                 || self.open != team.open
         })
     }
@@ -175,11 +195,13 @@ impl TeamSettingsView {
             return;
         };
         let (name, description) = (self.name(cx), self.description(cx));
+        let domains = self.domains(cx);
         let event = TeamSettingsEvent::Save {
             team_id: team.id.clone(),
             name: (name != team.name.as_ref()).then_some(name),
             description: (description != team.description.as_ref()).then_some(description),
             open: (self.open != team.open).then_some(self.open),
+            domains: (domains != normalize_domains(&team.domains)).then_some(domains),
         };
         self.handle.close(window, cx);
         cx.emit(event);
@@ -221,6 +243,9 @@ impl Render for TeamSettingsView {
                 max = DESCRIPTION_MAX
             ))
         };
+        let domains = Field::new("team-settings.domains", &self.domains)
+            .label(t!("team-settings-domains"))
+            .description(t!("team-settings-domains-detail"));
         let open = Switch::new("team-settings.open.switch")
             .checked(self.open)
             .aria_label(t!("team-settings-open"))
@@ -320,6 +345,7 @@ impl Render for TeamSettingsView {
                     )
                     .child(div().flex_none().child(open)),
             )
+            .child(domains)
             .child(invite)
             .child(
                 div()
@@ -343,5 +369,34 @@ impl Render for TeamSettingsView {
                             .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
                     ),
             )
+    }
+}
+
+/// `domains` as Mattermost keeps a team's allowed domains: each one
+/// lowercase and without a leading `@`, joined by ", ".
+fn normalize_domains(domains: &str) -> String {
+    domains
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .map(|domain| domain.trim().trim_start_matches('@').to_lowercase())
+        .filter(|domain| !domain.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_domains;
+
+    #[test]
+    fn domains_are_kept_as_the_server_keeps_them() {
+        assert_eq!(normalize_domains(""), "");
+        assert_eq!(
+            normalize_domains(" @Example.com,corp.example.org  lab.example.net,,"),
+            "example.com, corp.example.org, lab.example.net"
+        );
+        assert_eq!(
+            normalize_domains("example.com, corp.example.org"),
+            "example.com, corp.example.org"
+        );
     }
 }
