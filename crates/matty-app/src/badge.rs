@@ -58,6 +58,23 @@ pub fn with_servers(
     Badge::new(mentions, unread)
 }
 
+/// The browser tab's title, as the web app writes it: the mention count
+/// and an unread mark first, then the open channel and team, so a
+/// background tab shows what waits in it.
+pub fn page_title(badge: Badge, channel: Option<&str>, team: Option<&str>) -> String {
+    let mark = match badge {
+        Badge::Clear => String::new(),
+        Badge::Unread => "* ".to_owned(),
+        Badge::Mentions(count) => format!("({count}) * "),
+    };
+    let place = match (channel, team) {
+        (Some(channel), Some(team)) => format!("{channel} - {team} · "),
+        (Some(name), None) | (None, Some(name)) => format!("{name} · "),
+        (None, None) => String::new(),
+    };
+    format!("{mark}{place}Matty") // i18n-ignore: the app's name
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +89,19 @@ mod tests {
 
     fn row(id: &str) -> ChannelRow {
         ChannelRow::new(id, id, ChannelKind::Public)
+    }
+
+    #[test]
+    fn the_page_title_leads_with_what_is_waiting() {
+        assert_eq!(
+            page_title(Badge::Mentions(2), Some("Town Square"), Some("Book Club")),
+            "(2) * Town Square - Book Club · Matty"
+        );
+        assert_eq!(
+            page_title(Badge::Unread, Some("Off-Topic"), None),
+            "* Off-Topic · Matty"
+        );
+        assert_eq!(page_title(Badge::Clear, None, None), "Matty");
     }
 
     #[test]

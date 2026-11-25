@@ -4609,6 +4609,36 @@ impl MainWindow {
             self.badge = badge;
             self.notifier.set_badge(badge);
         }
+        #[cfg(target_family = "wasm")]
+        self.set_page_title(cx);
+    }
+
+    /// Names the browser tab after the open channel and what is unread,
+    /// as the web app does; a browser has no dock badge.
+    #[cfg(target_family = "wasm")]
+    fn set_page_title(&mut self, cx: &mut Context<Self>) {
+        let sidebar = self.sidebar.read(cx).model();
+        let channel = sidebar.selected.as_ref().and_then(|selected| {
+            sidebar
+                .categories
+                .iter()
+                .flat_map(|category| category.rows.iter())
+                .find(|row| row.id == *selected)
+                .map(|row| row.name.clone())
+        });
+        let rail = self.teams_model.read(cx);
+        let team = rail.current().and_then(|current| {
+            rail.teams()
+                .iter()
+                .find(|team| team.id == *current)
+                .map(|team| team.name.clone())
+        });
+        let title = crate::badge::page_title(self.badge, channel.as_deref(), team.as_deref());
+        if let Some(document) = web_sys::window().and_then(|window| window.document())
+            && document.title() != title
+        {
+            document.set_title(&title);
+        }
     }
 
     /// Tells sync the cache limit Settings holds, when it changed.
