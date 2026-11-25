@@ -75,6 +75,30 @@ pub fn page_title(badge: Badge, channel: Option<&str>, team: Option<&str>) -> St
     format!("{mark}{place}Matty") // i18n-ignore: the app's name
 }
 
+/// The browser tab's icon, as the web app swaps it: the mark with a red
+/// dot for mentions and a blue one for other unread messages, as a data
+/// URL; `None` for the page's own icon.
+pub fn favicon(badge: Badge) -> Option<String> {
+    let dot = match badge {
+        Badge::Clear => return None,
+        Badge::Unread => "%233D5AFE",
+        Badge::Mentions(_) => "%23E5383B",
+    };
+    // favicon.svg, with the dot over its top right corner and a ring in
+    // the page colour so it reads on the mark.
+    Some(format!(
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='12 14 76 76'%3E\
+         %3Cg transform='translate(0 2)'%3E\
+         %3Cpath d='M16 72V50a22 22 0 0 1 44 0v22z' fill='%233D5AFE'/%3E\
+         %3Cpath d='M40 72V50a22 22 0 0 1 44 0v22z' fill='%23FF4F7B'/%3E\
+         %3Cpath d='M40 72V50A22 22 0 0 1 50 31.56A22 22 0 0 1 60 50V72z' fill='%233D1C7A'/%3E\
+         %3C/g%3E\
+         %3Ccircle cx='70' cy='32' r='17' fill='white'/%3E\
+         %3Ccircle cx='70' cy='32' r='13' fill='{dot}'/%3E\
+         %3C/svg%3E"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +113,18 @@ mod tests {
 
     fn row(id: &str) -> ChannelRow {
         ChannelRow::new(id, id, ChannelKind::Public)
+    }
+
+    #[test]
+    fn the_tab_icon_shows_a_dot_while_something_waits() {
+        assert_eq!(favicon(Badge::Clear), None);
+        let unread = favicon(Badge::Unread).unwrap_or_default();
+        let mentions = favicon(Badge::Mentions(2)).unwrap_or_default();
+        assert!(
+            unread.starts_with("data:image/svg+xml,") && unread.contains("%233D5AFE'/%3E%3C/svg")
+        );
+        assert!(mentions.contains("%23E5383B"));
+        assert!(!mentions.contains('#'), "a # would end the data URL");
     }
 
     #[test]

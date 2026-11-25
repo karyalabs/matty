@@ -4644,10 +4644,20 @@ impl MainWindow {
                 .map(|team| team.name.clone())
         });
         let title = crate::badge::page_title(self.badge, channel.as_deref(), team.as_deref());
-        if let Some(document) = web_sys::window().and_then(|window| window.document())
-            && document.title() != title
-        {
+        let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+            return;
+        };
+        if document.title() != title {
             document.set_title(&title);
+        }
+        // The tab's icon gets the web app's dot too; the page's own icon
+        // comes back when nothing waits.
+        let icon = crate::badge::favicon(self.badge).unwrap_or_else(|| "favicon.svg".to_owned());
+        if let Ok(Some(link)) = document.query_selector("link[rel='icon']")
+            && link.get_attribute("href").as_deref() != Some(icon.as_str())
+            && let Err(error) = link.set_attribute("href", &icon)
+        {
+            tracing::warn!(?error, "could not set the tab's icon");
         }
     }
 
