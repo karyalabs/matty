@@ -180,7 +180,12 @@ pub fn run_with_links(links: Vec<String>) {
         let _ = links_tx.try_send(link);
     }
     instance::listen(links_tx.clone());
+    // GPUI Kit compiles its platform re-export out on iOS and Android, so a
+    // mobile build opens GPUI's own platform.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     let app = gpui_kit::platform::application().with_assets(LucideAssetSource);
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    let app = gpui_platform::application().with_assets(LucideAssetSource);
     // macOS calls this for a URL-scheme open, at launch or while running.
     app.on_open_urls(move |urls| {
         for url in urls {
