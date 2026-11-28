@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Spike (mobile exploration): builds Matty for the iOS simulator on a Mac
+# with Xcode, wraps it in an app bundle and, with --run, installs and opens
+# it in the booted simulator.
+#
+#   scripts/ios-sim [--run] [extra cargo arguments]
+#
+# Until a gpuicn release gates `app::run` on iOS, the build takes gpuicn from
+# that change's branch. Metal shaders compile at run time (runtime_shaders).
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+run=false
+if [[ "${1:-}" == "--run" ]]; then
+	run=true
+	shift
+fi
+
+target=aarch64-apple-ios-sim
+gpuicn_branch="${MATTY_GPUICN_BRANCH:-claude/project-thread-eu6857}"
+rustup target add "$target" >/dev/null
+
+IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build -p matty --target "$target" \
+	--features matty-app/runtime_shaders \
+	--config "patch.crates-io.gpuicn.git=\"https://github.com/karyalabs/gpuicn\"" \
+	--config "patch.crates-io.gpuicn.branch=\"$gpuicn_branch\"" \
+	"$@"
+
+app="$root/target/ios-sim/Matty.app"
+rm -rf "$app"
+mkdir -p "$app"
+cp "$root/target/$target/debug/matty" "$app/matty"
+cp "$root/packaging/ios/Info.plist" "$app/Info.plist"
+codesign --force --sign - "$app"
+echo "Built $app"
+
+if $run; then
+	xcrun simctl install booted "$app"
+	xcrun simctl launch --console-pty booted dev.karyalabs.matty.spike
+fi
